@@ -7,10 +7,17 @@ to this domain.
 """
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Literal
+
+from talea.constraints import Constraint
 
 __all__ = [
     "FixedTupleSchema",
+    "ConstrainedSchema",
+    "EnumSchema",
+    "LiteralSchema",
+    "LiteralValue",
     "MappingSchema",
     "PrimitiveKind",
     "PrimitiveSchema",
@@ -18,12 +25,15 @@ __all__ = [
     "SequenceKind",
     "SequenceSchema",
     "SpecReferenceSchema",
+    "TypeCheckMode",
+    "TypeSchema",
     "UnionSchema",
     "VariadicTupleSchema",
 ]
 
 type PrimitiveKind = Literal["int", "float", "str", "bool", "bytes", "none"]
 type SequenceKind = Literal["list", "set", "frozenset"]
+type TypeCheckMode = Literal["exact", "nominal"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +68,62 @@ class SpecReferenceSchema:
             self.spec_type
         ):
             raise TypeError("a Spec reference schema requires a declared Spec class")
+
+
+@dataclass(frozen=True, slots=True)
+class TypeSchema:
+    """Canonical schema for one strict standard-library runtime type.
+
+    ``mode`` records the deliberate exact-versus-nominal contract selected by
+    Talea for the family. The original annotation is the runtime type itself,
+    so retaining it supplies compact validation and future projection truth
+    without keeping a ``typing`` wrapper or registry key.
+    """
+
+    python_type: type[object]
+    mode: TypeCheckMode
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.python_type, type):
+            raise TypeError("a type schema requires a runtime type")
+        if self.mode not in ("exact", "nominal"):
+            raise ValueError("a type schema requires exact or nominal checking")
+
+
+@dataclass(frozen=True, slots=True)
+class LiteralValue:
+    """Retain one Literal value together with its strict runtime type identity."""
+
+    python_type: type[object]
+    value: object
+
+
+@dataclass(frozen=True, slots=True)
+class LiteralSchema:
+    """Canonical type-sensitive alternatives for one ``typing.Literal`` annotation."""
+
+    values: frozenset[LiteralValue]
+
+    def __post_init__(self) -> None:
+        if not self.values:
+            raise ValueError("a literal schema requires at least one value")
+
+
+@dataclass(frozen=True, slots=True)
+class EnumSchema:
+    """Canonical exact-member contract for a declared Enum class.
+
+    Members are retained as Literal-like canonical values for future schema
+    projection; validation binds only ``enum_type`` and never reconstructs
+    members from their primitive values.
+    """
+
+    enum_type: type[Enum]
+    members: tuple[LiteralValue, ...]
+
+    def __post_init__(self) -> None:
+        if not issubclass(self.enum_type, Enum):
+            raise TypeError("an enum schema requires an Enum type")
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,12 +194,35 @@ class UnionSchema:
             raise ValueError("a union schema requires at least two options")
 
 
+@dataclass(frozen=True, slots=True)
+class ConstrainedSchema:
+    """Canonical normalized constraints applied to one structural schema.
+
+    The wrapper owns only validation-relevant Talea metadata. Unknown
+    ``Annotated`` metadata is deliberately ignored rather than retained on hot
+    schema objects, and is never executed.
+    """
+
+    schema: "Schema"
+    constraints: tuple[Constraint, ...]
+
+    def __post_init__(self) -> None:
+        if isinstance(self.schema, ConstrainedSchema):
+            raise ValueError("constrained schemas must be flattened")
+        if not self.constraints:
+            raise ValueError("a constrained schema requires at least one constraint")
+
+
 type Schema = (
     PrimitiveSchema
     | SpecReferenceSchema
+    | TypeSchema
+    | LiteralSchema
+    | EnumSchema
     | SequenceSchema
     | MappingSchema
     | VariadicTupleSchema
     | FixedTupleSchema
     | UnionSchema
+    | ConstrainedSchema
 )

@@ -1,6 +1,10 @@
 """Negative static-typing probes for Talea Spec declarations."""
 
-from talea import Spec, field
+from enum import StrEnum
+from typing import Annotated, Literal
+from uuid import UUID
+
+from talea import Ge, Spec, field
 
 
 class User(Spec):
@@ -61,3 +65,22 @@ employee.employee_id = 2  # ty: ignore[invalid-assignment]
 
 base_only: Employee = Person(name="Ada")  # ty: ignore[invalid-assignment]
 sibling: Person = Address(city="Zurich")  # ty: ignore[invalid-assignment]
+
+
+class Status(StrEnum):
+    ACTIVE = "active"
+
+
+class StrictPayload(Spec):
+    identifier: UUID
+    status: Status
+    operation: Literal["create", "delete"]
+    score: Annotated[int, Ge(0)]
+
+
+StrictPayload(
+    identifier="00000000-0000-0000-0000-000000000000",  # ty: ignore[invalid-argument-type]
+    status="active",  # ty: ignore[invalid-argument-type]
+    operation="update",  # ty: ignore[invalid-argument-type]
+    score="1",  # ty: ignore[invalid-argument-type]
+)

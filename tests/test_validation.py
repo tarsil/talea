@@ -5,9 +5,8 @@ from typing import cast
 import pytest
 
 import talea
-import talea.annotations
+import talea.schema.resolution as annotation_resolution
 from talea import Spec
-from talea.annotations import resolve_annotation
 from talea.schema import (
     FixedTupleSchema,
     MappingSchema,
@@ -18,8 +17,10 @@ from talea.schema import (
     SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
+    resolve_annotation,
 )
-from talea.validation import ValidationError, _identity_index, compile_validator
+from talea.validation import ValidationError, compile_validator
+from talea.validation.emission import _identity_index
 
 
 @pytest.mark.parametrize(
@@ -324,8 +325,8 @@ def test_runtime_validation_does_not_use_annotation_reflection(monkeypatch: pyte
     def fail_reflection(annotation: object) -> object:
         raise AssertionError(f"runtime reflected {annotation!r}")
 
-    monkeypatch.setattr(talea.annotations, "get_origin", fail_reflection)
-    monkeypatch.setattr(talea.annotations, "get_args", fail_reflection)
+    monkeypatch.setattr(annotation_resolution, "get_origin", fail_reflection)
+    monkeypatch.setattr(annotation_resolution, "get_args", fail_reflection)
 
     assert primitive(1) == 1
     assert nested([{"one": 1, "none": None}]) == [{"one": 1, "none": None}]

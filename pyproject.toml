@@ -67,6 +67,7 @@ testing = [
     "isort>=5.12.0,<6.0.0",
     "pytest>=7.2.2,<9.0.0",
     "pytest-cov>=4.0.0,<5.0.0",
+    "hypothesis>=6.0,<7.0",
     "zensical>=0.0.23,<0.1.0",
 ]
 benchmarking = [
@@ -101,6 +102,9 @@ dev = "scripts/docs.py serve"
 [tool.hatch.envs.test]
 features = ["testing", "benchmarking"]
 
+[tool.hatch.envs.hatch-test]
+extra-dependencies = ["hypothesis>=6.0,<7.0"]
+
 [tool.hatch.envs.test.scripts]
 test = "hatch test -- {args}"
 test_man = "hatch test -- {args} -s -vv"
@@ -110,6 +114,7 @@ benchmark_schema = "python benchmarks/schema_resolution.py"
 benchmark_spec = "python benchmarks/spec_construction.py"
 benchmark_composition = "python benchmarks/spec_composition.py"
 benchmark_validator = "python benchmarks/validator_compilation.py"
+benchmark_types = "python benchmarks/type_constraints.py"
 
 [tool.isort]
 profile = "black"

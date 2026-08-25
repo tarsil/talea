@@ -1,8 +1,12 @@
 """Positive static-typing contract for Talea Spec declarations."""
 
-from typing import assert_type
+from datetime import date
+from decimal import Decimal
+from enum import StrEnum
+from typing import Annotated, Literal, assert_type
+from uuid import UUID
 
-from talea import Spec, field
+from talea import Ge, MaxLength, MinLength, Spec, field
 
 
 class User(Spec):
@@ -65,3 +69,35 @@ assert_type(department.manager, Employee)
 assert_type(department.members, list[Person])
 assert_type(department.deputy, Employee | None)
 assert_type(NarrowIdentity(value="staff", person=employee).value, str)
+
+
+class Status(StrEnum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+
+class ProductionPayload(Spec):
+    identifier: UUID
+    day: date
+    status: Status
+    operation: Literal["create", "delete"]
+    score: Annotated[int, Ge(0)]
+    tags: Annotated[list[str], MinLength(1), MaxLength(5)]
+    amount: Decimal
+
+
+production = ProductionPayload(
+    identifier=UUID(int=0),
+    day=date.min,
+    status=Status.ACTIVE,
+    operation="create",
+    score=1,
+    tags=["typed"],
+    amount=Decimal("1.0"),
+)
+
+assert_type(production.identifier, UUID)
+assert_type(production.status, Status)
+assert_type(production.operation, Literal["create", "delete"])
+assert_type(production.score, int)
+assert_type(production.tags, list[str])

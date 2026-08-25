@@ -19,8 +19,7 @@ from timeit import Timer
 import msgspec
 from pydantic import TypeAdapter, ValidationError as PydanticValidationError
 
-from talea.annotations import resolve_annotation
-from talea.schema import Schema
+from talea.schema import Schema, resolve_annotation
 from talea.validation import ValidationError, compile_validator
 
 _REPEATS = 7

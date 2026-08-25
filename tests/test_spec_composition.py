@@ -3,9 +3,9 @@ import inspect
 
 import pytest
 
-import talea.annotations
-import talea.spec as spec_module
-import talea.validation as validation_module
+import talea.schema.resolution as annotation_resolution
+import talea.spec.lifecycle as spec_module
+import talea.validation.emission as validation_emission
 from talea import Spec, field
 from talea.schema import PrimitiveSchema
 from talea.validation import ValidationError
@@ -175,9 +175,9 @@ def test_mutable_nested_revalidation_uses_only_precompiled_canonical_operations(
     monkeypatch.setattr(spec_module, "compile_validator", forbidden)
     monkeypatch.setattr(spec_module._ConstructorCompiler, "compile", forbidden)
     monkeypatch.setattr(spec_module, "get_type_hints", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_origin", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_args", forbidden)
-    monkeypatch.setattr(validation_module._ValidationEmitter, "emit_schema", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_origin", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_args", forbidden)
+    monkeypatch.setattr(validation_emission._ValidationEmitter, "emit_schema", forbidden)
     monkeypatch.setattr(builtins, "compile", forbidden)
     monkeypatch.setattr(builtins, "exec", forbidden)
 
@@ -187,7 +187,7 @@ def test_mutable_nested_revalidation_uses_only_precompiled_canonical_operations(
     assert order.basket is basket
     assert initializer.__closure__ is None
     assert not any(
-        getattr(type(value), "__module__", "") == "talea.schema" for value in initializer.__globals__.values()
+        getattr(type(value), "__module__", "").startswith("talea.schema") for value in initializer.__globals__.values()
     )
 
 

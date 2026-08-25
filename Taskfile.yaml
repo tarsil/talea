@@ -113,3 +113,8 @@ tasks:
     desc: Benchmarks validator compilation and execution
     cmds:
       - hatch run test:benchmark_validator
+
+  benchmark_types:
+    desc: Benchmarks strict standard types, Literal, and constraints
+    cmds:
+      - hatch run test:benchmark_types

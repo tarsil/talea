@@ -10,12 +10,18 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 import talea
-import talea.annotations
-import talea.spec as spec_module
+import talea.schema.resolution as annotation_resolution
+import talea.spec.fields as field_module
+import talea.spec.lifecycle as spec_module
 from talea import Spec, field
-from talea._declaration import MISSING_DEFAULT, SpecSchema
-from talea.annotations import AnnotationResolutionError
-from talea.schema import MappingSchema, PrimitiveSchema, SequenceSchema, UnionSchema
+from talea.declaration import MISSING_DEFAULT, SpecSchema
+from talea.schema import (
+    AnnotationResolutionError,
+    MappingSchema,
+    PrimitiveSchema,
+    SequenceSchema,
+    UnionSchema,
+)
 from talea.validation import ValidationError
 
 
@@ -29,8 +35,19 @@ class Payload(Spec):
     metadata: dict[str, int | None]
 
 
-def test_root_package_exports_only_the_spec_declaration_api() -> None:
-    assert talea.__all__ == ["Spec", "field"]
+def test_root_package_exports_only_the_deliberate_public_api() -> None:
+    assert talea.__all__ == [
+        "Ge",
+        "Gt",
+        "Le",
+        "Lt",
+        "MaxLength",
+        "MinLength",
+        "MultipleOf",
+        "Pattern",
+        "Spec",
+        "field",
+    ]
     assert talea.Spec is Spec
     assert talea.field is field
     assert not hasattr(talea, "SpecSchema")
@@ -145,7 +162,7 @@ def test_required_only_constructor_retains_no_default_runtime_artifacts() -> Non
         if getattr(value, "__name__", None) == "__set__" and hasattr(value, "__self__")
     }
 
-    assert not any(isinstance(value, spec_module._FactorySentinel) for value in globals_.values())
+    assert not any(isinstance(value, field_module._FactorySentinel) for value in globals_.values())
     assert not any(isinstance(value, spec_module._FactoryDeclaration) for value in globals_.values())
     assert object.__setattr__ not in globals_.values()
     assert not any(validator in globals_.values() for validator in validators)
@@ -516,8 +533,8 @@ def test_repeated_construction_uses_no_reflection_or_compilation(monkeypatch: py
     monkeypatch.setattr(spec_module, "compile_validator", forbidden)
     monkeypatch.setattr(spec_module._ConstructorCompiler, "compile", forbidden)
     monkeypatch.setattr(spec_module, "get_type_hints", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_origin", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_args", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_origin", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_args", forbidden)
     monkeypatch.setattr(builtins, "compile", forbidden)
     monkeypatch.setattr(builtins, "exec", forbidden)
 
@@ -550,8 +567,8 @@ def test_defaults_use_only_retained_declaration_artifacts(monkeypatch: pytest.Mo
     monkeypatch.setattr(spec_module, "compile_validator", forbidden)
     monkeypatch.setattr(spec_module._ConstructorCompiler, "compile", forbidden)
     monkeypatch.setattr(spec_module, "get_type_hints", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_origin", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_args", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_origin", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_args", forbidden)
     monkeypatch.setattr(builtins, "compile", forbidden)
     monkeypatch.setattr(builtins, "exec", forbidden)
 
