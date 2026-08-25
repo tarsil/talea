@@ -175,7 +175,7 @@ def test_spec_equality_and_hashing_use_object_identity() -> None:
     assert User.__hash__ is object.__hash__
 
 
-def test_custom_construction_slots_and_inheritance_are_rejected() -> None:
+def test_custom_construction_and_slots_are_rejected() -> None:
     with pytest.raises(TypeError, match="Spec manages construction"):
 
         class CustomInit(Spec):
@@ -188,19 +188,6 @@ def test_custom_construction_slots_and_inheritance_are_rejected() -> None:
 
         class CustomSlots(Spec):
             __slots__ = ()
-
-    with pytest.raises(TypeError, match="Spec inheritance is not supported"):
-
-        class Admin(User):
-            active: bool
-
-    class Mixin:
-        pass
-
-    with pytest.raises(TypeError, match="Spec inheritance is not supported"):
-
-        class Mixed(Spec, Mixin):
-            value: int
 
 
 def test_static_default_is_retained_canonically_and_used_when_omitted() -> None:
@@ -737,6 +724,8 @@ def test_declaration_name_is_not_executable_generated_source() -> None:
 
 
 def test_malformed_annotation_protocols_are_rejected() -> None:
+    with pytest.raises(TypeError, match="requires at least one Spec base"):
+        spec_module._SpecMeta("Detached", (object,), {})
     with pytest.raises(TypeError, match="requires an annotations mapping"):
         type("InvalidAnnotations", (Spec,), {"__annotations__": 1})
     with pytest.raises(TypeError, match="requires a callable annotation function"):

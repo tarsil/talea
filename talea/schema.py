@@ -17,6 +17,7 @@ __all__ = [
     "Schema",
     "SequenceKind",
     "SequenceSchema",
+    "SpecReferenceSchema",
     "UnionSchema",
     "VariadicTupleSchema",
 ]
@@ -35,6 +36,28 @@ class PrimitiveSchema:
     """
 
     kind: PrimitiveKind
+
+
+@dataclass(frozen=True, slots=True)
+class SpecReferenceSchema:
+    """Canonical schema for a nominal reference to one Talea Spec class.
+
+    ``spec_type`` is the runtime class identity required for Python subclass
+    checks.  Its retained ``SpecSchema`` remains the sole owner of the target
+    declaration; this node neither copies fields nor retains the annotation
+    that named the class.
+
+    Raises:
+        TypeError: If ``spec_type`` is not a completed Talea Spec declaration.
+    """
+
+    spec_type: type[object]
+
+    def __post_init__(self) -> None:
+        if getattr(self.spec_type, "__talea_spec__", False) is not True or "__talea_artifacts__" not in vars(
+            self.spec_type
+        ):
+            raise TypeError("a Spec reference schema requires a declared Spec class")
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,4 +128,12 @@ class UnionSchema:
             raise ValueError("a union schema requires at least two options")
 
 
-type Schema = PrimitiveSchema | SequenceSchema | MappingSchema | VariadicTupleSchema | FixedTupleSchema | UnionSchema
+type Schema = (
+    PrimitiveSchema
+    | SpecReferenceSchema
+    | SequenceSchema
+    | MappingSchema
+    | VariadicTupleSchema
+    | FixedTupleSchema
+    | UnionSchema
+)

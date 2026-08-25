@@ -4,6 +4,7 @@ from typing import cast
 
 import pytest
 
+from talea import Spec
 from talea._declaration import MISSING_DEFAULT, SpecField, SpecSchema
 from talea.schema import (
     FixedTupleSchema,
@@ -11,6 +12,7 @@ from talea.schema import (
     PrimitiveSchema,
     Schema,
     SequenceSchema,
+    SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -113,3 +115,73 @@ def test_spec_schema_permanently_trusts_transitively_immutable_values() -> None:
 def test_spec_schema_rejects_values_outside_the_canonical_schema_union() -> None:
     with pytest.raises(AssertionError):
         SpecSchema((SpecField("value", cast(Schema, object())),))
+
+
+def test_spec_schema_composes_inherited_fields_and_local_overrides_in_place() -> None:
+    inherited = SpecSchema(
+        (
+            SpecField(
+                "identifier",
+                UnionSchema(frozenset({PrimitiveSchema("int"), PrimitiveSchema("str")})),
+            ),
+            SpecField("active", PrimitiveSchema("bool"), default=True),
+        )
+    )
+    override = SpecField("identifier", PrimitiveSchema("str"))
+    added = SpecField("name", PrimitiveSchema("str"))
+
+    composed = SpecSchema.compose((inherited,), (override, added))
+
+    assert composed.fields == (override, inherited.fields[1], added)
+
+
+def test_spec_reference_trust_propagates_from_the_canonical_target_declaration() -> None:
+    class Stable(Spec):
+        value: int
+
+    class Mutable(Spec):
+        values: list[int]
+
+    stable = SpecSchema((SpecField("nested", SpecReferenceSchema(Stable)),))
+    mutable = SpecSchema((SpecField("nested", SpecReferenceSchema(Mutable)),))
+
+    assert stable.instances_are_permanently_trusted
+    assert not mutable.instances_are_permanently_trusted
+
+
+def test_spec_schema_accepts_covariant_immutable_field_overrides() -> None:
+    class Person(Spec):
+        name: str
+
+    class Employee(Person):
+        identifier: int
+
+    person = SpecReferenceSchema(Person)
+    employee = SpecReferenceSchema(Employee)
+    cases = (
+        (employee, person),
+        (SequenceSchema("frozenset", employee), SequenceSchema("frozenset", person)),
+        (VariadicTupleSchema(employee), VariadicTupleSchema(person)),
+        (FixedTupleSchema((employee, PrimitiveSchema("str"))), FixedTupleSchema((person, PrimitiveSchema("str")))),
+        (
+            UnionSchema(frozenset({PrimitiveSchema("str"), PrimitiveSchema("none")})),
+            UnionSchema(
+                frozenset(
+                    {
+                        PrimitiveSchema("int"),
+                        PrimitiveSchema("str"),
+                        PrimitiveSchema("none"),
+                    }
+                )
+            ),
+        ),
+    )
+
+    for candidate, inherited in cases:
+        override = SpecField("value", candidate)
+        composed = SpecSchema.compose(
+            (SpecSchema((SpecField("value", inherited),)),),
+            (override,),
+        )
+
+        assert composed.fields == (override,)

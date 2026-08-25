@@ -3,11 +3,13 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
+from talea import Spec
 from talea.schema import (
     FixedTupleSchema,
     MappingSchema,
     PrimitiveSchema,
     SequenceSchema,
+    SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -37,6 +39,7 @@ from talea.schema import (
             "options",
             frozenset({PrimitiveSchema("bool"), PrimitiveSchema("bytes")}),
         ),
+        (SpecReferenceSchema(Spec), "spec_type", int),
     ],
 )
 def test_structural_schema_nodes_are_immutable(schema: object, attribute: str, replacement: object) -> None:
@@ -79,3 +82,8 @@ def test_structural_nodes_do_not_have_per_instance_dictionaries() -> None:
     schema = SequenceSchema("list", PrimitiveSchema("int"))
 
     assert not hasattr(schema, "__dict__")
+
+
+def test_spec_reference_schema_requires_a_declared_spec_class() -> None:
+    with pytest.raises(TypeError, match="requires a declared Spec class"):
+        SpecReferenceSchema(object)

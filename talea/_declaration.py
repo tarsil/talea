@@ -8,7 +8,7 @@ instance state.
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Final, assert_never
+from typing import Final, assert_never, cast
 
 from talea.schema import (
     FixedTupleSchema,
@@ -16,6 +16,7 @@ from talea.schema import (
     PrimitiveSchema,
     Schema,
     SequenceSchema,
+    SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -102,12 +103,47 @@ class SpecSchema:
             all(_schema_values_are_immutable(field.schema) for field in self.fields),
         )
 
+    @classmethod
+    def compose(
+        cls,
+        inherited: tuple["SpecSchema", ...],
+        declared: tuple[SpecField, ...],
+    ) -> "SpecSchema":
+        """Create one effective declaration from bases and local contributions.
+
+        Base schemas are consumed in declared-base order.  The first occurrence
+        of an inherited name owns its MRO-selected semantics.  A local override
+        replaces that field at its established position; a new local field is
+        appended in class-body order.
+
+        Raises:
+            TypeError: If an override widens or otherwise conflicts with the
+                immutable inherited field type.
+        """
+
+        fields: dict[str, SpecField] = {}
+        for schema in inherited:
+            for inherited_field in schema.fields:
+                fields.setdefault(inherited_field.name, inherited_field)
+        for declared_field in declared:
+            inherited_field = fields.get(declared_field.name)
+            if inherited_field is not None and not _schema_is_covariant_override(
+                declared_field.schema, inherited_field.schema
+            ):
+                raise TypeError(f"Spec field {declared_field.name!r} override is not type-compatible")
+            fields[declared_field.name] = declared_field
+        return cls(tuple(fields.values()))
+
 
 def _schema_values_are_immutable(schema: Schema) -> bool:
     """Project whether valid values can change without field reassignment."""
 
     if isinstance(schema, PrimitiveSchema):
         return True
+    if isinstance(schema, SpecReferenceSchema):
+        artifacts = vars(schema.spec_type)["__talea_artifacts__"]
+        declaration = cast(SpecSchema, artifacts.schema)
+        return declaration.instances_are_permanently_trusted
     if isinstance(schema, SequenceSchema):
         return schema.kind == "frozenset" and _schema_values_are_immutable(schema.item)
     if isinstance(schema, MappingSchema):
@@ -119,3 +155,30 @@ def _schema_values_are_immutable(schema: Schema) -> bool:
     if isinstance(schema, UnionSchema):
         return all(_schema_values_are_immutable(option) for option in schema.options)
     assert_never(schema)
+
+
+def _schema_is_covariant_override(candidate: Schema, inherited: Schema) -> bool:
+    """Return whether an immutable field may safely narrow its inherited type."""
+
+    if candidate == inherited:
+        return True
+    if isinstance(inherited, UnionSchema):
+        candidates = candidate.options if isinstance(candidate, UnionSchema) else frozenset({candidate})
+        return all(
+            any(_schema_is_covariant_override(option, inherited_option) for inherited_option in inherited.options)
+            for option in candidates
+        )
+    if isinstance(candidate, SpecReferenceSchema) and isinstance(inherited, SpecReferenceSchema):
+        return issubclass(candidate.spec_type, inherited.spec_type)
+    if isinstance(candidate, SequenceSchema) and isinstance(inherited, SequenceSchema):
+        return candidate.kind == inherited.kind == "frozenset" and _schema_is_covariant_override(
+            candidate.item, inherited.item
+        )
+    if isinstance(candidate, VariadicTupleSchema) and isinstance(inherited, VariadicTupleSchema):
+        return _schema_is_covariant_override(candidate.item, inherited.item)
+    if isinstance(candidate, FixedTupleSchema) and isinstance(inherited, FixedTupleSchema):
+        return len(candidate.items) == len(inherited.items) and all(
+            _schema_is_covariant_override(candidate_item, inherited_item)
+            for candidate_item, inherited_item in zip(candidate.items, inherited.items, strict=True)
+        )
+    return False

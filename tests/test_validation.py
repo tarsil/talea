@@ -6,6 +6,7 @@ import pytest
 
 import talea
 import talea.annotations
+from talea import Spec
 from talea.annotations import resolve_annotation
 from talea.schema import (
     FixedTupleSchema,
@@ -14,6 +15,7 @@ from talea.schema import (
     Schema,
     SequenceKind,
     SequenceSchema,
+    SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -363,3 +365,47 @@ def test_compiler_rejects_values_outside_the_schema_union() -> None:
 def test_failure_location_lookup_rejects_a_missing_member() -> None:
     with pytest.raises(RuntimeError, match="validated sequence changed during validation"):
         _identity_index([], object())
+
+
+def test_spec_reference_validation_is_nominal_and_preserves_identity() -> None:
+    class Person(Spec):
+        name: str
+
+    class Employee(Person):
+        identifier: int
+
+    class Address(Spec):
+        city: str
+
+    employee = Employee(name="Ada", identifier=1)
+    validator = compile_validator(SpecReferenceSchema(Person))
+
+    assert validator(employee) is employee
+    with pytest.raises(ValidationError) as sibling:
+        validator(Address(city="Zurich"))
+    with pytest.raises(ValidationError) as wrong_direction:
+        compile_validator(SpecReferenceSchema(Employee))(Person(name="Ada"))
+
+    assert sibling.value.expected.endswith("Person")
+    assert sibling.value.location == ()
+    assert wrong_direction.value.expected.endswith("Employee")
+
+
+def test_spec_references_compose_with_containers_and_unions() -> None:
+    class User(Spec):
+        identifier: int
+
+    class Address(Spec):
+        city: str
+
+    user = User(identifier=1)
+    address = Address(city="Zurich")
+    members = [user, address]
+
+    with pytest.raises(ValidationError) as raised:
+        compile_validator(resolve_annotation(list[User]))(members)
+
+    assert raised.value.location == (1,)
+    assert raised.value.expected.endswith("User")
+    assert compile_validator(resolve_annotation(User | None))(None) is None
+    assert compile_validator(resolve_annotation(User | Address))(address) is address

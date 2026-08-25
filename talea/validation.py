@@ -16,6 +16,7 @@ from talea.schema import (
     PrimitiveSchema,
     Schema,
     SequenceSchema,
+    SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -119,6 +120,9 @@ class _ValidationEmitter:
         if isinstance(schema, PrimitiveSchema):
             self.emit_primitive(schema, value, location, indentation)
             return
+        if isinstance(schema, SpecReferenceSchema):
+            self.emit_spec_reference(schema, value, location, indentation)
+            return
         if isinstance(schema, SequenceSchema):
             self.emit_sequence(schema, value, location, indentation)
             return
@@ -135,6 +139,20 @@ class _ValidationEmitter:
             self.emit_union(schema, value, location, indentation)
             return
         assert_never(schema)
+
+    def emit_spec_reference(
+        self,
+        schema: SpecReferenceSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Emit one nominal Spec compatibility check without walking its fields."""
+
+        instance_check = self.runtime("isinstance", isinstance)
+        expected_type = self.bind("spec_type", schema.spec_type)
+        self.emit(indentation, f"if not {instance_check}({value}, {expected_type}):")
+        self.emit_failure(schema, value, location, indentation + 1)
 
     def emit_primitive(
         self,
@@ -311,6 +329,10 @@ class _ValidationEmitter:
             type_name = self.runtime("type", type)
             expected_type = self.runtime(schema.kind, self._primitive_types[schema.kind])
             return f"{type_name}({value}) is {expected_type}"
+        if isinstance(schema, SpecReferenceSchema):
+            instance_check = self.runtime("isinstance", isinstance)
+            expected_type = self.bind("spec_type", schema.spec_type)
+            return f"{instance_check}({value}, {expected_type})"
         if isinstance(schema, SequenceSchema):
             type_name = self.runtime("type", type)
             sequence_type = self.runtime(schema.kind, self._sequence_types[schema.kind])
@@ -334,6 +356,8 @@ class _ValidationEmitter:
 
         if isinstance(schema, PrimitiveSchema):
             return "None" if schema.kind == "none" else schema.kind
+        if isinstance(schema, SpecReferenceSchema):
+            return schema.spec_type.__qualname__
         if isinstance(schema, SequenceSchema):
             return f"{schema.kind}[{self.describe(schema.item)}]"
         if isinstance(schema, MappingSchema):
@@ -352,6 +376,8 @@ class _ValidationEmitter:
 
         if isinstance(schema, PrimitiveSchema):
             return self._primitive_order[schema.kind], schema.kind
+        if isinstance(schema, SpecReferenceSchema):
+            return 6, f"{schema.spec_type.__module__}.{schema.spec_type.__qualname__}"
         return 10, self.describe(schema)
 
     def variable(self, purpose: str) -> str:

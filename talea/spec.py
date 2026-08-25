@@ -185,25 +185,27 @@ class _SpecMeta(type):
     ) -> "_SpecMeta":
         if not bases:
             namespace["__slots__"] = ()
-            namespace["__talea_root__"] = True
+            namespace["__talea_spec__"] = True
             cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
             type.__setattr__(cls, "__talea_artifacts__", _SpecArtifacts(SpecSchema(()), ()))
             return cls
 
-        if len(bases) != 1 or not getattr(bases[0], "__talea_root__", False):
-            raise TypeError("Spec inheritance is not supported")
-
+        spec_bases = tuple(base for base in bases if isinstance(base, _SpecMeta))
+        if not spec_bases:
+            raise TypeError("a Spec declaration requires at least one Spec base")
+        metaclass._validate_bases(bases, spec_bases)
         annotations = metaclass._inspect_annotations(namespace)
         field_names = tuple(annotations)
-        metaclass._validate_declaration(namespace, bases[0], field_names)
+        inherited_schemas = tuple(cast(_SpecArtifacts, vars(base)["__talea_artifacts__"]).schema for base in spec_bases)
+        inherited_names = frozenset(field.name for schema in inherited_schemas for field in schema.fields)
+        metaclass._validate_declaration(namespace, bases, field_names, inherited_names)
 
         declarations: dict[str, object] = {}
         for field_name in field_names:
             if field_name in namespace:
                 declarations[field_name] = namespace.pop(field_name)
 
-        namespace["__slots__"] = field_names
-        namespace["__talea_root__"] = False
+        namespace["__slots__"] = tuple(name for name in field_names if name not in inherited_names)
         cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
 
         resolved_annotations = (
@@ -211,27 +213,24 @@ class _SpecMeta(type):
             if any(isinstance(annotation, str) for annotation in annotations.values())
             else annotations
         )
-        if declarations:
-            fields = []
-            for field_name in field_names:
-                declaration = declarations.get(field_name, MISSING_DEFAULT)
-                resolved = resolve_annotation(resolved_annotations[field_name])
-                if isinstance(declaration, _FactoryDeclaration):
-                    fields.append(SpecField(field_name, resolved, default_factory=declaration.default_factory))
-                else:
-                    fields.append(SpecField(field_name, resolved, default=declaration))
-            schema = SpecSchema(tuple(fields))
-        else:
-            schema = SpecSchema(
-                tuple(
-                    SpecField(field_name, resolve_annotation(resolved_annotations[field_name]))
-                    for field_name in field_names
-                )
-            )
+        fields = []
+        for field_name in field_names:
+            declaration = declarations.get(field_name, MISSING_DEFAULT)
+            resolved = resolve_annotation(resolved_annotations[field_name])
+            if isinstance(declaration, _FactoryDeclaration):
+                fields.append(SpecField(field_name, resolved, default_factory=declaration.default_factory))
+            else:
+                fields.append(SpecField(field_name, resolved, default=declaration))
+        declared_fields = tuple(fields)
+        schema = SpecSchema.compose(inherited_schemas, declared_fields)
         validators = tuple(compile_validator(field.schema) for field in schema.fields)
         if declarations:
-            metaclass._validate_static_defaults(schema, validators)
-        slot_setters = tuple(cast(MemberDescriptorType, vars(cls)[field.name]).__set__ for field in schema.fields)
+            validators_by_name = dict(zip((field.name for field in schema.fields), validators, strict=True))
+            metaclass._validate_static_defaults(
+                declared_fields,
+                tuple(validators_by_name[field.name] for field in declared_fields),
+            )
+        slot_setters = metaclass._slot_setters(cls, schema)
         initializer = _ConstructorCompiler().compile(schema, slot_setters)
         initializer.__module__ = cls.__module__
         initializer.__qualname__ = f"{cls.__qualname__}.__init__"
@@ -239,6 +238,32 @@ class _SpecMeta(type):
         type.__setattr__(cls, "__init__", initializer)
         type.__setattr__(cls, "__talea_artifacts__", _SpecArtifacts(schema, validators))
         return cls
+
+    @staticmethod
+    def _validate_bases(bases: tuple[type, ...], spec_bases: tuple[type, ...]) -> None:
+        """Enforce the broadest compact layout supported by CPython slots."""
+
+        for base in bases:
+            if base in spec_bases:
+                continue
+            if base.__basicsize__ != object.__basicsize__ or base.__dictoffset__ != 0 or base.__weakrefoffset__ != 0:
+                raise TypeError("Spec mixins must define empty slots and carry no instance state")
+
+        storage_owners: set[type] = set()
+        for base in spec_bases:
+            schema = cast(_SpecArtifacts, vars(base)["__talea_artifacts__"]).schema
+            for field in schema.fields:
+                for owner in base.__mro__:
+                    if isinstance(vars(owner).get(field.name), MemberDescriptorType):
+                        storage_owners.add(owner)
+                        break
+        maximal_owners = {
+            owner
+            for owner in storage_owners
+            if not any(owner is not other and issubclass(other, owner) for other in storage_owners)
+        }
+        if len(maximal_owners) > 1:
+            raise TypeError("Spec multiple inheritance requires one state-bearing slot lineage")
 
     @staticmethod
     def _inspect_annotations(namespace: dict[str, object]) -> Mapping[str, object]:
@@ -263,8 +288,9 @@ class _SpecMeta(type):
     @staticmethod
     def _validate_declaration(
         namespace: dict[str, object],
-        base: type,
+        bases: tuple[type, ...],
         field_names: tuple[object, ...],
+        inherited_names: frozenset[str],
     ) -> None:
         """Reject declaration forms whose lifecycle is outside this campaign."""
 
@@ -272,6 +298,10 @@ class _SpecMeta(type):
             raise TypeError("Spec manages instance slots from declared fields")
         if "__init__" in namespace:
             raise TypeError("Spec manages construction from declared fields")
+        if "__setattr__" in namespace or "__delattr__" in namespace:
+            raise TypeError("Spec manages immutable field bindings")
+        if "__talea_artifacts__" in namespace or "__talea_spec__" in namespace:
+            raise TypeError("Spec manages internal declaration state")
         for field_name in field_names:
             if (
                 not isinstance(field_name, str)
@@ -281,8 +311,11 @@ class _SpecMeta(type):
                 or (field_name.startswith("__") and not field_name.endswith("__"))
             ):
                 raise TypeError(f"invalid Spec field name: {field_name!r}")
-            if hasattr(base, field_name):
+            if field_name not in inherited_names and any(hasattr(base, field_name) for base in bases):
                 raise TypeError(f"Spec field conflicts with an inherited attribute: {field_name!r}")
+        for inherited_name in inherited_names:
+            if inherited_name in namespace and inherited_name not in field_names:
+                raise TypeError(f"inherited Spec field cannot be replaced by a non-field attribute: {inherited_name!r}")
         undeclared_factories = tuple(
             name
             for name, value in namespace.items()
@@ -292,10 +325,10 @@ class _SpecMeta(type):
             raise TypeError(f"field() requires an annotation: {undeclared_factories[0]!r}")
 
     @staticmethod
-    def _validate_static_defaults(schema: SpecSchema, validators: tuple[Validator, ...]) -> None:
+    def _validate_static_defaults(fields: tuple[SpecField, ...], validators: tuple[Validator, ...]) -> None:
         """Reject invalid or transitively mutable static defaults at declaration time."""
 
-        for field, validator in zip(schema.fields, validators, strict=True):
+        for field, validator in zip(fields, validators, strict=True):
             if not field.has_static_default:
                 continue
             try:
@@ -307,6 +340,24 @@ class _SpecMeta(type):
                     f"mutable static default for field {field.name!r} is not supported; use field(default_factory=...)"
                 )
 
+    @staticmethod
+    def _slot_setters(
+        cls: type,
+        schema: SpecSchema,
+    ) -> tuple[Callable[[object, object], None], ...]:
+        """Bind the one MRO-visible slot descriptor for every effective field."""
+
+        setters = []
+        for field in schema.fields:
+            descriptor = next(
+                (vars(owner)[field.name] for owner in cls.__mro__ if field.name in vars(owner)),
+                None,
+            )
+            if not isinstance(descriptor, MemberDescriptorType):
+                raise TypeError(f"Spec field conflicts with an inherited attribute: {field.name!r}")
+            setters.append(descriptor.__set__)
+        return tuple(setters)
+
 
 def _contains_mutable_value(value: object) -> bool:
     """Return whether a validated default contains a supported mutable container."""
@@ -317,6 +368,10 @@ def _contains_mutable_value(value: object) -> bool:
         return any(_contains_mutable_value(item) for item in value)
     if type(value) is frozenset:
         return any(_contains_mutable_value(item) for item in value)
+    artifacts = getattr(type(value), "__talea_artifacts__", None)
+    if artifacts is not None:
+        schema = cast(SpecSchema, artifacts.schema)
+        return not schema.instances_are_permanently_trusted
     return False
 
 
@@ -345,8 +400,10 @@ class Spec(metaclass=_SpecMeta):
     containing only transitively immutable schemas are permanently trusted;
     declarations containing list, set, or dictionary values remain validated
     but are not eligible for Talea's no-revalidation trust path.  Equality and
-    hashing keep ordinary Python identity semantics.  Positional construction
-    and Spec inheritance are intentionally unsupported in this lifecycle.
+    hashing keep ordinary Python identity semantics.  Subclasses inherit and
+    may override fields while compiling one flat effective constructor.
+    Multiple inheritance is supported when CPython can preserve one
+    state-bearing slot lineage; additional mixins must use empty slots.
     """
 
     def __setattr__(self, name: str, value: object) -> None:
