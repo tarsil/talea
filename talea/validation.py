@@ -1,15 +1,16 @@
 """Emit strict validation operations from canonical Talea schemas.
 
-Compilation is the only point where this module traverses ``Schema`` values.
-One internal emitter supplies both standalone validators and specialized Spec
-constructors.  Generated functions retain neither the source schema nor the
-annotation that produced it, and successful validation creates no error
-metadata.
+Compilation is the only point where this module traverses ``Schema`` values or
+the fields of a referenced ``SpecSchema``.  One internal emitter supplies both
+standalone validators and specialized Spec constructors.  Generated functions
+retain neither the source schema nor the annotation that produced it, and
+successful validation creates no error metadata.
 """
 
 from collections.abc import Callable, Iterable
 from typing import assert_never, cast
 
+from talea._declaration import SpecSchema
 from talea.schema import (
     FixedTupleSchema,
     MappingSchema,
@@ -153,6 +154,18 @@ class _ValidationEmitter:
         expected_type = self.bind("spec_type", schema.spec_type)
         self.emit(indentation, f"if not {instance_check}({value}, {expected_type}):")
         self.emit_failure(schema, value, location, indentation + 1)
+        artifacts = vars(schema.spec_type)["__talea_artifacts__"]
+        declaration = cast(SpecSchema, artifacts.schema)
+        if declaration.instances_are_permanently_trusted:
+            return
+        field_names = self.bind("spec_field_names", tuple(field.name for field in declaration.fields))
+        for index, field in enumerate(declaration.fields):
+            self.emit_schema(
+                field.schema,
+                f"{value}.{field.name}",
+                (*location, f"{field_names}[{index}]"),
+                indentation,
+            )
 
     def emit_primitive(
         self,

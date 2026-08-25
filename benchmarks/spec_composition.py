@@ -11,10 +11,12 @@ from timeit import Timer
 from typing import cast
 
 from talea import Spec
+from talea.validation import ValidationError
 
 _REPEATS = 7
 _DECLARATION_ITERATIONS = 1_000
 _CONSTRUCTION_ITERATIONS = 100_000
+_FAILURE_ITERATIONS = 20_000
 _MEMORY_INSTANCES = 20_000
 
 type Operation = Callable[[], object]
@@ -45,6 +47,18 @@ def print_measurement(case: str, implementation: str, result: Measurement) -> No
     print(f"{case:32} {implementation:24} min={result.minimum:10.1f} ns/op median={result.median:10.1f} ns/op")
 
 
+def swallowed_failure(operation: Operation, error_type: type[BaseException]) -> Operation:
+    """Return a timer-safe operation that consumes one expected failure."""
+
+    def fail() -> object:
+        try:
+            return operation()
+        except error_type:
+            return None
+
+    return fail
+
+
 def immutable(instance: object, name: str, value: object) -> None:
     """Reject writes for hand-written immutable comparison classes."""
 
@@ -68,6 +82,24 @@ class PointCloud(Spec):
     """Container-of-Spec benchmark declaration."""
 
     points: list[Point]
+
+
+class Basket(Spec):
+    """Nested value whose list requires current-state revalidation."""
+
+    items: list[int]
+
+
+class Order(Spec):
+    """Direct mutable nested-Spec benchmark declaration."""
+
+    basket: Basket
+
+
+class BasketGroup(Spec):
+    """Container-of-mutable-Spec benchmark declaration."""
+
+    baskets: list[Basket]
 
 
 class HandPoint:
@@ -118,6 +150,70 @@ class HandPointCloud:
 
 
 _HAND_POINT_CLOUD_POINTS = vars(HandPointCloud)["points"].__set__
+
+
+class HandBasket:
+    """Equivalent hand-written mutable nested value."""
+
+    __slots__ = ("items",)
+    __setattr__ = immutable
+    items: list[int]
+
+    def __init__(self, *, items: list[int]) -> None:
+        if type(items) is not list:
+            raise TypeError
+        for item in items:
+            if type(item) is not int:
+                raise TypeError
+        _HAND_BASKET_ITEMS(self, items)
+
+
+_HAND_BASKET_ITEMS = vars(HandBasket)["items"].__set__
+
+
+class HandOrder:
+    """Equivalent hand-written current-state nested validator."""
+
+    __slots__ = ("basket",)
+    __setattr__ = immutable
+    basket: HandBasket
+
+    def __init__(self, *, basket: HandBasket) -> None:
+        if not isinstance(basket, HandBasket):
+            raise TypeError
+        if type(basket.items) is not list:
+            raise TypeError
+        for item in basket.items:
+            if type(item) is not int:
+                raise TypeError
+        _HAND_ORDER_BASKET(self, basket)
+
+
+_HAND_ORDER_BASKET = vars(HandOrder)["basket"].__set__
+
+
+class HandBasketGroup:
+    """Equivalent hand-written container of current-state nested validators."""
+
+    __slots__ = ("baskets",)
+    __setattr__ = immutable
+    baskets: list[HandBasket]
+
+    def __init__(self, *, baskets: list[HandBasket]) -> None:
+        if type(baskets) is not list:
+            raise TypeError
+        for basket in baskets:
+            if not isinstance(basket, HandBasket):
+                raise TypeError
+            if type(basket.items) is not list:
+                raise TypeError
+            for item in basket.items:
+                if type(item) is not int:
+                    raise TypeError
+        _HAND_BASKET_GROUP_BASKETS(self, baskets)
+
+
+_HAND_BASKET_GROUP_BASKETS = vars(HandBasketGroup)["baskets"].__set__
 
 
 def field_names(field_count: int) -> tuple[str, ...]:
@@ -228,6 +324,48 @@ def benchmark_nested_construction() -> None:
         print_measurement(name, "handwritten immutable", measure(handwritten, _CONSTRUCTION_ITERATIONS))
 
 
+def benchmark_mutable_nested_construction() -> None:
+    """Measure required current-state revalidation separately from trusted nesting."""
+
+    basket = Basket(items=[1, 2])
+    hand_basket = HandBasket(items=[1, 2])
+    invalid_basket = Basket(items=[1, 2])
+    invalid_hand_basket = HandBasket(items=[1, 2])
+    cast(list[object], invalid_basket.items).append("invalid")
+    cast(list[object], invalid_hand_basket.items).append("invalid")
+    baskets = [basket, basket]
+    hand_baskets = [hand_basket, hand_basket]
+    success_cases: dict[str, tuple[Operation, Operation]] = {
+        "construct nested Basket valid": (
+            partial(Order, basket=basket),
+            partial(HandOrder, basket=hand_basket),
+        ),
+        "construct list[Basket] valid": (
+            partial(BasketGroup, baskets=baskets),
+            partial(HandBasketGroup, baskets=hand_baskets),
+        ),
+    }
+    for name, (talea, handwritten) in success_cases.items():
+        print_measurement(name, "talea validating", measure(talea, _CONSTRUCTION_ITERATIONS))
+        print_measurement(name, "handwritten immutable", measure(handwritten, _CONSTRUCTION_ITERATIONS))
+    print_measurement(
+        "construct nested Basket invalid",
+        "talea validating",
+        measure(
+            swallowed_failure(partial(Order, basket=invalid_basket), ValidationError),
+            _FAILURE_ITERATIONS,
+        ),
+    )
+    print_measurement(
+        "construct nested Basket invalid",
+        "handwritten immutable",
+        measure(
+            swallowed_failure(partial(HandOrder, basket=invalid_hand_basket), TypeError),
+            _FAILURE_ITERATIONS,
+        ),
+    )
+
+
 def benchmark_inherited_construction() -> None:
     """Measure flat child construction at effective-field scaling canaries."""
 
@@ -284,7 +422,7 @@ def benchmark_memory() -> None:
 
 
 def print_flat_constructor_evidence() -> None:
-    """Report child call opcodes and absence of a retained parent initializer."""
+    """Report trusted-nesting and flat-inheritance bytecode evidence."""
 
     child = make_inherited_spec(5)
     initializer = vars(child)["__init__"]
@@ -295,6 +433,15 @@ def print_flat_constructor_evidence() -> None:
         f"CALL opcodes={calls}, parent_init_global={parent_initializer in initializer.__globals__.values()}, "
         f"init_name_lookup={'__init__' in initializer.__code__.co_names}"
     )
+    shape_initializer = vars(Shape)["__init__"]
+    order_initializer = vars(Order)["__init__"]
+    shape_calls = sum(instruction.opname == "CALL" for instruction in dis.Bytecode(shape_initializer))
+    print(
+        "trusted nesting evidence: "
+        f"CALL opcodes={shape_calls}, nested_field_reads={bool({'x', 'y'} & set(shape_initializer.__code__.co_names))}, "
+        f"trust_branch_names={tuple(name for name in shape_initializer.__code__.co_names if 'trust' in name)}"
+    )
+    print(f"mutable nesting evidence: canonical_field_reads={('items' in order_initializer.__code__.co_names)}")
 
 
 def main() -> None:
@@ -304,6 +451,11 @@ def main() -> None:
     benchmark_declaration()
     print(f"Nested construction ({_REPEATS} samples x {_CONSTRUCTION_ITERATIONS:,} operations)")
     benchmark_nested_construction()
+    print(
+        f"Mutable nested construction ({_REPEATS} samples x {_CONSTRUCTION_ITERATIONS:,} successes; "
+        f"{_FAILURE_ITERATIONS:,} failures)"
+    )
+    benchmark_mutable_nested_construction()
     print(f"Inherited construction ({_REPEATS} samples x {_CONSTRUCTION_ITERATIONS:,} operations)")
     benchmark_inherited_construction()
     print(f"Retained memory ({_MEMORY_INSTANCES:,} live results)")

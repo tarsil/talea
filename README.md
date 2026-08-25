@@ -35,7 +35,9 @@ constructor, avoiding per-field validator calls. Construction is keyword-only,
 performs no coercion, and stores validated values in compact instance slots.
 Spec field bindings are immutable after construction. Talea
 permanently trusts declarations only when their value graphs are also
-transitively immutable. Mutable defaults use a per-instance factory:
+transitively immutable. Nested mutable Specs are revalidated against their
+current declared state at each new validation boundary. Mutable defaults use a
+per-instance factory:
 
 ```python
 from talea import Spec, field

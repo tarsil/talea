@@ -30,17 +30,25 @@ where a base Spec is annotated, following normal `isinstance` semantics. A
 wrong member inside a container reports the field and container position, such
 as `("members", 2)`.
 
-Embedding a Spec performs a nominal compatibility check rather than walking
-its fields again. A Spec whose own declaration contains mutable values remains
-valid for composition, but both it and declarations that reference it are
-classified as not permanently trusted. This distinction avoids repeated deep
-validation without treating a mutable object graph as permanently stable.
+Embedding a permanently trusted Spec performs only a nominal compatibility
+check. When the referenced declaration is not permanently trusted, Talea also
+validates its current declared field state at the new boundary. That validation
+is specialized when the containing class is declared: it reads the known
+attributes directly and uses the same compiled validation semantics as ordinary
+fields. It does not reconstruct the nested object, interpret field metadata, or
+recompile at runtime.
+
+A mutable nested Spec therefore succeeds while its current state is valid and
+fails after normal container mutation makes that state invalid. The containing
+declaration remains classified as not permanently trusted even after successful
+current-state validation, because later mutation remains possible.
 
 Trust follows the annotated nominal contract. If a subclass adds a mutable
 field, that extension does not weaken an immutable base-class contract: an
 instance of the subclass remains permanently valid where only the base is
 required. Annotating the mutable subclass directly propagates its non-permanent
-classification.
+classification and requires current-state validation of its complete effective
+declaration.
 
 ## Single inheritance
 

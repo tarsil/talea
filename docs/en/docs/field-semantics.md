@@ -62,9 +62,11 @@ frozenset, or union. A declaration containing only transitively immutable value
 schemas is permanently trusted. Referenced Spec declarations propagate their
 own classification: an immutable nested Spec preserves permanent trust, while
 a Spec containing a mutable value makes the containing declaration ineligible.
-This makes it impossible for Talea to classify
-a Spec as permanently trusted when normal container mutation could invalidate
-it, without copying explicit values or wrapping Python containers.
+At each new nested validation boundary, permanently trusted references require
+only nominal compatibility. Non-permanently-trusted references validate their
+current canonical field state before they are accepted. This makes it
+impossible for an already-invalid mutable Spec to cross a new validation
+boundary solely because its Python type still matches.
 
 Three policies were considered:
 

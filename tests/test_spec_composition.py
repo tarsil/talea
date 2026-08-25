@@ -1,7 +1,11 @@
+import builtins
 import inspect
 
 import pytest
 
+import talea.annotations
+import talea.spec as spec_module
+import talea.validation as validation_module
 from talea import Spec, field
 from talea.schema import PrimitiveSchema
 from talea.validation import ValidationError
@@ -89,7 +93,7 @@ def test_specs_compose_through_containers_unions_and_fixed_tuples() -> None:
     assert raised.value.expected.endswith("Member")
 
 
-def test_nested_spec_trust_propagates_transitively_without_revalidation() -> None:
+def test_nested_spec_trust_boundaries_revalidate_only_nonpermanent_contracts() -> None:
     class Coordinates(Spec):
         x: int
         y: int
@@ -113,11 +117,78 @@ def test_nested_spec_trust_propagates_transitively_without_revalidation() -> Non
     assert not vars(Basket)["__talea_artifacts__"].schema.instances_are_permanently_trusted
     assert not vars(Order)["__talea_artifacts__"].schema.instances_are_permanently_trusted
     basket = Basket(items=[1])
+    first = Order(basket=basket)
+    assert first.basket is basket
     basket.items.append("invalid")  # type: ignore[invalid-argument-type]
-    order = Order(basket=basket)
-    assert order.basket is basket
+    with pytest.raises(ValidationError) as raised:
+        Order(basket=basket)
+    assert raised.value.location == ("basket", "items", 1)
+    basket.items.pop()
+    corrected = Order(basket=basket)
+    assert corrected.basket is basket
     sampled = SampledCoordinates(x=1, y=2, samples=[3])
+    sampled.samples.append("invalid")  # type: ignore[invalid-argument-type]
     assert Location(coordinates=sampled).coordinates is sampled
+    assert "items" in vars(Order)["__init__"].__code__.co_names
+    assert not {"x", "y", "samples"} & set(vars(Location)["__init__"].__code__.co_names)
+
+
+def test_mutable_nested_revalidation_composes_deep_container_locations() -> None:
+    class Basket(Spec):
+        items: list[int]
+
+    BasketShipment = type(
+        "BasketShipment",
+        (Spec,),
+        {"__annotations__": {"basket": Basket}},
+    )
+    Manifest = type(
+        "Manifest",
+        (Spec,),
+        {"__annotations__": {"shipments": list[BasketShipment]}},
+    )
+    valid = BasketShipment(basket=Basket(items=[1]))
+    invalid_basket = Basket(items=[1, 2])
+    invalid = BasketShipment(basket=invalid_basket)
+    invalid_basket.items.append("invalid")  # type: ignore[invalid-argument-type]
+
+    with pytest.raises(ValidationError) as raised:
+        Manifest(shipments=[valid, invalid])
+
+    assert raised.value.location == ("shipments", 1, "basket", "items", 2)
+
+
+def test_mutable_nested_revalidation_uses_only_precompiled_canonical_operations(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Basket(Spec):
+        items: list[int]
+
+    Order = type("Order", (Spec,), {"__annotations__": {"basket": Basket}})
+    basket = Basket(items=[1])
+
+    def forbidden(*args: object, **kwargs: object) -> object:
+        raise AssertionError(f"runtime declaration work: {args!r}, {kwargs!r}")
+
+    monkeypatch.setattr(Basket, "__init__", forbidden)
+    monkeypatch.setattr(spec_module, "resolve_annotation", forbidden)
+    monkeypatch.setattr(spec_module, "compile_validator", forbidden)
+    monkeypatch.setattr(spec_module._ConstructorCompiler, "compile", forbidden)
+    monkeypatch.setattr(spec_module, "get_type_hints", forbidden)
+    monkeypatch.setattr(talea.annotations, "get_origin", forbidden)
+    monkeypatch.setattr(talea.annotations, "get_args", forbidden)
+    monkeypatch.setattr(validation_module._ValidationEmitter, "emit_schema", forbidden)
+    monkeypatch.setattr(builtins, "compile", forbidden)
+    monkeypatch.setattr(builtins, "exec", forbidden)
+
+    order = Order(basket=basket)
+    initializer = vars(Order)["__init__"]
+
+    assert order.basket is basket
+    assert initializer.__closure__ is None
+    assert not any(
+        getattr(type(value), "__module__", "") == "talea.schema" for value in initializer.__globals__.values()
+    )
 
 
 def test_single_inheritance_builds_one_ordered_effective_declaration_and_flat_constructor() -> None:

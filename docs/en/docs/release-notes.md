@@ -19,5 +19,7 @@
 - Spec constructors now inline strict field-validation operations from the same
   compiler owner used for standalone validators, eliminating per-field Python
   validator calls during construction.
+- Nested Spec references that are not permanently trusted now receive
+  specialized current-state validation at each new validation boundary.
 
 ### Fixed
