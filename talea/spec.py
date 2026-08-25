@@ -8,11 +8,55 @@ from types import FunctionType
 from typing import cast, dataclass_transform, get_type_hints
 from unicodedata import normalize
 
-from talea._declaration import SpecField, SpecSchema
+from talea._declaration import MISSING_DEFAULT, SpecField, SpecSchema
 from talea.annotations import resolve_annotation
 from talea.validation import ValidationError, Validator, compile_validator
 
-__all__ = ["Spec"]
+__all__ = ["Spec", "field"]
+
+
+@dataclass(frozen=True, slots=True)
+class _FactoryDeclaration[T]:
+    """Carry factory syntax from a class body into canonical declaration truth."""
+
+    default_factory: Callable[[], T]
+
+
+def field[T](*, default_factory: Callable[[], T]) -> T:
+    """Declare a field whose omitted value is produced for each Spec instance.
+
+    Args:
+        default_factory: A zero-argument callable.  Talea calls it once for each
+            construction that omits the field, then validates its result using
+            the field's compiled validator.  Explicit values bypass the factory.
+
+    Returns:
+        A declaration marker consumed when the enclosing ``Spec`` class is
+        created.  It is never stored on Spec instances or used on their hot
+        paths.
+
+    Raises:
+        TypeError: If ``default_factory`` is not callable.
+
+    This deliberately small API owns factory declaration only.  Static defaults
+    use ordinary assignment, such as ``active: bool = True``.
+    """
+
+    if not callable(default_factory):
+        raise TypeError("field default_factory must be callable")
+    return cast(T, _FactoryDeclaration(default_factory))
+
+
+class _FactorySentinel:
+    """Provide a readable generated-signature marker for factory fields."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<factory>"
+
+
+_FACTORY_SENTINEL = _FactorySentinel()
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,44 +73,92 @@ class _ConstructorCompiler:
     def compile(self, schema: SpecSchema, validators: tuple[Validator, ...]) -> FunctionType:
         """Return an initializer that validates, then assigns, every field."""
 
-        field_names = tuple(field.name for field in schema.fields)
+        fields = schema.fields
+        field_names = tuple(field.name for field in fields)
         reserved = set(field_names)
         instance_name = self.variable("instance", reserved)
         error_type_name = self.variable("validation_error", reserved)
+        setattr_name = self.variable("setattr", reserved)
         field_names_name = self.variable("field_names", reserved)
         validator_names = tuple(self.variable(f"validator_{index}", reserved) for index in range(len(field_names)))
         error_names = tuple(self.variable(f"error_{index}", reserved) for index in range(len(field_names)))
+        if all(field.required for field in fields):
+            default_names: dict[int, str] = {}
+            factory_names: dict[int, str] = {}
+        else:
+            default_names = {
+                index: self.variable(f"default_{index}", reserved)
+                for index, field in enumerate(fields)
+                if field.has_static_default
+            }
+            factory_names = {
+                index: self.variable(f"factory_{index}", reserved)
+                for index, field in enumerate(fields)
+                if field.default_factory is not None
+            }
+        factory_sentinel_name = self.variable("factory_sentinel", reserved) if factory_names else ""
         if not field_names:
             source = f"def __init__({instance_name}):\n    pass"
         else:
-            parameters = ", ".join(field_names)
-            lines = [f"def __init__({instance_name}, *, {parameters}):"]
-            for index, field_name in enumerate(field_names):
+            parameters = []
+            for index, field in enumerate(fields):
+                if field.required:
+                    parameters.append(field.name)
+                elif field.has_static_default:
+                    parameters.append(f"{field.name}={default_names[index]}")
+                else:
+                    parameters.append(f"{field.name}={factory_sentinel_name}")
+            lines = [f"def __init__({instance_name}, *, {', '.join(parameters)}):"]
+            for index, field in enumerate(fields):
+                field_name = field.name
                 validator_name = validator_names[index]
                 error_name = error_names[index]
+                if field.default_factory is not None:
+                    factory_name = factory_names[index]
+                    lines.extend(
+                        (
+                            f"    if {field_name} is {factory_sentinel_name}:",
+                            "        try:",
+                            f"            {field_name} = {factory_name}()",
+                            f"        except Exception as {error_name}:",
+                            f'            raise TypeError("default factory for field '
+                            f"'{field_name}' failed\") from {error_name}",
+                        )
+                    )
+                elif field.has_static_default:
+                    lines.append(f"    if {field_name} is not {default_names[index]}:")
+                indentation = "        " if field.has_static_default else "    "
                 lines.extend(
                     (
-                        "    try:",
-                        f"        {validator_name}({field_name})",
-                        f"    except {error_type_name} as {error_name}:",
-                        f"        raise {error_type_name}(",
-                        f"            {error_name}.expected,",
-                        f"            {error_name}.value,",
-                        f"            ({field_names_name}[{index}], *{error_name}.location),",
-                        "        ) from None",
+                        f"{indentation}try:",
+                        f"{indentation}    {validator_name}({field_name})",
+                        f"{indentation}except {error_type_name} as {error_name}:",
+                        f"{indentation}    raise {error_type_name}(",
+                        f"{indentation}        {error_name}.expected,",
+                        f"{indentation}        {error_name}.value,",
+                        f"{indentation}        ({field_names_name}[{index}], *{error_name}.location),",
+                        f"{indentation}    ) from None",
                     )
                 )
             for field_name in field_names:
-                lines.append(f"    {instance_name}.{field_name} = {field_name}")
+                lines.append(f"    {setattr_name}({instance_name}, {field_name!r}, {field_name})")
             source = "\n".join(lines)
 
         namespace: dict[str, object] = {
             error_type_name: ValidationError,
+            setattr_name: object.__setattr__,
             field_names_name: field_names,
             "__name__": __name__,
         }
-        for validator_name, validator in zip(validator_names, validators, strict=True):
+        if factory_names:
+            namespace[factory_sentinel_name] = _FACTORY_SENTINEL
+        for index, (validator_name, validator) in enumerate(zip(validator_names, validators, strict=True)):
             namespace[validator_name] = validator
+            field = fields[index]
+            if field.has_static_default:
+                namespace[default_names[index]] = field.default
+            if field.default_factory is not None:
+                namespace[factory_names[index]] = field.default_factory
         exec(compile(source, "<talea Spec constructor>", "exec"), namespace)
         return cast(FunctionType, namespace["__init__"])
 
@@ -81,7 +173,7 @@ class _ConstructorCompiler:
         return candidate
 
 
-@dataclass_transform(kw_only_default=True)
+@dataclass_transform(kw_only_default=True, frozen_default=True, field_specifiers=(field,))
 class _SpecMeta(type):
     """Build a complete Spec declaration before its first instance exists."""
 
@@ -106,6 +198,11 @@ class _SpecMeta(type):
         field_names = tuple(annotations)
         metaclass._validate_declaration(namespace, bases[0], field_names)
 
+        declarations: dict[str, object] = {}
+        for field_name in field_names:
+            if field_name in namespace:
+                declarations[field_name] = namespace.pop(field_name)
+
         namespace["__slots__"] = field_names
         namespace["__talea_root__"] = False
         cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
@@ -115,13 +212,26 @@ class _SpecMeta(type):
             if any(isinstance(annotation, str) for annotation in annotations.values())
             else annotations
         )
-        schema = SpecSchema(
-            tuple(
-                SpecField(field_name, resolve_annotation(resolved_annotations[field_name]))
-                for field_name in field_names
+        if declarations:
+            fields = []
+            for field_name in field_names:
+                declaration = declarations.get(field_name, MISSING_DEFAULT)
+                resolved = resolve_annotation(resolved_annotations[field_name])
+                if isinstance(declaration, _FactoryDeclaration):
+                    fields.append(SpecField(field_name, resolved, default_factory=declaration.default_factory))
+                else:
+                    fields.append(SpecField(field_name, resolved, default=declaration))
+            schema = SpecSchema(tuple(fields))
+        else:
+            schema = SpecSchema(
+                tuple(
+                    SpecField(field_name, resolve_annotation(resolved_annotations[field_name]))
+                    for field_name in field_names
+                )
             )
-        )
         validators = tuple(compile_validator(field.schema) for field in schema.fields)
+        if declarations:
+            metaclass._validate_static_defaults(schema, validators)
         initializer = _ConstructorCompiler().compile(schema, validators)
         initializer.__module__ = cls.__module__
         initializer.__qualname__ = f"{cls.__qualname__}.__init__"
@@ -171,10 +281,43 @@ class _SpecMeta(type):
                 or (field_name.startswith("__") and not field_name.endswith("__"))
             ):
                 raise TypeError(f"invalid Spec field name: {field_name!r}")
-            if field_name in namespace:
-                raise TypeError(f"Spec field defaults are not supported: {field_name!r}")
             if hasattr(base, field_name):
                 raise TypeError(f"Spec field conflicts with an inherited attribute: {field_name!r}")
+        undeclared_factories = tuple(
+            name
+            for name, value in namespace.items()
+            if isinstance(value, _FactoryDeclaration) and name not in field_names
+        )
+        if undeclared_factories:
+            raise TypeError(f"field() requires an annotation: {undeclared_factories[0]!r}")
+
+    @staticmethod
+    def _validate_static_defaults(schema: SpecSchema, validators: tuple[Validator, ...]) -> None:
+        """Reject invalid or transitively mutable static defaults at declaration time."""
+
+        for field, validator in zip(schema.fields, validators, strict=True):
+            if not field.has_static_default:
+                continue
+            try:
+                validator(field.default)
+            except ValidationError as error:
+                raise ValidationError(error.expected, error.value, (field.name, *error.location)) from None
+            if _contains_mutable_value(field.default):
+                raise TypeError(
+                    f"mutable static default for field {field.name!r} is not supported; use field(default_factory=...)"
+                )
+
+
+def _contains_mutable_value(value: object) -> bool:
+    """Return whether a validated default contains a supported mutable container."""
+
+    if type(value) in (list, set, dict):
+        return True
+    if type(value) is tuple:
+        return any(_contains_mutable_value(item) for item in value)
+    if type(value) is frozenset:
+        return any(_contains_mutable_value(item) for item in value)
+    return False
 
 
 class Spec(metaclass=_SpecMeta):
@@ -186,17 +329,34 @@ class Spec(metaclass=_SpecMeta):
     Repeated construction performs no annotation reflection, schema traversal,
     or validator compilation.
 
-    Construction accepts every declared field exactly once by keyword.  Values
-    use Talea's exact-type semantics: there is no coercion, supported mutable
-    containers retain their identity, missing fields and unknown keywords are
-    rejected, and validation errors begin with the failing field name.
+    Construction accepts every declared field exactly once by keyword.  A
+    direct assignment provides a validated immutable static default;
+    ``field(default_factory=...)`` produces and validates an omitted value per
+    instance.  Optional annotations remain required without one of those
+    declarations.  Values use Talea's exact-type semantics: there is no
+    coercion, supplied mutable containers retain their identity, missing fields
+    and unknown keywords are rejected, and validation errors begin with the
+    failing field name.
 
     Instances use slots derived from declaration order and retain only field
     values.  They have no instance dictionary or per-instance schema metadata.
-    Equality and hashing keep ordinary Python identity semantics.  Defaults,
-    positional construction, and Spec inheritance are intentionally unsupported
-    in this lifecycle.
+    Field bindings are immutable after successful construction.  Declarations
+    containing only transitively immutable schemas are permanently trusted;
+    declarations containing list, set, or dictionary values remain validated
+    but are not eligible for Talea's no-revalidation trust path.  Equality and
+    hashing keep ordinary Python identity semantics.  Positional construction
+    and Spec inheritance are intentionally unsupported in this lifecycle.
     """
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Reject mutation so a validated Spec cannot silently become invalid."""
+
+        raise AttributeError(f"{type(self).__name__} instances are immutable")
+
+    def __delattr__(self, name: str) -> None:
+        """Reject deletion so a validated Spec cannot lose a required value."""
+
+        raise AttributeError(f"{type(self).__name__} instances are immutable")
 
     def __repr__(self) -> str:
         """Return the declaration name and current field values in order."""

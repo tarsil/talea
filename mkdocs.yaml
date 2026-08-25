@@ -44,6 +44,7 @@ plugins:
 
 nav:
   - Introduction: "index.md"
+  - Field semantics: "field-semantics.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"
   - Release Notes: "release-notes.md"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import builtins
 import inspect
+import sys
 from dataclasses import FrozenInstanceError
 
 import pytest
@@ -9,8 +10,8 @@ import pytest
 import talea
 import talea.annotations
 import talea.spec as spec_module
-from talea import Spec
-from talea._declaration import SpecSchema
+from talea import Spec, field
+from talea._declaration import MISSING_DEFAULT, SpecSchema
 from talea.annotations import AnnotationResolutionError
 from talea.schema import MappingSchema, PrimitiveSchema, SequenceSchema, UnionSchema
 from talea.validation import ValidationError
@@ -27,8 +28,9 @@ class Payload(Spec):
 
 
 def test_root_package_exports_only_the_spec_declaration_api() -> None:
-    assert talea.__all__ == ["Spec"]
+    assert talea.__all__ == ["Spec", "field"]
     assert talea.Spec is Spec
+    assert talea.field is field
     assert not hasattr(talea, "SpecSchema")
     assert not hasattr(talea, "compile_validator")
     assert not hasattr(talea, "ValidationError")
@@ -81,6 +83,8 @@ def test_spec_schema_is_the_single_ordered_declaration_truth() -> None:
         UnionSchema(frozenset({PrimitiveSchema("int"), PrimitiveSchema("none")})),
     )
     assert len(artifacts.validators) == len(artifacts.schema.fields)
+    assert all(field.required for field in artifacts.schema.fields)
+    assert all(field.default is MISSING_DEFAULT for field in artifacts.schema.fields)
 
     with pytest.raises(FrozenInstanceError):
         artifacts.schema = SpecSchema(())
@@ -129,6 +133,13 @@ def test_instances_are_compact_and_retain_only_declared_values() -> None:
     assert not any(slot.startswith("__talea") for slot in User.__slots__)
 
 
+def test_required_only_constructor_retains_no_default_runtime_artifacts() -> None:
+    globals_ = vars(User)["__init__"].__globals__
+
+    assert not any(isinstance(value, spec_module._FactorySentinel) for value in globals_.values())
+    assert not any(isinstance(value, spec_module._FactoryDeclaration) for value in globals_.values())
+
+
 def test_spec_equality_and_hashing_use_object_identity() -> None:
     first = User(id=1, name="Tiago")
     second = User(id=1, name="Tiago")
@@ -139,12 +150,7 @@ def test_spec_equality_and_hashing_use_object_identity() -> None:
     assert User.__hash__ is object.__hash__
 
 
-def test_defaults_custom_construction_slots_and_inheritance_are_rejected() -> None:
-    with pytest.raises(TypeError, match="Spec field defaults are not supported: 'value'"):
-
-        class Defaulted(Spec):
-            value: int = 1
-
+def test_custom_construction_slots_and_inheritance_are_rejected() -> None:
     with pytest.raises(TypeError, match="Spec manages construction"):
 
         class CustomInit(Spec):
@@ -170,6 +176,204 @@ def test_defaults_custom_construction_slots_and_inheritance_are_rejected() -> No
 
         class Mixed(Spec, Mixin):
             value: int
+
+
+def test_static_default_is_retained_canonically_and_used_when_omitted() -> None:
+    class Account(Spec):
+        name: str
+        active: bool = True
+        roles: frozenset[str] = frozenset({"user"})
+
+    omitted = Account(name="Ada")
+    explicit = Account(name="Ada", active=False)
+    artifacts = vars(Account)["__talea_artifacts__"]
+    active = artifacts.schema.fields[1]
+
+    assert str(inspect.signature(Account)) == "(*, name, active=True, roles=frozenset({'user'}))"
+    assert omitted.active is True
+    assert omitted.roles == frozenset({"user"})
+    assert explicit.active is False
+    assert not active.required
+    assert active.has_static_default
+    assert active.default is True
+    assert vars(Account)["active"] is not True
+
+    with pytest.raises(ValidationError) as raised:
+        Account(name="Ada", active=1)  # type: ignore[invalid-argument-type]
+
+    assert raised.value.location == ("active",)
+
+
+def test_optional_annotation_does_not_imply_a_default() -> None:
+    class RequiredOptional(Spec):
+        value: int | None
+
+    class DefaultedOptional(Spec):
+        value: int | None = None
+
+    with pytest.raises(TypeError, match="required keyword-only argument: 'value'"):
+        RequiredOptional()  # type: ignore[missing-argument]
+
+    assert RequiredOptional(value=None).value is None
+    assert DefaultedOptional().value is None
+
+
+def test_required_fields_may_follow_defaults_without_losing_declaration_order() -> None:
+    class Ordered(Spec):
+        enabled: bool = True
+        identifier: int
+
+    ordered = Ordered(identifier=1)
+
+    assert str(inspect.signature(Ordered)) == "(*, enabled=True, identifier)"
+    assert repr(ordered) == "Ordered(enabled=True, identifier=1)"
+
+
+@pytest.mark.parametrize(
+    ("name", "annotation", "default", "expected", "location"),
+    [
+        ("count", int, "1", "int", ("count",)),
+        ("values", list[int], (1, 2), "list[int]", ("values",)),
+        ("pair", tuple[int, str], (1, 2), "str", ("pair", 1)),
+    ],
+)
+def test_invalid_static_default_fails_during_declaration(
+    name: str,
+    annotation: object,
+    default: object,
+    expected: str,
+    location: tuple[object, ...],
+) -> None:
+    with pytest.raises(ValidationError) as raised:
+        type("InvalidDefault", (Spec,), {"__annotations__": {name: annotation}, name: default})
+
+    assert raised.value.expected == expected
+    assert raised.value.location == location
+
+
+@pytest.mark.parametrize(
+    ("annotation", "default"),
+    [
+        (list[int], [1]),
+        (set[int], {1}),
+        (dict[str, int], {"one": 1}),
+        (tuple[list[int]], ([1],)),
+    ],
+)
+def test_mutable_static_defaults_are_rejected(annotation: object, default: object) -> None:
+    with pytest.raises(TypeError, match=r"mutable static default.*field\(default_factory=\.\.\.\)"):
+        type("MutableDefault", (Spec,), {"__annotations__": {"value": annotation}, "value": default})
+
+
+def test_default_factory_produces_independent_validated_values() -> None:
+    calls = 0
+
+    def new_items() -> list[int]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    class Basket(Spec):
+        owner: str
+        items: list[int] = field(default_factory=new_items)
+
+    first = Basket(owner="Ada")
+    second = Basket(owner="Grace")
+    first.items.append(1)
+    artifacts = vars(Basket)["__talea_artifacts__"]
+    items = artifacts.schema.fields[1]
+
+    assert str(inspect.signature(Basket)) == "(*, owner, items=<factory>)"
+    assert first.items == [1]
+    assert second.items == []
+    assert first.items is not second.items
+    assert calls == 2
+    assert not items.required
+    assert not items.has_static_default
+    assert items.default_factory is new_items
+
+
+def test_factory_runs_once_only_when_omitted_and_interacts_with_multiple_fields() -> None:
+    calls = 0
+
+    def next_value() -> int:
+        nonlocal calls
+        calls += 1
+        return calls
+
+    class Generated(Spec):
+        before: int = field(default_factory=next_value)
+        required: str
+        after: int = field(default_factory=next_value)
+
+    generated = Generated(required="value", before=10)
+
+    assert (generated.before, generated.required, generated.after) == (10, "value", 1)
+    assert calls == 1
+
+
+def test_factory_output_is_validated_at_the_field_boundary() -> None:
+    class InvalidFactory(Spec):
+        count: int = field(default_factory=lambda: "1")  # type: ignore[invalid-return-type]
+
+    with pytest.raises(ValidationError) as raised:
+        InvalidFactory()
+
+    assert raised.value.expected == "int"
+    assert raised.value.location == ("count",)
+
+
+def test_factory_failure_has_a_clear_field_boundary_and_preserves_cause() -> None:
+    failure = RuntimeError("unavailable")
+
+    def fail() -> int:
+        raise failure
+
+    class FailedFactory(Spec):
+        count: int = field(default_factory=fail)
+
+    with pytest.raises(TypeError, match="default factory for field 'count' failed") as raised:
+        FailedFactory()
+
+    assert raised.value.__cause__ is failure
+
+
+def test_invalid_factory_declaration_syntax_is_rejected() -> None:
+    with pytest.raises(TypeError, match="default_factory must be callable"):
+        field(default_factory=1)  # type: ignore[invalid-argument-type]
+    with pytest.raises(TypeError, match=r"field\(\) requires an annotation: 'items'"):
+
+        class MissingAnnotation(Spec):
+            items = field(default_factory=list)
+
+
+def test_specs_are_immutable_and_unknown_assignment_is_deterministic() -> None:
+    user = User(id=1, name="Tiago")
+
+    with pytest.raises(AttributeError, match="User instances are immutable"):
+        user.id = "invalid"  # type: ignore[invalid-assignment]
+    with pytest.raises(AttributeError, match="User instances are immutable"):
+        user.email = "tiago@example.com"  # type: ignore[unresolved-attribute]
+    with pytest.raises(AttributeError, match="User instances are immutable"):
+        del user.name
+
+    assert (user.id, user.name) == (1, "Tiago")
+
+
+def test_permanent_trust_requires_a_transitively_immutable_schema() -> None:
+    class Stable(Spec):
+        pair: tuple[int, str]
+
+    class MutablePayload(Spec):
+        values: list[int]
+
+    Stable(pair=(1, "one"))
+    mutable = MutablePayload(values=[1])
+    mutable.values.append("invalid")  # type: ignore[invalid-argument-type]
+
+    assert vars(Stable)["__talea_artifacts__"].schema.instances_are_permanently_trusted
+    assert not vars(MutablePayload)["__talea_artifacts__"].schema.instances_are_permanently_trusted
+    assert mutable.values == [1, "invalid"]
 
 
 def test_fields_cannot_replace_inherited_spec_behavior() -> None:
@@ -304,6 +508,64 @@ def test_repeated_construction_uses_no_reflection_or_compilation(monkeypatch: py
     assert tuple(map(id, artifacts.validators)) == validator_ids
 
 
+def test_defaults_use_only_retained_declaration_artifacts(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    def make_identifier() -> int:
+        nonlocal calls
+        calls += 1
+        return calls
+
+    class RetainedDefaults(Spec):
+        active: bool = True
+        identifier: int = field(default_factory=make_identifier)
+
+    artifacts = vars(RetainedDefaults)["__talea_artifacts__"]
+    validator_ids = tuple(map(id, artifacts.validators))
+
+    def forbidden(*args: object, **kwargs: object) -> object:
+        raise AssertionError(f"default construction invoked declaration work: {args!r}, {kwargs!r}")
+
+    monkeypatch.setattr(spec_module, "resolve_annotation", forbidden)
+    monkeypatch.setattr(spec_module, "compile_validator", forbidden)
+    monkeypatch.setattr(spec_module._ConstructorCompiler, "compile", forbidden)
+    monkeypatch.setattr(spec_module, "get_type_hints", forbidden)
+    monkeypatch.setattr(talea.annotations, "get_origin", forbidden)
+    monkeypatch.setattr(talea.annotations, "get_args", forbidden)
+    monkeypatch.setattr(builtins, "compile", forbidden)
+    monkeypatch.setattr(builtins, "exec", forbidden)
+
+    first = RetainedDefaults()
+    second = RetainedDefaults(active=False)
+
+    assert (first.active, first.identifier) == (True, 1)
+    assert (second.active, second.identifier) == (False, 2)
+    assert tuple(map(id, artifacts.validators)) == validator_ids
+
+
+def test_defaulted_instances_retain_values_only() -> None:
+    class Required(Spec):
+        count: int
+
+    class Compact(Spec):
+        count: int = 1
+        items: list[int] = field(default_factory=list)
+
+    class Static(Spec):
+        count: int = 1
+
+    class Factory(Spec):
+        items: list[int] = field(default_factory=list)
+
+    compact = Compact()
+
+    assert Compact.__slots__ == ("count", "items")
+    assert not hasattr(compact, "__dict__")
+    assert not any(slot.startswith("__talea") for slot in Compact.__slots__)
+    assert compact.items == []
+    assert sys.getsizeof(Required(count=1)) == sys.getsizeof(Static()) == sys.getsizeof(Factory())
+
+
 def test_generated_constructor_binds_field_names_and_accepts_valid_unicode() -> None:
     class Localized(Spec):
         café: str
@@ -321,6 +583,7 @@ def test_generated_constructor_names_cannot_collide_with_fields() -> None:
         "ValidationError",
         "_talea_instance",
         "_talea_validation_error",
+        "_talea_setattr",
         "_talea_field_names",
         "_talea_validator_0",
         "_talea_error_0",

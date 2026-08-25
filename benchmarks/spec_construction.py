@@ -1,4 +1,4 @@
-"""Measure Spec declaration, construction, failure, scaling, and memory.
+"""Measure Spec declaration, construction, field lifecycles, failure, and memory.
 
 The hand-written rows use slotted classes with the same exact integer checks
 as Talea and are the primary equivalent comparison.  Strict Pydantic also
@@ -24,7 +24,7 @@ from typing import Any, cast
 import msgspec
 from pydantic import ConfigDict, ValidationError as PydanticValidationError, create_model
 
-from talea import Spec
+from talea import Spec, field
 from talea.validation import ValidationError
 
 _REPEATS = 7
@@ -72,6 +72,22 @@ def make_spec(field_count: int) -> Constructor:
 
     annotations = dict.fromkeys(field_names(field_count), int)
     return type(f"Talea{field_count}", (Spec,), {"__annotations__": annotations})
+
+
+def make_static_default_spec() -> Constructor:
+    """Declare one Spec with a validated immutable static default."""
+
+    return type("StaticDefault", (Spec,), {"__annotations__": {"value": int}, "value": 1})
+
+
+def make_factory_default_spec() -> Constructor:
+    """Declare one Spec with a per-instance mutable default factory."""
+
+    return type(
+        "FactoryDefault",
+        (Spec,),
+        {"__annotations__": {"values": list[int]}, "values": field(default_factory=list)},
+    )
 
 
 def make_handwritten(field_count: int) -> Constructor:
@@ -159,6 +175,16 @@ def benchmark_declaration() -> None:
     for count in (1, 5, 10):
         result = measure(partial(make_spec, count), _DECLARATION_ITERATIONS)
         print_measurement(f"declare {count} fields", "talea", result)
+    print_measurement(
+        "declare static default",
+        "talea",
+        measure(make_static_default_spec, _DECLARATION_ITERATIONS),
+    )
+    print_measurement(
+        "declare factory default",
+        "talea",
+        measure(make_factory_default_spec, _DECLARATION_ITERATIONS),
+    )
 
 
 def benchmark_construction() -> None:
@@ -172,6 +198,21 @@ def benchmark_construction() -> None:
                 name,
                 measure(partial(constructor, **values), _CONSTRUCTION_ITERATIONS),
             )
+
+
+def benchmark_defaults() -> None:
+    """Measure static omitted/explicit and factory-omitted construction."""
+
+    static_default = make_static_default_spec()
+    factory_default = make_factory_default_spec()
+    cases: dict[str, Operation] = {
+        "static default omitted": static_default,
+        "static default explicit": partial(static_default, value=2),
+        "factory default omitted": factory_default,
+        "factory default explicit": partial(factory_default, values=[]),
+    }
+    for name, operation in cases.items():
+        print_measurement(name, "talea validating", measure(operation, _CONSTRUCTION_ITERATIONS))
 
 
 def benchmark_failure() -> None:
@@ -226,6 +267,10 @@ def benchmark_memory() -> None:
     for name, constructor in implementations(count).items():
         retained = retained_bytes_per_instance(partial(constructor, **values))
         print(f"memory {count} fields          {name:25} retained={retained:8.1f} B/instance")
+    static_retained = retained_bytes_per_instance(make_static_default_spec())
+    factory_retained = retained_bytes_per_instance(make_factory_default_spec())
+    print(f"memory static default omitted talea validating          retained={static_retained:8.1f} B/instance")
+    print(f"memory factory default omitted talea validating          retained={factory_retained:8.1f} B/instance")
 
 
 def main() -> None:
@@ -236,6 +281,8 @@ def main() -> None:
     print("First construction is not distinct: Spec has no lazy instance work.")
     print(f"Repeated construction ({_REPEATS} samples x {_CONSTRUCTION_ITERATIONS:,} operations)")
     benchmark_construction()
+    print(f"Default construction ({_REPEATS} samples x {_CONSTRUCTION_ITERATIONS:,} operations)")
+    benchmark_defaults()
     print(f"Construction failure ({_REPEATS} samples x {_FAILURE_ITERATIONS:,} operations)")
     benchmark_failure()
     print(f"Retained memory ({_MEMORY_INSTANCES:,} live instances)")
