@@ -4,12 +4,14 @@ from typing import Annotated, Literal
 
 import pytest
 
+from talea import Spec
 from talea.annotations import AnnotationResolutionError, resolve_annotation
 from talea.schema import (
     FixedTupleSchema,
     MappingSchema,
     PrimitiveSchema,
     SequenceSchema,
+    SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -131,6 +133,22 @@ def test_equivalent_annotations_have_equal_canonical_values() -> None:
     assert resolve_annotation(None) == resolve_annotation(NoneType)
     assert resolve_annotation(int | str) == resolve_annotation(str | int)
     assert resolve_annotation(list[int | None]) == resolve_annotation(list[None | int])
+
+
+def test_resolves_spec_references_through_supported_compositions() -> None:
+    class Address(Spec):
+        city: str
+
+    class User(Spec):
+        address: Address
+
+    address = SpecReferenceSchema(Address)
+    user = SpecReferenceSchema(User)
+
+    assert resolve_annotation(Address) == address
+    assert resolve_annotation(list[User]) == SequenceSchema("list", user)
+    assert resolve_annotation(User | None) == UnionSchema(frozenset({user, PrimitiveSchema("none")}))
+    assert resolve_annotation(tuple[User, Address]) == FixedTupleSchema((user, address))
 
 
 @pytest.mark.parametrize(

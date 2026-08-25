@@ -99,6 +99,16 @@ tasks:
     cmds:
       - hatch run test:benchmark_schema
 
+  benchmark_spec:
+    desc: Benchmarks Spec declaration, construction, failure, scaling, and memory
+    cmds:
+      - hatch run test:benchmark_spec
+
+  benchmark_composition:
+    desc: Benchmarks nested and inherited Spec construction, declaration, and memory
+    cmds:
+      - hatch run test:benchmark_composition
+
   benchmark_validator:
     desc: Benchmarks validator compilation and execution
     cmds:

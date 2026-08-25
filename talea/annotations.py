@@ -9,6 +9,7 @@ from talea.schema import (
     PrimitiveSchema,
     Schema,
     SequenceSchema,
+    SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -34,8 +35,9 @@ def resolve_annotation(annotation: object) -> Schema:
 
     Resolution recursively removes Python ``typing`` structure before any
     runtime validation exists.  Supported inputs are the built-in primitive
-    types, ``None``, PEP 585 list/set/frozenset/dict/tuple aliases, and PEP 604
-    unions composed from those forms.  The function is intentionally uncached:
+    types, ``None``, declared Spec classes, PEP 585
+    list/set/frozenset/dict/tuple aliases, and PEP 604 unions composed from
+    those forms.  The function is intentionally uncached:
     schema compilation owns when resolution occurs, while this transformation
     remains stateless and does not retain annotation graphs globally.
 
@@ -63,6 +65,12 @@ def resolve_annotation(annotation: object) -> Schema:
         return PrimitiveSchema("bytes")
     if annotation is None or annotation is NoneType:
         return PrimitiveSchema("none")
+    if (
+        isinstance(annotation, type)
+        and getattr(annotation, "__talea_spec__", False) is True
+        and "__talea_artifacts__" in vars(annotation)
+    ):
+        return SpecReferenceSchema(annotation)
 
     origin = get_origin(annotation)
     arguments = get_args(annotation)
