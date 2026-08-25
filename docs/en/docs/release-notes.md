@@ -11,4 +11,8 @@
 
 ### Changed
 
+- Spec constructors now inline strict field-validation operations from the same
+  compiler owner used for standalone validators, eliminating per-field Python
+  validator calls during construction.
+
 ### Fixed

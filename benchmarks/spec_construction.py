@@ -92,6 +92,26 @@ def make_factory_default_spec() -> Constructor:
     )
 
 
+def container_specs() -> dict[str, tuple[Constructor, object]]:
+    """Build representative inline-validation container canaries."""
+
+    cases = {
+        "list[int]": (list[int], [1, 2]),
+        "dict[str, int]": (dict[str, int], {"one": 1}),
+        "list[dict[str, int | None]]": (
+            list[dict[str, int | None]],
+            [{"one": 1, "none": None}],
+        ),
+    }
+    return {
+        name: (
+            type(f"Container{index}", (Spec,), {"__annotations__": {"value": annotation}}),
+            value,
+        )
+        for index, (name, (annotation, value)) in enumerate(cases.items())
+    }
+
+
 def make_handwritten(field_count: int) -> Constructor:
     """Create an equivalent direct-checking slotted Python class."""
 
@@ -244,6 +264,17 @@ def benchmark_defaults() -> None:
         print_measurement(name, "talea validating", measure(operation, _CONSTRUCTION_ITERATIONS))
 
 
+def benchmark_containers() -> None:
+    """Measure inline validation for representative container fields."""
+
+    for name, (constructor, value) in container_specs().items():
+        print_measurement(
+            f"container {name}",
+            "talea inline",
+            measure(partial(constructor, value=value), _CONSTRUCTION_ITERATIONS),
+        )
+
+
 def benchmark_failure() -> None:
     """Measure a last-field strict failure for validating implementations."""
 
@@ -312,6 +343,8 @@ def main() -> None:
     benchmark_construction()
     print(f"Default construction ({_REPEATS} samples x {_CONSTRUCTION_ITERATIONS:,} operations)")
     benchmark_defaults()
+    print(f"Container construction ({_REPEATS} samples x {_CONSTRUCTION_ITERATIONS:,} operations)")
+    benchmark_containers()
     print(f"Construction failure ({_REPEATS} samples x {_FAILURE_ITERATIONS:,} operations)")
     benchmark_failure()
     print(f"Retained memory ({_MEMORY_INSTANCES:,} live instances)")

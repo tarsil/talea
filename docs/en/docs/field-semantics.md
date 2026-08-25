@@ -40,10 +40,12 @@ cost are explicit.
 `field` is a declaration function, not an instance wrapper. Its
 `default_factory` is called once when the corresponding argument is omitted,
 is not called for an explicit argument, and is never called merely to inspect a
-class declaration. The returned value passes through the same compiled strict
-validator as an explicit value. A factory exception is re-raised through a
-`TypeError` naming the field, with the original exception retained as its
-cause.
+class declaration. The returned value passes through the same strict validation
+operations as an explicit value. One canonical validation emitter generates
+both standalone validators and the operations inlined into Spec constructors;
+construction does not call a Python validator function per field. A factory
+exception is re-raised through a `TypeError` naming the field, with the original
+exception retained as its cause.
 
 ## Immutability and validated trust
 

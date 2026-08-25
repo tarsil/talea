@@ -262,7 +262,8 @@ def test_disjoint_container_union_success_does_not_construct_errors(value: objec
     def unexpected_error(*args: object) -> BaseException:
         raise AssertionError(f"successful validation constructed an error: {args!r}")
 
-    validator.__globals__["ValidationError"] = unexpected_error
+    error_name = next(name for name, item in validator.__globals__.items() if item is ValidationError)
+    validator.__globals__[error_name] = unexpected_error
     assert validator(value) is value
 
 

@@ -137,6 +137,7 @@ def test_instances_are_compact_and_retain_only_declared_values() -> None:
 
 def test_required_only_constructor_retains_no_default_runtime_artifacts() -> None:
     globals_ = vars(User)["__init__"].__globals__
+    validators = vars(User)["__talea_artifacts__"].validators
     descriptors = {vars(User)[field] for field in User.__slots__}
     retained_setters = {
         value.__self__
@@ -147,6 +148,7 @@ def test_required_only_constructor_retains_no_default_runtime_artifacts() -> Non
     assert not any(isinstance(value, spec_module._FactorySentinel) for value in globals_.values())
     assert not any(isinstance(value, spec_module._FactoryDeclaration) for value in globals_.values())
     assert object.__setattr__ not in globals_.values()
+    assert not any(validator in globals_.values() for validator in validators)
     assert retained_setters == descriptors
 
 
@@ -469,7 +471,6 @@ def test_declaration_resolves_and_compiles_exactly_once(monkeypatch: pytest.Monk
     def counted_constructor(
         compiler: object,
         schema: object,
-        validators: object,
         slot_setters: object,
     ) -> object:
         nonlocal constructor_calls
@@ -477,7 +478,6 @@ def test_declaration_resolves_and_compiles_exactly_once(monkeypatch: pytest.Monk
         return original_constructor(
             compiler,
             schema,
-            validators,
             slot_setters,
         )  # type: ignore[invalid-argument-type]
 
@@ -611,22 +611,110 @@ def test_generated_constructor_binds_field_names_and_accepts_valid_unicode() -> 
 
 
 def test_generated_constructor_names_cannot_collide_with_fields() -> None:
-    names = (
-        "self",
-        "ValidationError",
-        "_talea_instance",
-        "_talea_validation_error",
-        "_talea_slot_0",
-        "_talea_field_names",
-        "_talea_validator_0",
-        "_talea_error_0",
-    )
-    collision = type("Collision", (Spec,), {"__annotations__": dict.fromkeys(names, int)})
-    values = {name: index for index, name in enumerate(names)}
+    annotations = {
+        "_talea_instance_1": list[dict[str, int | None]],
+        "_talea_item_1": list[int] | dict[str, int],
+        "_talea_key_1": dict[str, int],
+        "_talea_matched_1": list[int] | dict[str, int],
+        "_talea_best_error_1": tuple[int, ...],
+        "_talea_error_1": int,
+        "_talea_validation_error_1": int,
+        "_talea_identity_index_1": list[int],
+        "_talea_slot_0_1": int,
+        "_talea_validator_0": int,
+        "under___score": int,
+    }
+    values = {
+        "_talea_instance_1": [{"one": 1, "none": None}],
+        "_talea_item_1": [1, 2],
+        "_talea_key_1": {"one": 1},
+        "_talea_matched_1": {"two": 2},
+        "_talea_best_error_1": (1, 2),
+        "_talea_error_1": 3,
+        "_talea_validation_error_1": 4,
+        "_talea_identity_index_1": [5],
+        "_talea_slot_0_1": 6,
+        "_talea_validator_0": 7,
+        "under___score": 8,
+    }
+    collision = type("Collision", (Spec,), {"__annotations__": annotations})
 
     instance = collision(**values)
+    initializer = vars(collision)["__init__"]
+    parameter_names = set(inspect.signature(initializer).parameters)
+    generated_locals = set(initializer.__code__.co_varnames) - parameter_names
 
-    assert tuple(getattr(instance, name) for name in names) == tuple(values.values())
+    assert tuple(getattr(instance, name) for name in annotations) == tuple(values.values())
+    assert not set(annotations) & generated_locals
+    assert not set(annotations) & set(initializer.__globals__)
+
+    with pytest.raises(ValidationError) as raised:
+        collision(**{**values, "_talea_instance_1": [{"wrong": "value"}]})
+
+    assert raised.value.location == ("_talea_instance_1", 0, "wrong")
+
+
+def test_inline_runtime_bindings_cannot_be_shadowed_by_fields() -> None:
+    annotations = {
+        "type": int,
+        "int": int,
+        "list": list[int],
+        "dict": dict[str, int],
+        "tuple": tuple[int, str],
+        "len": int,
+        "Exception": str,
+        "TypeError": bytes,
+        "factory": int,
+    }
+    runtime_names = type(
+        "RuntimeNames",
+        (Spec,),
+        {
+            "__annotations__": annotations,
+            "factory": field(default_factory=lambda: 9),
+        },
+    )
+    values = {
+        "type": 1,
+        "int": 2,
+        "list": [3],
+        "dict": {"four": 4},
+        "tuple": (5, "six"),
+        "len": 7,
+        "Exception": "eight",
+        "TypeError": b"nine",
+    }
+
+    instance = runtime_names(**values)
+
+    assert tuple(getattr(instance, name) for name in annotations) == (*values.values(), 9)
+
+
+def test_constructor_inlines_validation_while_standalone_validators_remain_independent() -> None:
+    class Inline(Spec):
+        identifier: int
+        label: str = "default"
+        values: list[int] = field(default_factory=lambda: [1])
+
+    artifacts = vars(Inline)["__talea_artifacts__"]
+    initializer = vars(Inline)["__init__"]
+
+    assert artifacts.validators[0](1) == 1
+    assert artifacts.validators[1]("explicit") == "explicit"
+    assert artifacts.validators[2]([2]) == [2]
+    assert not any(validator in initializer.__globals__.values() for validator in artifacts.validators)
+
+    def forbidden_validator(value: object) -> object:
+        raise AssertionError(f"constructor called standalone validator with {value!r}")
+
+    for validator in artifacts.validators:
+        validator.__code__ = forbidden_validator.__code__
+
+    omitted = Inline(identifier=1)
+    explicit = Inline(identifier=2, label="explicit", values=[3])
+
+    assert (omitted.identifier, omitted.label, omitted.values) == (1, "default", [1])
+    assert (explicit.identifier, explicit.label, explicit.values) == (2, "explicit", [3])
 
 
 @pytest.mark.parametrize(

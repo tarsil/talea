@@ -17,9 +17,11 @@ user = User(id=1, name="Tiago")
 ```
 
 Spec declarations resolve their annotations, validate static defaults, and
-compile strict validators once when the class is created. Construction is
-keyword-only, performs no coercion, and stores validated values in compact
-instance slots. Spec field bindings are immutable after construction. Talea
+compile strict standalone validators once when the class is created. The same
+validation compiler emits those operations directly into each specialized Spec
+constructor, avoiding per-field validator calls. Construction is keyword-only,
+performs no coercion, and stores validated values in compact instance slots.
+Spec field bindings are immutable after construction. Talea
 permanently trusts declarations only when their value graphs are also
 transitively immutable. Mutable defaults use a per-instance factory:
 

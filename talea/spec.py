@@ -10,7 +10,13 @@ from unicodedata import normalize
 
 from talea._declaration import MISSING_DEFAULT, SpecField, SpecSchema
 from talea.annotations import resolve_annotation
-from talea.validation import ValidationError, Validator, compile_validator
+from talea.validation import (
+    ValidationError,
+    Validator,
+    _GeneratedNames,
+    _ValidationEmitter,
+    compile_validator,
+)
 
 __all__ = ["Spec", "field"]
 
@@ -73,10 +79,9 @@ class _ConstructorCompiler:
     def compile(
         self,
         schema: SpecSchema,
-        validators: tuple[Validator, ...],
         slot_setters: tuple[Callable[[object, object], None], ...],
     ) -> FunctionType:
-        """Return an initializer that validates, then assigns, every field.
+        """Return an initializer containing inline validation and slot writes.
 
         ``slot_setters`` are bound C-level member-descriptor operations from
         the class being initialized.  Calling them after every validation has
@@ -86,31 +91,34 @@ class _ConstructorCompiler:
 
         fields = schema.fields
         field_names = tuple(field.name for field in fields)
-        reserved = set(field_names)
-        instance_name = self.variable("instance", reserved)
-        error_type_name = self.variable("validation_error", reserved)
-        field_names_name = self.variable("field_names", reserved)
-        validator_names = tuple(self.variable(f"validator_{index}", reserved) for index in range(len(field_names)))
-        error_names = tuple(self.variable(f"error_{index}", reserved) for index in range(len(field_names)))
-        slot_setter_names = tuple(self.variable(f"slot_{index}", reserved) for index in range(len(field_names)))
+        names = _GeneratedNames(field_names)
+        instance_name = names.allocate("instance")
         if all(field.required for field in fields):
             default_names: dict[int, str] = {}
             factory_names: dict[int, str] = {}
         else:
             default_names = {
-                index: self.variable(f"default_{index}", reserved)
+                index: names.allocate(f"default_{index}")
                 for index, field in enumerate(fields)
                 if field.has_static_default
             }
             factory_names = {
-                index: self.variable(f"factory_{index}", reserved)
+                index: names.allocate(f"factory_{index}")
                 for index, field in enumerate(fields)
                 if field.default_factory is not None
             }
-        factory_sentinel_name = self.variable("factory_sentinel", reserved) if factory_names else ""
+        factory_sentinel_name = names.allocate("factory_sentinel") if factory_names else ""
+        exception_type_name = names.allocate("exception_type") if factory_names else ""
+        type_error_name = names.allocate("type_error") if factory_names else ""
+        slot_setter_names: tuple[str, ...] = ()
+        namespace: dict[str, object]
         if not field_names:
             source = f"def __init__({instance_name}):\n    pass"
+            namespace = {"__name__": __name__}
         else:
+            field_names_name = names.allocate("field_names")
+            factory_error_names = {index: names.allocate(f"factory_error_{index}") for index in factory_names}
+            slot_setter_names = tuple(names.allocate(f"slot_{index}") for index in range(len(field_names)))
             parameters = []
             for index, field in enumerate(fields):
                 if field.required:
@@ -120,51 +128,40 @@ class _ConstructorCompiler:
                 else:
                     parameters.append(f"{field.name}={factory_sentinel_name}")
             lines = [f"def __init__({instance_name}, *, {', '.join(parameters)}):"]
+            namespace = {field_names_name: field_names, "__name__": __name__}
+            emitter = _ValidationEmitter(lines, names, namespace)
             for index, field in enumerate(fields):
                 field_name = field.name
-                validator_name = validator_names[index]
-                error_name = error_names[index]
                 if field.default_factory is not None:
                     factory_name = factory_names[index]
+                    error_name = factory_error_names[index]
                     lines.extend(
                         (
                             f"    if {field_name} is {factory_sentinel_name}:",
                             "        try:",
                             f"            {field_name} = {factory_name}()",
-                            f"        except Exception as {error_name}:",
-                            f'            raise TypeError("default factory for field '
+                            f"        except {exception_type_name} as {error_name}:",
+                            f'            raise {type_error_name}("default factory for field '
                             f"'{field_name}' failed\") from {error_name}",
                         )
                     )
                 elif field.has_static_default:
                     lines.append(f"    if {field_name} is not {default_names[index]}:")
-                indentation = "        " if field.has_static_default else "    "
-                lines.extend(
-                    (
-                        f"{indentation}try:",
-                        f"{indentation}    {validator_name}({field_name})",
-                        f"{indentation}except {error_type_name} as {error_name}:",
-                        f"{indentation}    raise {error_type_name}(",
-                        f"{indentation}        {error_name}.expected,",
-                        f"{indentation}        {error_name}.value,",
-                        f"{indentation}        ({field_names_name}[{index}], *{error_name}.location),",
-                        f"{indentation}    ) from None",
-                    )
+                emitter.emit_schema(
+                    field.schema,
+                    field_name,
+                    (f"{field_names_name}[{index}]",),
+                    2 if field.has_static_default else 1,
                 )
             for field_name, slot_setter_name in zip(field_names, slot_setter_names, strict=True):
                 lines.append(f"    {slot_setter_name}({instance_name}, {field_name})")
             source = "\n".join(lines)
 
-        namespace: dict[str, object] = {
-            error_type_name: ValidationError,
-            field_names_name: field_names,
-            "__name__": __name__,
-        }
         if factory_names:
             namespace[factory_sentinel_name] = _FACTORY_SENTINEL
-        for index, (validator_name, validator) in enumerate(zip(validator_names, validators, strict=True)):
-            namespace[validator_name] = validator
-            field = fields[index]
+            namespace[exception_type_name] = Exception
+            namespace[type_error_name] = TypeError
+        for index, field in enumerate(fields):
             if field.has_static_default:
                 namespace[default_names[index]] = field.default
             if field.default_factory is not None:
@@ -173,16 +170,6 @@ class _ConstructorCompiler:
             namespace[slot_setter_name] = slot_setter
         exec(compile(source, "<talea Spec constructor>", "exec"), namespace)
         return cast(FunctionType, namespace["__init__"])
-
-    @staticmethod
-    def variable(purpose: str, reserved: set[str]) -> str:
-        """Reserve a compiler-owned identifier that cannot shadow a field."""
-
-        candidate = f"_talea_{purpose}"
-        while candidate in reserved:
-            candidate += "_"
-        reserved.add(candidate)
-        return candidate
 
 
 @dataclass_transform(kw_only_default=True, frozen_default=True, field_specifiers=(field,))
@@ -245,7 +232,7 @@ class _SpecMeta(type):
         if declarations:
             metaclass._validate_static_defaults(schema, validators)
         slot_setters = tuple(cast(MemberDescriptorType, vars(cls)[field.name]).__set__ for field in schema.fields)
-        initializer = _ConstructorCompiler().compile(schema, validators, slot_setters)
+        initializer = _ConstructorCompiler().compile(schema, slot_setters)
         initializer.__module__ = cls.__module__
         initializer.__qualname__ = f"{cls.__qualname__}.__init__"
         initializer.__doc__ = "Validate and retain every declared field."
@@ -338,9 +325,10 @@ class Spec(metaclass=_SpecMeta):
 
     Subclasses declare required fields with supported Python annotations.  At
     class creation Talea resolves those annotations into canonical schemas,
-    compiles one validator per field, and compiles a keyword-only constructor.
-    Repeated construction performs no annotation reflection, schema traversal,
-    or validator compilation.
+    compiles one standalone validator per field, and emits those same validation
+    operations directly into a keyword-only constructor.  Repeated construction
+    performs no annotation reflection, schema traversal, validator calls, or
+    compilation.
 
     Construction accepts every declared field exactly once by keyword.  A
     direct assignment provides a validated immutable static default;

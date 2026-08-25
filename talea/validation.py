@@ -1,12 +1,13 @@
-"""Compile canonical Talea schemas into strict Python validators.
+"""Emit strict validation operations from canonical Talea schemas.
 
 Compilation is the only point where this module traverses ``Schema`` values.
-The returned function contains inlined type checks and container loops; it
-retains neither the source schema nor the annotation that produced it.  A
-successful call returns its input unchanged and creates no error metadata.
+One internal emitter supplies both standalone validators and specialized Spec
+constructors.  Generated functions retain neither the source schema nor the
+annotation that produced it, and successful validation creates no error
+metadata.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import assert_never, cast
 
 from talea.schema import (
@@ -70,38 +71,41 @@ def _identity_index(sequence: list[object] | tuple[object, ...], item: object) -
     raise RuntimeError("validated sequence changed during validation")
 
 
-class _ValidatorCompiler:
-    """Emit one self-contained validator from canonical schema structure."""
+class _GeneratedNames:
+    """Allocate deterministic compiler-owned names within one generated unit."""
 
-    _primitive_types = {
-        "int": "int",
-        "float": "float",
-        "str": "str",
-        "bool": "bool",
-        "bytes": "bytes",
-    }
-    _sequence_types = {"list": "list", "set": "set", "frozenset": "frozenset"}
+    __slots__ = ("counters", "reserved")
+
+    def __init__(self, reserved: Iterable[str] = ()) -> None:
+        self.counters: dict[str, int] = {}
+        self.reserved = set(reserved)
+
+    def allocate(self, purpose: str) -> str:
+        """Return a unique identifier disjoint from user and compiler names."""
+
+        index = self.counters.get(purpose, 0)
+        while True:
+            index += 1
+            candidate = f"_talea_{purpose}_{index}"
+            if candidate not in self.reserved:
+                self.counters[purpose] = index
+                self.reserved.add(candidate)
+                return candidate
+
+
+class _ValidationEmitter:
+    """Own Schema-to-validation operation emission for every compilation target."""
+
+    _primitive_types = {"int": int, "float": float, "str": str, "bool": bool, "bytes": bytes}
+    _sequence_types = {"list": list, "set": set, "frozenset": frozenset}
     _primitive_order = {"int": 0, "float": 1, "str": 2, "bool": 3, "bytes": 4, "none": 5}
 
-    def __init__(self) -> None:
-        self.lines = ["def validate(value):"]
-        self.counter = 0
-
-    def compile(self, schema: Schema) -> Validator:
-        """Compile ``schema`` and return its single-argument validation function."""
-
-        self.emit_schema(schema, "value", (), 1)
-        self.emit(1, "return value")
-        source = "\n".join(self.lines)
-        namespace: dict[str, object] = {
-            "ValidationError": ValidationError,
-            "_identity_index": _identity_index,
-            "__name__": __name__,
-        }
-        exec(compile(source, "<talea validator>", "exec"), namespace)
-        validator = cast(Validator, namespace["validate"])
-        validator.__doc__ = "Validate one existing Python value strictly and return that same object on success."
-        return validator
+    def __init__(self, lines: list[str], names: _GeneratedNames, namespace: dict[str, object]) -> None:
+        self.lines = lines
+        self.names = names
+        self.namespace = namespace
+        self.runtime_names: dict[str, str] = {}
+        self.validation_error_name = self.runtime("validation_error", ValidationError)
 
     def emit_schema(
         self,
@@ -144,7 +148,9 @@ class _ValidatorCompiler:
         if schema.kind == "none":
             condition = f"{value} is not None"
         else:
-            condition = f"type({value}) is not {self._primitive_types[schema.kind]}"
+            type_name = self.runtime("type", type)
+            expected_type = self.runtime(schema.kind, self._primitive_types[schema.kind])
+            condition = f"{type_name}({value}) is not {expected_type}"
         self.emit(indentation, f"if {condition}:")
         self.emit_failure(schema, value, location, indentation + 1)
 
@@ -157,13 +163,14 @@ class _ValidatorCompiler:
     ) -> None:
         """Emit an exact list, set, or frozenset check and its member loop."""
 
-        sequence_type = self._sequence_types[schema.kind]
-        self.emit(indentation, f"if type({value}) is not {sequence_type}:")
+        type_name = self.runtime("type", type)
+        sequence_type = self.runtime(schema.kind, self._sequence_types[schema.kind])
+        self.emit(indentation, f"if {type_name}({value}) is not {sequence_type}:")
         self.emit_failure(schema, value, location, indentation + 1)
         item = self.variable("item")
         self.emit(indentation, f"for {item} in {value}:")
         if schema.kind == "list":
-            segment = f"_identity_index({value}, {item})"
+            segment = f"{self.identity_index()}({value}, {item})"
         else:
             segment = item
         self.emit_schema(schema.item, item, (*location, segment), indentation + 1)
@@ -177,7 +184,9 @@ class _ValidatorCompiler:
     ) -> None:
         """Emit an exact dictionary check with independently compiled keys and values."""
 
-        self.emit(indentation, f"if type({value}) is not dict:")
+        type_name = self.runtime("type", type)
+        dictionary_type = self.runtime("dict", dict)
+        self.emit(indentation, f"if {type_name}({value}) is not {dictionary_type}:")
         self.emit_failure(schema, value, location, indentation + 1)
         key = self.variable("key")
         item = self.variable("item")
@@ -195,11 +204,13 @@ class _ValidatorCompiler:
     ) -> None:
         """Emit an exact tuple check and homogeneous member loop."""
 
-        self.emit(indentation, f"if type({value}) is not tuple:")
+        type_name = self.runtime("type", type)
+        tuple_type = self.runtime("tuple", tuple)
+        self.emit(indentation, f"if {type_name}({value}) is not {tuple_type}:")
         self.emit_failure(schema, value, location, indentation + 1)
         item = self.variable("item")
         self.emit(indentation, f"for {item} in {value}:")
-        segment = f"_identity_index({value}, {item})"
+        segment = f"{self.identity_index()}({value}, {item})"
         self.emit_schema(schema.item, item, (*location, segment), indentation + 1)
 
     def emit_fixed_tuple(
@@ -211,9 +222,12 @@ class _ValidatorCompiler:
     ) -> None:
         """Emit exact tuple type and length checks followed by positional checks."""
 
+        type_name = self.runtime("type", type)
+        tuple_type = self.runtime("tuple", tuple)
+        length = self.runtime("len", len)
         self.emit(
             indentation,
-            f"if type({value}) is not tuple or len({value}) != {len(schema.items)}:",
+            f"if {type_name}({value}) is not {tuple_type} or {length}({value}) != {len(schema.items)}:",
         )
         self.emit_failure(schema, value, location, indentation + 1)
         for index, item_schema in enumerate(schema.items):
@@ -238,6 +252,7 @@ class _ValidatorCompiler:
 
         matched = self.variable("matched")
         best = self.variable("best_error")
+        length = self.runtime("len", len)
         self.emit(indentation, f"{matched} = False")
         self.emit(indentation, f"{best} = None")
         for option in options:
@@ -246,10 +261,10 @@ class _ValidatorCompiler:
             self.emit(indentation, f"if not {matched} and ({condition}):")
             self.emit(indentation + 1, "try:")
             self.emit_schema(option, value, location, indentation + 2)
-            self.emit(indentation + 1, f"except ValidationError as {error}:")
+            self.emit(indentation + 1, f"except {self.validation_error_name} as {error}:")
             self.emit(
                 indentation + 2,
-                f"if {best} is None or len({error}.location) > len({best}.location):",
+                f"if {best} is None or {length}({error}.location) > {length}({best}.location):",
             )
             self.emit(indentation + 3, f"{best} = {error}")
             self.emit(indentation + 1, "else:")
@@ -257,7 +272,7 @@ class _ValidatorCompiler:
         self.emit(indentation, f"if not {matched}:")
         self.emit(
             indentation + 1,
-            f"if {best} is None or len({best}.location) == {len(location)}:",
+            f"if {best} is None or {length}({best}.location) == {len(location)}:",
         )
         self.emit_failure(schema, value, location, indentation + 2)
         self.emit(indentation + 1, f"raise {best} from None")
@@ -275,7 +290,7 @@ class _ValidatorCompiler:
         location_expression = f"({', '.join(location)},)" if location else "()"
         self.emit(
             indentation,
-            f"raise ValidationError({expected!r}, {value}, {location_expression}) from None",
+            f"raise {self.validation_error_name}({expected!r}, {value}, {location_expression}) from None",
         )
 
     def primitive_failure_condition(self, schema: PrimitiveSchema, value: str) -> str:
@@ -283,7 +298,9 @@ class _ValidatorCompiler:
 
         if schema.kind == "none":
             return f"{value} is not None"
-        return f"type({value}) is not {self._primitive_types[schema.kind]}"
+        type_name = self.runtime("type", type)
+        expected_type = self.runtime(schema.kind, self._primitive_types[schema.kind])
+        return f"{type_name}({value}) is not {expected_type}"
 
     def top_level_condition(self, schema: Schema, value: str) -> str:
         """Return source that selects structurally plausible union alternatives."""
@@ -291,13 +308,21 @@ class _ValidatorCompiler:
         if isinstance(schema, PrimitiveSchema):
             if schema.kind == "none":
                 return f"{value} is None"
-            return f"type({value}) is {self._primitive_types[schema.kind]}"
+            type_name = self.runtime("type", type)
+            expected_type = self.runtime(schema.kind, self._primitive_types[schema.kind])
+            return f"{type_name}({value}) is {expected_type}"
         if isinstance(schema, SequenceSchema):
-            return f"type({value}) is {self._sequence_types[schema.kind]}"
+            type_name = self.runtime("type", type)
+            sequence_type = self.runtime(schema.kind, self._sequence_types[schema.kind])
+            return f"{type_name}({value}) is {sequence_type}"
         if isinstance(schema, MappingSchema):
-            return f"type({value}) is dict"
+            type_name = self.runtime("type", type)
+            dictionary_type = self.runtime("dict", dict)
+            return f"{type_name}({value}) is {dictionary_type}"
         if isinstance(schema, (VariadicTupleSchema, FixedTupleSchema)):
-            return f"type({value}) is tuple"
+            type_name = self.runtime("type", type)
+            tuple_type = self.runtime("tuple", tuple)
+            return f"{type_name}({value}) is {tuple_type}"
         if isinstance(schema, UnionSchema):
             conditions = (
                 self.top_level_condition(option, value) for option in sorted(schema.options, key=self.order_key)
@@ -332,13 +357,51 @@ class _ValidatorCompiler:
     def variable(self, purpose: str) -> str:
         """Return a unique generated local name."""
 
-        self.counter += 1
-        return f"_{purpose}_{self.counter}"
+        return self.names.allocate(purpose)
+
+    def identity_index(self) -> str:
+        """Bind the sequence failure locator only for schemas that need it."""
+
+        return self.runtime("identity_index", _identity_index)
+
+    def runtime(self, purpose: str, value: object) -> str:
+        """Return one stable compiler-owned binding for a runtime operation."""
+
+        name = self.runtime_names.get(purpose)
+        if name is None:
+            name = self.bind(purpose, value)
+            self.runtime_names[purpose] = name
+        return name
+
+    def bind(self, purpose: str, value: object) -> str:
+        """Retain one runtime object behind a compiler-controlled global name."""
+
+        name = self.names.allocate(purpose)
+        self.namespace[name] = value
+        return name
 
     def emit(self, indentation: int, statement: str) -> None:
         """Append one generated statement at the requested indentation."""
 
         self.lines.append(f"{'    ' * indentation}{statement}")
+
+
+class _ValidatorCompiler:
+    """Wrap shared validation emission in a standalone one-argument function."""
+
+    def compile(self, schema: Schema) -> Validator:
+        """Compile ``schema`` and return its single-argument validation function."""
+
+        lines = ["def validate(value):"]
+        namespace: dict[str, object] = {"__name__": __name__}
+        emitter = _ValidationEmitter(lines, _GeneratedNames(("value",)), namespace)
+        emitter.emit_schema(schema, "value", (), 1)
+        emitter.emit(1, "return value")
+        source = "\n".join(lines)
+        exec(compile(source, "<talea validator>", "exec"), namespace)
+        validator = cast(Validator, namespace["validate"])
+        validator.__doc__ = "Validate one existing Python value strictly and return that same object on success."
+        return validator
 
 
 def compile_validator(schema: Schema) -> Validator:
