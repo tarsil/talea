@@ -56,6 +56,8 @@ one state-bearing Spec slot lineage; method-only mixins must declare
 Parsing and serialization are not implemented yet.
 
 The canonical schema foundation covers built-in scalar types, homogeneous
-built-in containers, dictionaries, fixed and variadic tuples, and PEP 604
-unions composed from those forms. Schema and validator compiler internals are
-not exported from the root `talea` package.
+built-in containers, dictionaries, fixed and variadic tuples, PEP 604 unions,
+Literal, enums, UUIDs, dates and times, Decimal, pathlib paths, and IP address
+families. `Annotated` carries Talea's immutable numeric, length, and pattern
+constraints. Schema and validator compiler internals are not exported from the
+root `talea` package.

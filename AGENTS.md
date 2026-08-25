@@ -20,6 +20,9 @@ agent working in this repository.
 
 Talea targets Python 3.14 and newer.
 
+Production code remains 100% Python. Native extensions are not an accepted
+substitute for sound Python architecture or equivalent semantics.
+
 Do not introduce compatibility code for older Python versions.
 
 Use modern Python 3.14 syntax, typing features, and standard-library
@@ -129,6 +132,10 @@ than recreate competing schema interpretations.
 
 Do not duplicate validation rules across subsystems.
 
+One shared validation-emission owner must supply standalone validators and
+inline Spec constructors. Execution targets must not recreate type or
+constraint semantics independently.
+
 ---
 
 ## Core Architectural Invariants
@@ -150,6 +157,10 @@ that do not use them.
 
 Adding support for an unrelated feature must not materially slow simple
 models.
+
+Accepted hot paths should remain near equivalent hand-written strict Python.
+A material regression requires measurement, diagnosis, and repair or an
+evidence-backed maintainer decision.
 
 Successful validation should not pay the full cost of rich failure
 reporting.
@@ -264,6 +275,10 @@ Do not split cohesive code merely to meet arbitrary line-count limits.
 
 Package structure must reflect architectural ownership.
 
+Evolve cohesive domain packages when independent owners create distinct
+reasons to change. Do not preserve flat mega-modules merely to avoid a
+behavior-preserving migration.
+
 ---
 
 ## Functions
@@ -352,11 +367,9 @@ between competing representations.
 
 ## Dependencies
 
-Keep Talea's runtime dependency surface extremely small.
-
-The default preference for the core package is no required third-party
-runtime dependencies unless a dependency provides a compelling,
-measured advantage that would be unreasonable to reproduce.
+Talea's core runtime dependency list is empty. Do not add a required
+third-party runtime dependency without an explicit maintainer-approved change
+to this permanent product constraint.
 
 Development and testing dependencies are separate from runtime
 dependencies.
@@ -400,6 +413,10 @@ implementation.
 
 Type-checking failures are release blockers.
 
+Inheritance is a production requirement. Type, constraint, lifecycle, trust,
+and generated-constructor changes must preserve documented inheritance and
+override behaviour.
+
 ---
 
 ## Tests
@@ -417,6 +434,9 @@ Avoid repetitive tests that assert the same behaviour through trivial
 variations.
 
 Bug fixes require regression tests whenever practical.
+
+Line coverage is enforced at 100%. Coverage failures are release blockers;
+do not hide untested production paths with broad exclusions.
 
 Tests should validate behaviour rather than implementation details unless
 the implementation detail represents an architectural invariant.
@@ -653,6 +673,19 @@ Do not generate large speculative documentation trees before the
 corresponding architecture exists.
 
 Examples should be executable or tested where practical.
+
+Documentation depth, organization, navigability, production examples, and
+edge-case coverage are production release gates. Do not call Talea
+production-ready while its documentation remains implementation-note level.
+
+---
+
+## Requirements Convergence
+
+Before production acceptance, audit every deliberately discussed or deferred
+requirement. Each must map to implementation, tests, documentation, and
+performance or other evidence where relevant, or to an explicit
+maintainer-approved decision not to implement it.
 
 ---
 

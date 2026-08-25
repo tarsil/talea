@@ -4,6 +4,13 @@
 
 ### Added
 
+- Campaign 6 strict support for Literal, enums, UUID, temporal values, Decimal,
+  pathlib paths, and IPv4/IPv6 address, network, and interface families.
+- Immutable `Gt`, `Ge`, `Lt`, `Le`, `MultipleOf`, `MinLength`, `MaxLength`, and
+  `Pattern` declarations carried by `Annotated` and compiled into specialized
+  checks.
+- Early constraint applicability, normalization, contradiction detection, and
+  constrained-field covariance.
 - Added `talea.Spec` with required keyword-only fields, strict construction,
   compact slots, compile-once declaration processing, and field-aware errors.
 - Added validated static defaults, `field(default_factory=...)`, mutable-default
