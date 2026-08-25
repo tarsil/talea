@@ -38,6 +38,10 @@ attributes directly and uses the same compiled validation semantics as ordinary
 fields. It does not reconstruct the nested object, interpret field metadata, or
 recompile at runtime.
 
+Current-state validation also runs the referenced contract's field and
+cross-field custom checks. Inbound transforms are not current-state validators
+and never run against a retained nested object.
+
 A mutable nested Spec therefore succeeds while its current state is valid and
 fails after normal container mutation makes that state invalid. The containing
 declaration remains classified as not permanently trusted even after successful
@@ -128,3 +132,7 @@ Python's MRO selects inherited behavior. The effective field declaration is
 merged in declared-base order, with the first inherited occurrence owning a
 same-name field and local overrides taking precedence. Diamond fields retain a
 single slot and a single canonical field entry.
+
+Custom validation hooks use their method names as override identity and follow
+the same base-first effective ordering. See
+[Custom validation](custom-validation.md) for replacement and shadowing rules.

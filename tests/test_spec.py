@@ -46,12 +46,15 @@ def test_root_package_exports_only_the_deliberate_public_api() -> None:
         "MultipleOf",
         "Pattern",
         "Spec",
+        "check",
         "field",
+        "transform",
     ]
     assert talea.Spec is Spec
     assert talea.field is field
     assert not hasattr(talea, "SpecSchema")
     assert not hasattr(talea, "compile_validator")
+    assert not hasattr(talea, "CustomValidationError")
     assert not hasattr(talea, "ValidationError")
 
 

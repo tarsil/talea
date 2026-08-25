@@ -1,11 +1,12 @@
 """Compile one flat specialized constructor from effective Spec truth."""
 
 from collections.abc import Callable
+from inspect import signature
 from types import FunctionType
 from typing import cast
 
 from talea.declaration.models import SpecSchema
-from talea.spec.fields import FACTORY_SENTINEL
+from talea.spec.fields import FACTORY_SENTINEL, _StaticDefaultSentinel
 from talea.validation.emission import _GeneratedNames, _ValidationEmitter
 
 
@@ -26,6 +27,24 @@ class _ConstructorCompiler:
 
         fields = schema.fields
         field_names = tuple(field.name for field in fields)
+        if schema.hooks:
+            transforms_by_field = {
+                field.name: tuple(
+                    hook for hook in schema.hooks if hook.kind == "transform" and hook.fields == (field.name,)
+                )
+                for field in fields
+            }
+            checks_by_field = {
+                field.name: tuple(
+                    hook for hook in schema.hooks if hook.kind == "check" and hook.fields == (field.name,)
+                )
+                for field in fields
+            }
+            spec_checks = tuple(hook for hook in schema.hooks if hook.kind == "check" and len(hook.fields) > 1)
+        else:
+            transforms_by_field = {}
+            checks_by_field = {}
+            spec_checks = ()
         names = _GeneratedNames(field_names)
         instance_name = names.allocate("instance")
         if all(field.required for field in fields):
@@ -43,6 +62,11 @@ class _ConstructorCompiler:
                 if field.default_factory is not None
             }
         factory_sentinel_name = names.allocate("factory_sentinel") if factory_names else ""
+        static_sentinel_names = {
+            index: names.allocate(f"static_sentinel_{index}")
+            for index, field in enumerate(fields)
+            if field.has_static_default and transforms_by_field.get(field.name)
+        }
         exception_type_name = names.allocate("exception_type") if factory_names else ""
         type_error_name = names.allocate("type_error") if factory_names else ""
         slot_setter_names: tuple[str, ...] = ()
@@ -59,7 +83,8 @@ class _ConstructorCompiler:
                 if field.required:
                     parameters.append(field.name)
                 elif field.has_static_default:
-                    parameters.append(f"{field.name}={default_names[index]}")
+                    parameter_default = static_sentinel_names.get(index, default_names[index])
+                    parameters.append(f"{field.name}={parameter_default}")
                 else:
                     parameters.append(f"{field.name}={factory_sentinel_name}")
             lines = [f"def __init__({instance_name}, *, {', '.join(parameters)}):"]
@@ -67,6 +92,9 @@ class _ConstructorCompiler:
             emitter = _ValidationEmitter(lines, names, namespace)
             for index, field in enumerate(fields):
                 field_name = field.name
+                transforms = transforms_by_field.get(field_name, ())
+                checks = checks_by_field.get(field_name, ())
+                indentation = 1
                 if field.default_factory is not None:
                     factory_name = factory_names[index]
                     error_name = factory_error_names[index]
@@ -81,12 +109,44 @@ class _ConstructorCompiler:
                         )
                     )
                 elif field.has_static_default:
-                    lines.append(f"    if {field_name} is not {default_names[index]}:")
+                    if transforms:
+                        lines.extend(
+                            (
+                                f"    if {field_name} is {static_sentinel_names[index]}:",
+                                f"        {field_name} = {default_names[index]}",
+                                "    else:",
+                            )
+                        )
+                    else:
+                        lines.append(f"    if {field_name} is not {default_names[index]}:")
+                    indentation = 2
+                for hook in transforms:
+                    emitter.emit_transform(
+                        hook,
+                        field_name,
+                        (f"{field_names_name}[{index}]",),
+                        indentation,
+                    )
                 emitter.emit_schema(
                     field.schema,
                     field_name,
                     (f"{field_names_name}[{index}]",),
-                    2 if field.has_static_default else 1,
+                    indentation,
+                )
+                for hook in checks:
+                    emitter.emit_check(
+                        hook,
+                        (field_name,),
+                        (((f"{field_names_name}[{index}]"),),),
+                        indentation,
+                    )
+            field_indices = {field.name: index for index, field in enumerate(fields)}
+            for hook in spec_checks:
+                emitter.emit_check(
+                    hook,
+                    hook.fields,
+                    tuple((f"{field_names_name}[{field_indices[name]}]",) for name in hook.fields),
+                    1,
                 )
             for field_name, slot_setter_name in zip(field_names, slot_setter_names, strict=True):
                 lines.append(f"    {slot_setter_name}({instance_name}, {field_name})")
@@ -99,9 +159,28 @@ class _ConstructorCompiler:
         for index, field in enumerate(fields):
             if field.has_static_default:
                 namespace[default_names[index]] = field.default
+                if index in static_sentinel_names:
+                    namespace[static_sentinel_names[index]] = _StaticDefaultSentinel(field.default)
             if field.default_factory is not None:
                 namespace[factory_names[index]] = field.default_factory
         for slot_setter_name, slot_setter in zip(slot_setter_names, slot_setters, strict=True):
             namespace[slot_setter_name] = slot_setter
         exec(compile(source, "<talea Spec constructor>", "exec"), namespace)
-        return cast(FunctionType, namespace["__init__"])
+        initializer = cast(FunctionType, namespace["__init__"])
+        if static_sentinel_names:
+            public_defaults = {fields[index].name: fields[index].default for index in static_sentinel_names}
+            declared_signature = signature(initializer)
+            signature_attribute = "__signature__"
+            setattr(
+                initializer,
+                signature_attribute,
+                declared_signature.replace(
+                    parameters=tuple(
+                        parameter.replace(default=public_defaults[parameter.name])
+                        if parameter.name in public_defaults
+                        else parameter
+                        for parameter in declared_signature.parameters.values()
+                    )
+                ),
+            )
+        return initializer

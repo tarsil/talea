@@ -43,3 +43,15 @@ class _FactorySentinel:
 
 
 FACTORY_SENTINEL = _FactorySentinel()
+
+
+class _StaticDefaultSentinel:
+    """Distinguish an omitted hooked default while preserving its signature text."""
+
+    __slots__ = ("default",)
+
+    def __init__(self, default: object) -> None:
+        self.default = default
+
+    def __repr__(self) -> str:
+        return repr(self.default)

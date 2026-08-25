@@ -4,6 +4,13 @@
 
 ### Added
 
+- Explicit `transform` declarations for inbound field conversion before normal
+  strict structural validation.
+- Post-structural `check` declarations for field assertions and atomic
+  cross-field invariants, including deterministic inheritance and override
+  semantics.
+- Custom failure transport and specialized current-state revalidation of nested
+  mutable Spec invariants.
 - Campaign 6 strict support for Literal, enums, UUID, temporal values, Decimal,
   pathlib paths, and IPv4/IPv6 address, network, and interface families.
 - Immutable `Gt`, `Ge`, `Lt`, `Le`, `MultipleOf`, `MinLength`, `MaxLength`, and

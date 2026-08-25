@@ -28,9 +28,10 @@ event = Event(
 )
 ```
 
-Passing the UUID or datetime as a string raises `ValidationError`. Parsing and
-coercion will belong to an explicit future input boundary, not strict
-construction.
+Passing the UUID or datetime as a string raises `ValidationError` unless that
+specific field declares an explicit inbound `transform`. Talea provides no
+global coercion policy. General serialized-format parsing remains a separate
+future input boundary.
 
 ## Type families
 

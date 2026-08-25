@@ -47,6 +47,12 @@ construction does not call a Python validator function per field. A factory
 exception is re-raised through a `TypeError` naming the field, with the original
 exception retained as its cause.
 
+When a field declares an inbound `transform`, factory output runs that
+transformation before structural validation. Static defaults do not run
+transforms; they must already be valid developer-provided Python values. Both
+static defaults and factory results must satisfy declared field `check`
+callbacks. See [Custom validation](custom-validation.md).
+
 ## Immutability and validated trust
 
 Spec field bindings are immutable after construction. Assignment and deletion
@@ -87,7 +93,7 @@ is intentionally not implemented now.
 ## Canonical ownership
 
 The immutable ordered `SpecSchema` owns each field's name, resolved schema,
-required, static-default, or factory state, and the derived permanent-trust
-classification. Generated constructors and future projections consume that
-retained declaration truth. Instances contain only their field values and never
-reconstruct lifecycle semantics from annotations.
+required, static-default, or factory state, effective custom-hook order, and the
+derived permanent-trust classification. Generated constructors and future
+projections consume that retained declaration truth. Instances contain only
+their field values and never reconstruct lifecycle semantics from annotations.

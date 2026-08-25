@@ -47,6 +47,31 @@ class Basket(Spec):
     items: list[int] = field(default_factory=list)
 ```
 
+Applications can explicitly transform inbound field values before strict
+validation and assert field or cross-field invariants afterward:
+
+```python
+from talea import check, transform
+
+
+class Interval(Spec):
+    start: int
+    end: int
+
+    @transform("start")
+    def parse_start(value: object) -> object:
+        return int(value) if isinstance(value, str) else value
+
+    @check("start", "end")
+    def ordered(start: int, end: int) -> None:
+        if end < start:
+            raise ValueError("invalid interval")
+```
+
+Transforms do not weaken unhooked fields and cannot bypass the canonical
+schema. Checks run before immutable slot commitment. Async and serialization
+hooks are intentionally outside this synchronous inbound lifecycle.
+
 Subclass fields follow inherited fields, while an override keeps its inherited
 position. Each subclass has one flat keyword-only constructor for its complete
 effective declaration. Compact multiple inheritance is available when there is

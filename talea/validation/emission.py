@@ -14,7 +14,7 @@ from math import isclose, isfinite, remainder
 from typing import assert_never, cast
 
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
-from talea.declaration.models import SpecSchema
+from talea.declaration.models import SpecSchema, ValidationHook
 from talea.schema.nodes import (
     ConstrainedSchema,
     EnumSchema,
@@ -30,7 +30,7 @@ from talea.schema.nodes import (
     UnionSchema,
     VariadicTupleSchema,
 )
-from talea.validation.errors import ValidationError
+from talea.validation.errors import CustomValidationError, ValidationError
 
 
 def _identity_index(sequence: list[object] | tuple[object, ...], item: object) -> int:
@@ -144,12 +144,95 @@ class _ValidationEmitter:
             return
         field_names = self.bind("spec_field_names", tuple(field.name for field in declaration.fields))
         for index, field in enumerate(declaration.fields):
+            nested_value = f"{value}.{field.name}"
             self.emit_schema(
                 field.schema,
-                f"{value}.{field.name}",
+                nested_value,
                 (*location, f"{field_names}[{index}]"),
                 indentation,
             )
+            for hook in declaration.hooks:
+                if hook.kind == "check" and hook.fields == (field.name,):
+                    self.emit_check(
+                        hook,
+                        (nested_value,),
+                        ((*location, f"{field_names}[{index}]"),),
+                        indentation,
+                    )
+        for hook in declaration.hooks:
+            if hook.kind == "check" and len(hook.fields) > 1:
+                indices = tuple(
+                    next(index for index, field in enumerate(declaration.fields) if field.name == name)
+                    for name in hook.fields
+                )
+                self.emit_check(
+                    hook,
+                    tuple(f"{value}.{name}" for name in hook.fields),
+                    tuple((*location, f"{field_names}[{index}]") for index in indices),
+                    indentation,
+                )
+
+    def emit_transform(
+        self,
+        hook: ValidationHook,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Emit one direct inbound callback and narrow failure translation."""
+
+        callback = self.bind("transform", hook.function)
+        error = self.variable("hook_error")
+        value_error = self.runtime("value_error", ValueError)
+        self.emit(indentation, "try:")
+        self.emit(indentation + 1, f"{value} = {callback}({value})")
+        self.emit(indentation, f"except {value_error} as {error}:")
+        self.emit_hook_failure("transform", hook, value, (location,), error, indentation + 1)
+
+    def emit_check(
+        self,
+        hook: ValidationHook,
+        values: tuple[str, ...],
+        locations: tuple[tuple[str, ...], ...],
+        indentation: int,
+    ) -> None:
+        """Emit one direct assertion callback without retaining its result."""
+
+        callback = self.bind("check", hook.function)
+        error = self.variable("hook_error")
+        result = self.variable("check_result")
+        value_error = self.runtime("value_error", ValueError)
+        type_error = self.runtime("type_error", TypeError)
+        hook_name = self.bind("hook_name", hook.name)
+        arguments = ", ".join(values)
+        rejected = values[0] if len(values) == 1 else f"({arguments},)"
+        stage = "field_check" if len(values) == 1 else "spec_check"
+        self.emit(indentation, "try:")
+        self.emit(indentation + 1, f"{result} = {callback}({arguments})")
+        self.emit(indentation, f"except {value_error} as {error}:")
+        self.emit_hook_failure(stage, hook, rejected, locations, error, indentation + 1)
+        self.emit(indentation, f"if {result} is not None:")
+        self.emit(indentation + 1, f'raise {type_error}(f"validation check {{{hook_name}!r}} must return None")')
+
+    def emit_hook_failure(
+        self,
+        stage: str,
+        hook: ValidationHook,
+        value: str,
+        locations: tuple[tuple[str, ...], ...],
+        error: str,
+        indentation: int,
+    ) -> None:
+        """Emit custom failure transport only inside a callback failure path."""
+
+        custom_error = self.runtime("custom_validation_error", CustomValidationError)
+        hook_name = self.bind("hook_name", hook.name)
+        location_expressions = ", ".join(self.location_expression(location) for location in locations)
+        locations_expression = f"({location_expressions},)"
+        self.emit(
+            indentation,
+            f"raise {custom_error}({stage!r}, {hook_name}, {value}, {locations_expression}) from {error}",
+        )
 
     def emit_primitive(
         self,
@@ -365,11 +448,17 @@ class _ValidationEmitter:
         """Emit failure construction, including lazy location expressions."""
 
         expected = self.describe(schema) if expected is None else expected
-        location_expression = f"({', '.join(location)},)" if location else "()"
+        location_expression = self.location_expression(location)
         self.emit(
             indentation,
             f"raise {self.validation_error_name}({expected!r}, {value}, {location_expression}, {code!r}) from None",
         )
+
+    @staticmethod
+    def location_expression(location: tuple[str, ...]) -> str:
+        """Return generated source for one lazy root-relative location."""
+
+        return f"({', '.join(location)},)" if location else "()"
 
     def emit_constraints(
         self,

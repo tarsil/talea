@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from talea import Ge, Spec, field
+from talea import Ge, Spec, check, field, transform
 
 
 class User(Spec):
@@ -84,3 +84,30 @@ StrictPayload(
     operation="update",  # ty: ignore[invalid-argument-type]
     score="1",  # ty: ignore[invalid-argument-type]
 )
+
+
+class InvalidCheckReturn(Spec):
+    value: int
+
+    @check("value")  # ty: ignore[invalid-argument-type]
+    def replaces(value: int) -> int:
+        return value
+
+
+class TypedTransform(Spec):
+    value: int
+
+    @transform("value")
+    def parse(value: object) -> object:
+        return value
+
+
+TypedTransform(value="1")  # ty: ignore[invalid-argument-type]
+
+
+class AsyncCheck(Spec):
+    value: int
+
+    @check("value")  # ty: ignore[invalid-argument-type]
+    async def invalid(value: int) -> None:
+        pass

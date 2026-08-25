@@ -4,16 +4,24 @@ import keyword
 from annotationlib import Format
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from types import MemberDescriptorType
+from inspect import (
+    Parameter,
+    isasyncgenfunction,
+    iscoroutinefunction,
+    isgeneratorfunction,
+    signature,
+)
+from types import FunctionType, MemberDescriptorType
 from typing import cast, dataclass_transform, get_type_hints
 from unicodedata import normalize
 
-from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema
+from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema, ValidationHook
 from talea.schema.resolution import resolve_annotation
 from talea.spec.construction import _ConstructorCompiler
 from talea.spec.fields import _FactoryDeclaration, field
+from talea.spec.hooks import _HOOK_MARKER, _HookMarker
 from talea.validation.compilation import Validator, compile_validator
-from talea.validation.errors import ValidationError
+from talea.validation.errors import CustomValidationError, ValidationError
 
 __all__ = ["Spec", "field"]
 
@@ -50,6 +58,9 @@ class _SpecMeta(type):
         metaclass._validate_bases(bases, spec_bases)
         annotations = metaclass._inspect_annotations(namespace)
         field_names = tuple(annotations)
+        local_attribute_names = frozenset(namespace)
+        declared_hooks = metaclass._inspect_hooks(namespace, field_names)
+        declared_hook_names = frozenset(hook.name for hook in declared_hooks)
         inherited_schemas = tuple(cast(_SpecArtifacts, vars(base)["__talea_artifacts__"]).schema for base in spec_bases)
         inherited_names = frozenset(field.name for schema in inherited_schemas for field in schema.fields)
         metaclass._validate_declaration(namespace, bases, field_names, inherited_names)
@@ -76,14 +87,20 @@ class _SpecMeta(type):
             else:
                 fields.append(SpecField(field_name, resolved, default=declaration))
         declared_fields = tuple(fields)
-        schema = SpecSchema.compose(inherited_schemas, declared_fields)
+        mro_shadowed_hooks = metaclass._mro_shadowed_hooks(cls, inherited_schemas)
+        schema = SpecSchema.compose(
+            inherited_schemas,
+            declared_fields,
+            declared_hooks,
+            (local_attribute_names - declared_hook_names) | mro_shadowed_hooks,
+        )
         validators = tuple(compile_validator(field.schema) for field in schema.fields)
-        if declarations:
-            validators_by_name = dict(zip((field.name for field in schema.fields), validators, strict=True))
-            metaclass._validate_static_defaults(
-                declared_fields,
-                tuple(validators_by_name[field.name] for field in declared_fields),
-            )
+        affected_defaults = set(field_names)
+        affected_defaults.update(
+            hook.fields[0] for hook in declared_hooks if hook.kind == "check" and len(hook.fields) == 1
+        )
+        if affected_defaults:
+            metaclass._validate_static_defaults(schema, validators, frozenset(affected_defaults))
         slot_setters = metaclass._slot_setters(cls, schema)
         initializer = _ConstructorCompiler().compile(schema, slot_setters)
         initializer.__module__ = cls.__module__
@@ -140,6 +157,66 @@ class _SpecMeta(type):
         return evaluated
 
     @staticmethod
+    def _inspect_hooks(
+        namespace: dict[str, object],
+        field_names: tuple[object, ...],
+    ) -> tuple[ValidationHook, ...]:
+        """Consume marked plain functions into ordered immutable hook truth."""
+
+        hooks = []
+        for name, value in tuple(namespace.items()):
+            descriptor_function = value.__func__ if isinstance(value, (staticmethod, classmethod)) else None
+            if descriptor_function is not None and hasattr(descriptor_function, _HOOK_MARKER):
+                raise TypeError("Talea validation hooks cannot combine with staticmethod or classmethod")
+            marker = getattr(value, _HOOK_MARKER, None)
+            if marker is None:
+                continue
+            if not isinstance(value, FunctionType) or not isinstance(marker, _HookMarker):
+                raise TypeError("Talea validation hook metadata requires a plain function")
+            if name in field_names:
+                raise TypeError(f"validation hook conflicts with Spec field {name!r}")
+            if iscoroutinefunction(value) or isasyncgenfunction(value):
+                raise TypeError(f"validation hook {name!r} must be synchronous")
+            if isgeneratorfunction(value):
+                raise TypeError(f"validation hook {name!r} cannot be a generator")
+            parameters = tuple(signature(value).parameters.values())
+            expected_count = 1 if marker.kind == "transform" else len(marker.fields)
+            if len(parameters) != expected_count or any(
+                parameter.kind not in (Parameter.POSITIONAL_ONLY, Parameter.POSITIONAL_OR_KEYWORD)
+                or parameter.default is not Parameter.empty
+                for parameter in parameters
+            ):
+                raise TypeError(
+                    f"validation hook {name!r} requires exactly {expected_count} positional parameter"
+                    f"{'s' if expected_count != 1 else ''}"
+                )
+            if marker.kind == "check" and tuple(parameter.name for parameter in parameters) != marker.fields:
+                raise TypeError(f"validation check {name!r} parameters must match its field targets")
+            hooks.append(ValidationHook(name, marker.kind, marker.fields, value))
+            delattr(value, _HOOK_MARKER)
+            namespace[name] = staticmethod(value)
+        return tuple(hooks)
+
+    @staticmethod
+    def _mro_shadowed_hooks(
+        cls: type,
+        inherited_schemas: tuple[SpecSchema, ...],
+    ) -> frozenset[str]:
+        """Find inherited hooks hidden by ordinary attributes earlier in the MRO."""
+
+        inherited_names = frozenset(hook.name for schema in inherited_schemas for hook in schema.hooks)
+        shadowed = set()
+        for name in inherited_names:
+            owner = next((base for base in cls.__mro__[1:] if name in vars(base)), None)
+            if owner is None or not isinstance(owner, _SpecMeta):
+                shadowed.add(name)
+                continue
+            owner_schema = cast(_SpecArtifacts, vars(owner)["__talea_artifacts__"]).schema
+            if all(hook.name != name for hook in owner_schema.hooks):
+                shadowed.add(name)
+        return frozenset(shadowed)
+
+    @staticmethod
     def _validate_declaration(
         namespace: dict[str, object],
         bases: tuple[type, ...],
@@ -179,14 +256,25 @@ class _SpecMeta(type):
             raise TypeError(f"field() requires an annotation: {undeclared_factories[0]!r}")
 
     @staticmethod
-    def _validate_static_defaults(fields: tuple[SpecField, ...], validators: tuple[Validator, ...]) -> None:
+    def _validate_static_defaults(
+        schema: SpecSchema,
+        validators: tuple[Validator, ...],
+        affected_names: frozenset[str],
+    ) -> None:
         """Reject invalid or transitively mutable static defaults at declaration time."""
 
-        for spec_field, validator in zip(fields, validators, strict=True):
-            if not spec_field.has_static_default:
+        for spec_field, validator in zip(schema.fields, validators, strict=True):
+            if spec_field.name not in affected_names or not spec_field.has_static_default:
                 continue
             try:
                 validator(spec_field.default)
+            except CustomValidationError as error:
+                raise CustomValidationError(
+                    error.stage,
+                    error.hook,
+                    error.value,
+                    tuple((spec_field.name, *location) for location in error.locations),
+                ) from error.__cause__
             except ValidationError as error:
                 raise ValidationError(
                     error.expected,
@@ -194,6 +282,20 @@ class _SpecMeta(type):
                     (spec_field.name, *error.location),
                     error.code,
                 ) from None
+            for hook in schema.hooks:
+                if hook.kind != "check" or hook.fields != (spec_field.name,):
+                    continue
+                try:
+                    result = hook.function(spec_field.default)
+                except ValueError as error:
+                    raise CustomValidationError(
+                        "field_check",
+                        hook.name,
+                        spec_field.default,
+                        ((spec_field.name,),),
+                    ) from error
+                if result is not None:
+                    raise TypeError(f"validation check {hook.name!r} must return None")
             if _contains_mutable_value(spec_field.default):
                 raise TypeError(
                     f"mutable static default for field {spec_field.name!r} is not supported; "
@@ -264,6 +366,11 @@ class Spec(metaclass=_SpecMeta):
     may override fields while compiling one flat effective constructor.
     Multiple inheritance is supported when CPython can preserve one
     state-bearing slot lineage; additional mixins must use empty slots.
+
+    ``transform`` callbacks explicitly prepare inbound field values before the
+    emitted structural checks. ``check`` callbacks assert field or cross-field
+    invariants after structure and before slot commitment. Declarations without
+    hooks retain the same generated construction path.
     """
 
     def __setattr__(self, name: str, value: object) -> None:

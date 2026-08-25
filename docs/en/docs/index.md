@@ -27,8 +27,10 @@ only transitively immutable declarations are classified as permanently trusted.
 The current release supports scalar and standard-library types, `Literal`,
 `Annotated` constraints, homogeneous built-in containers, dictionaries, fixed
 and variadic tuples, PEP 604 unions, static defaults, per-instance default
-factories, nested Specs, and Spec inheritance. See
+factories, nested Specs, Spec inheritance, explicit inbound transforms, and
+post-structural field and cross-field checks. See
 [Supported types](supported-types.md), [Constraints](constraints.md), and
 [Field semantics](field-semantics.md) for the corresponding contracts, and
 [Composition and inheritance](composition-inheritance.md) for object graphs and
-subclass behavior. Parsing and serialization are not available yet.
+subclass behavior. [Custom validation](custom-validation.md) documents the
+application lifecycle. Parsing and serialization are not available yet.

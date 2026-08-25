@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Annotated, Literal, assert_type
 from uuid import UUID
 
-from talea import Ge, MaxLength, MinLength, Spec, field
+from talea import Ge, MaxLength, MinLength, Spec, check, field, transform
 
 
 class User(Spec):
@@ -101,3 +101,34 @@ assert_type(production.status, Status)
 assert_type(production.operation, Literal["create", "delete"])
 assert_type(production.score, int)
 assert_type(production.tags, list[str])
+
+
+class Interval(Spec):
+    start: int
+    end: int
+
+    @transform("start")
+    def parse_start(value: object) -> object:
+        return int(value) if isinstance(value, str) else value
+
+    @check("start")
+    def non_negative(start: int) -> None:
+        if start < 0:
+            raise ValueError("start must be non-negative")
+
+    @check("start", "end")
+    def ordered(start: int, end: int) -> None:
+        if end < start:
+            raise ValueError("end must not precede start")
+
+
+class BoundedInterval(Interval):
+    @check("end")
+    def finite_end(end: int) -> None:
+        if end > 1_000:
+            raise ValueError("end is too large")
+
+
+interval = BoundedInterval(start=1, end=2)
+assert_type(interval.start, int)
+assert_type(BoundedInterval.parse_start("3"), object)
