@@ -65,7 +65,7 @@ def test_primitive_validation_is_strict(schema: Schema, value: object, expected:
 def test_validation_error_has_deterministic_root_description() -> None:
     error = ValidationError("int", "1", ())
 
-    assert str(error) == "Validation failed at <root>: expected int, received str ('1')"
+    assert str(error) == "Validation error\n  <root>\n    Expected int\n    received: '1' (str)"
 
 
 @pytest.mark.parametrize(
@@ -212,7 +212,10 @@ def test_nested_validation_reports_deep_location() -> None:
         validator(value)
 
     assert raised.value.location == (2, "name")
-    assert str(raised.value) == ("Validation failed at [2]['name']: expected int | None, received str ('wrong')")
+    assert raised.value.code == "union"
+    assert str(raised.value).startswith(
+        "Validation error\n  [2].name\n    Expected one of: int | None\n    received: 'wrong' (str)"
+    )
 
 
 def test_nested_container_union_preserves_deepest_failure() -> None:
@@ -229,8 +232,12 @@ def test_nested_container_union_preserves_deepest_failure() -> None:
     with pytest.raises(ValidationError) as raised:
         validator([1, "wrong"])
 
-    assert raised.value.expected == "int"
-    assert raised.value.location == (1,)
+    assert raised.value.expected == "dict[str, int] | list[int]"
+    assert raised.value.location == ()
+    assert raised.value.code == "union"
+    branch = raised.value.errors()[0]["branches"][0]
+    assert branch["label"] == "list[int]"
+    assert branch["errors"][0]["location"] == [1]
 
 
 def test_nested_container_union_reports_union_when_no_shape_matches() -> None:
@@ -342,7 +349,7 @@ def test_compiled_validator_has_single_argument_contract() -> None:
 
 def test_validator_compiler_is_not_exported_from_the_root_package() -> None:
     assert not hasattr(talea, "compile_validator")
-    assert not hasattr(talea, "ValidationError")
+    assert talea.ValidationError is ValidationError
 
 
 def test_compiler_rejects_values_outside_the_schema_union() -> None:

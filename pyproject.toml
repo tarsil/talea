@@ -116,6 +116,7 @@ benchmark_composition = "python benchmarks/spec_composition.py"
 benchmark_validator = "python benchmarks/validator_compilation.py"
 benchmark_types = "python benchmarks/type_constraints.py"
 benchmark_hooks = "python benchmarks/custom_validation.py"
+benchmark_errors = "python benchmarks/error_experience.py"
 
 [tool.isort]
 profile = "black"

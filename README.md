@@ -16,6 +16,22 @@ class User(Spec):
 user = User(id=1, name="Tiago")
 ```
 
+Validation failures expose stable codes and structured, JSON-compatible paths:
+
+```python
+from talea import ValidationError
+
+try:
+    User(id="1", name="Tiago")
+except ValidationError as exc:
+    errors = exc.errors()
+```
+
+Human rendering identifies the Spec and nested failure without exposing
+generated validator internals. Talea bounds representations of hostile input;
+applications should use `code`, `location`, and structured context rather than
+parse message text.
+
 Specs compose and inherit as normal Python classes:
 
 ```python

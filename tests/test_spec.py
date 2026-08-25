@@ -39,6 +39,8 @@ def test_root_package_exports_only_the_deliberate_public_api() -> None:
     assert talea.__all__ == [
         "Ge",
         "Gt",
+        "ErrorCode",
+        "ErrorData",
         "Le",
         "Lt",
         "MaxLength",
@@ -46,6 +48,7 @@ def test_root_package_exports_only_the_deliberate_public_api() -> None:
         "MultipleOf",
         "Pattern",
         "Spec",
+        "ValidationError",
         "check",
         "field",
         "transform",
@@ -55,7 +58,7 @@ def test_root_package_exports_only_the_deliberate_public_api() -> None:
     assert not hasattr(talea, "SpecSchema")
     assert not hasattr(talea, "compile_validator")
     assert not hasattr(talea, "CustomValidationError")
-    assert not hasattr(talea, "ValidationError")
+    assert talea.ValidationError is ValidationError
 
 
 def test_empty_spec_declaration_constructs_without_instance_metadata() -> None:
@@ -143,7 +146,9 @@ def test_invalid_nested_field_composes_the_complete_location() -> None:
         Payload(values=[1, 2], metadata={"ok": 1, "wrong": "2"})  # type: ignore[invalid-argument-type]
 
     assert raised.value.location == ("metadata", "wrong")
-    assert str(raised.value) == ("Validation failed at ['metadata']['wrong']: expected int | None, received str ('2')")
+    assert str(raised.value).startswith(
+        "Payload\n  metadata.wrong\n    Expected one of: int | None\n    received: '2' (str)"
+    )
 
 
 def test_instances_are_compact_and_retain_only_declared_values() -> None:
@@ -364,9 +369,11 @@ def test_factory_failure_has_a_clear_field_boundary_and_preserves_cause() -> Non
     class FailedFactory(Spec):
         count: int = field(default_factory=fail)
 
-    with pytest.raises(TypeError, match="default factory for field 'count' failed") as raised:
+    with pytest.raises(ValidationError, match="Default factory failed") as raised:
         FailedFactory()
 
+    assert raised.value.code == "factory"
+    assert raised.value.location == ("count",)
     assert raised.value.__cause__ is failure
 
 

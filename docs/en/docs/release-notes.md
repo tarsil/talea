@@ -4,6 +4,12 @@
 
 ### Added
 
+- Public `ValidationError`, `ErrorCode`, and typed JSON-compatible `ErrorData`
+  projection with structured locations and stable machine codes.
+- Talea-native multiline rendering, bounded hostile-input representation,
+  compact union branch diagnostics, and unified custom-validation failures.
+- Structured factory execution failures with preserved exception causes and a
+  dedicated error creation, rendering, projection, and allocation benchmark.
 - Explicit `transform` declarations for inbound field conversion before normal
   strict structural validation.
 - Post-structural `check` declarations for field assertions and atomic

@@ -33,4 +33,6 @@ post-structural field and cross-field checks. See
 [Field semantics](field-semantics.md) for the corresponding contracts, and
 [Composition and inheritance](composition-inheritance.md) for object graphs and
 subclass behavior. [Custom validation](custom-validation.md) documents the
-application lifecycle. Parsing and serialization are not available yet.
+application lifecycle. [Validation errors](error-experience.md) documents stable
+codes, structured locations, JSON projection, union diagnostics, and safe human
+rendering. Parsing and serialization are not available yet.

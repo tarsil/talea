@@ -123,3 +123,8 @@ tasks:
     desc: Benchmarks custom validation and unhooked construction canaries
     cmds:
       - hatch run test:benchmark_hooks
+
+  benchmark_errors:
+    desc: Benchmarks structured error creation, rendering, projection, and allocations
+    cmds:
+      - hatch run test:benchmark_errors

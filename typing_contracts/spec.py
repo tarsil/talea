@@ -6,7 +6,18 @@ from enum import StrEnum
 from typing import Annotated, Literal, assert_type
 from uuid import UUID
 
-from talea import Ge, MaxLength, MinLength, Spec, check, field, transform
+from talea import (
+    ErrorCode,
+    ErrorData,
+    Ge,
+    MaxLength,
+    MinLength,
+    Spec,
+    ValidationError,
+    check,
+    field,
+    transform,
+)
 
 
 class User(Spec):
@@ -132,3 +143,12 @@ class BoundedInterval(Interval):
 interval = BoundedInterval(start=1, end=2)
 assert_type(interval.start, int)
 assert_type(BoundedInterval.parse_start("3"), object)
+
+
+def project_validation_error(error: ValidationError) -> list[ErrorData]:
+    """Exercise the public typed handling contract without manufacturing a failure."""
+
+    assert_type(error.code, ErrorCode)
+    assert_type(error.location, tuple[object, ...])
+    assert_type(error.errors(), list[ErrorData])
+    return error.errors()

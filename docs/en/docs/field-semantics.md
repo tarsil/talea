@@ -44,8 +44,9 @@ class declaration. The returned value passes through the same strict validation
 operations as an explicit value. One canonical validation emitter generates
 both standalone validators and the operations inlined into Spec constructors;
 construction does not call a Python validator function per field. A factory
-exception is re-raised through a `TypeError` naming the field, with the original
-exception retained as its cause.
+exception becomes a field-located `ValidationError` with code `factory` and the
+original exception retained as its cause. A returned value that fails validation
+keeps the actual structural or constraint code.
 
 When a field declares an inbound `transform`, factory output runs that
 transformation before structural validation. Static defaults do not run

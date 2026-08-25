@@ -9,12 +9,13 @@ successful validation creates no error metadata.
 
 from collections.abc import Iterable
 from decimal import Decimal
-from enum import Enum
 from math import isclose, isfinite, remainder
 from typing import assert_never, cast
 
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.declaration.models import SpecSchema, ValidationHook
+from talea.errors import ErrorCode
+from talea.errors.models import CustomValidationError, ValidationError
 from talea.schema.nodes import (
     ConstrainedSchema,
     EnumSchema,
@@ -30,7 +31,14 @@ from talea.schema.nodes import (
     UnionSchema,
     VariadicTupleSchema,
 )
-from talea.validation.errors import CustomValidationError, ValidationError
+from talea.validation.failure_contracts import (
+    constraint_code,
+    constraint_context,
+    constraint_description,
+    describe_schema,
+    literal_key,
+    schema_order_key,
+)
 
 
 def _identity_index(sequence: list[object] | tuple[object, ...], item: object) -> int:
@@ -69,14 +77,21 @@ class _ValidationEmitter:
 
     _primitive_types = {"int": int, "float": float, "str": str, "bool": bool, "bytes": bytes}
     _sequence_types = {"list": list, "set": set, "frozenset": frozenset}
-    _primitive_order = {"int": 0, "float": 1, "str": 2, "bool": 3, "bytes": 4, "none": 5}
 
-    def __init__(self, lines: list[str], names: _GeneratedNames, namespace: dict[str, object]) -> None:
+    def __init__(
+        self,
+        lines: list[str],
+        names: _GeneratedNames,
+        namespace: dict[str, object],
+        *,
+        title: str | None = None,
+    ) -> None:
         self.lines = lines
         self.names = names
         self.namespace = namespace
         self.runtime_names: dict[str, str] = {}
         self.validation_error_name = self.runtime("validation_error", ValidationError)
+        self.title_name = self.bind("error_title", title) if title is not None else None
 
     def emit_schema(
         self,
@@ -231,7 +246,8 @@ class _ValidationEmitter:
         locations_expression = f"({location_expressions},)"
         self.emit(
             indentation,
-            f"raise {custom_error}({stage!r}, {hook_name}, {value}, {locations_expression}) from {error}",
+            f"raise {custom_error}({stage!r}, {hook_name}, {value}, {locations_expression}"
+            f"{self.title_argument()}) from {error}",
         )
 
     def emit_primitive(
@@ -298,11 +314,9 @@ class _ValidationEmitter:
     ) -> None:
         """Emit type-sensitive direct alternatives for one Literal contract."""
 
-        conditions = " or ".join(
-            self.literal_condition(item, value) for item in sorted(schema.values, key=self.literal_key)
-        )
+        conditions = " or ".join(self.literal_condition(item, value) for item in sorted(schema.values, key=literal_key))
         self.emit(indentation, f"if not ({conditions}):")
-        self.emit_failure(schema, value, location, indentation + 1, code="literal")
+        self.emit_failure(schema, value, location, indentation + 1, code=ErrorCode.LITERAL)
 
     def emit_sequence(
         self,
@@ -400,40 +414,73 @@ class _ValidationEmitter:
     ) -> None:
         """Emit deterministic alternatives without treating frozenset order as priority."""
 
-        options = sorted(schema.options, key=self.order_key)
+        options = sorted(schema.options, key=schema_order_key)
         primitive_options = [option for option in options if isinstance(option, PrimitiveSchema)]
         if len(primitive_options) == len(options):
             conditions = " and ".join(self.primitive_failure_condition(option, value) for option in primitive_options)
             self.emit(indentation, f"if {conditions}:")
-            self.emit_failure(schema, value, location, indentation + 1)
+            self.emit_union_failure(schema, options, value, location, None, indentation + 1)
             return
 
         matched = self.variable("matched")
         best = self.variable("best_error")
-        length = self.runtime("len", len)
+        best_label = self.variable("best_label")
+        list_type = self.runtime("list", list)
         self.emit(indentation, f"{matched} = False")
         self.emit(indentation, f"{best} = None")
         for option in options:
             error = self.variable("error")
+            label = self.bind("union_label", describe_schema(option))
             condition = self.top_level_condition(option, value)
             self.emit(indentation, f"if not {matched} and ({condition}):")
             self.emit(indentation + 1, "try:")
             self.emit_schema(option, value, location, indentation + 2)
             self.emit(indentation + 1, f"except {self.validation_error_name} as {error}:")
-            self.emit(
-                indentation + 2,
-                f"if {best} is None or {length}({error}.location) > {length}({best}.location):",
-            )
+            self.emit(indentation + 2, f"if {best} is None:")
             self.emit(indentation + 3, f"{best} = {error}")
+            self.emit(indentation + 3, f"{best_label} = {label}")
+            self.emit(indentation + 2, f"elif {self.runtime('type', type)}({best}) is {list_type}:")
+            self.emit(indentation + 3, f"{best}.append(({label}, {error}))")
+            self.emit(indentation + 2, "else:")
+            self.emit(indentation + 3, f"{best} = [({best_label}, {best}), ({label}, {error})]")
             self.emit(indentation + 1, "else:")
             self.emit(indentation + 2, f"{matched} = True")
         self.emit(indentation, f"if not {matched}:")
+        self.emit_union_failure(schema, options, value, location, (best, best_label), indentation + 1)
+
+    def emit_union_failure(
+        self,
+        schema: UnionSchema,
+        options: list[Schema],
+        value: str,
+        location: tuple[str, ...],
+        captured: tuple[str, str] | None,
+        indentation: int,
+    ) -> None:
+        """Emit outer union detail and branch diagnostics only after all options fail."""
+
+        alternatives = self.bind("union_alternatives", tuple(describe_schema(option) for option in options))
+        expected = self.bind("union_expected", describe_schema(schema))
+        location_expression = self.location_expression(location)
+        union_error = self.variable("union_error")
+        if captured is None:
+            failures = "()"
+        else:
+            best, best_label = captured
+            failures_name = self.variable("union_failures")
+            list_type = self.runtime("list", list)
+            tuple_type = self.runtime("tuple", tuple)
+            self.emit(indentation, f"if {self.runtime('type', type)}({best}) is {list_type}:")
+            self.emit(indentation + 1, f"{failures_name} = {tuple_type}({best})")
+            self.emit(indentation, "else:")
+            self.emit(indentation + 1, f"{failures_name} = (({best_label}, {best}),) if {best} is not None else ()")
+            failures = failures_name
         self.emit(
-            indentation + 1,
-            f"if {best} is None or {length}({best}.location) == {len(location)}:",
+            indentation,
+            f"{union_error} = {self.validation_error_name}.union("
+            f"{expected}, {value}, {location_expression}, {alternatives}, {failures}{self.title_argument()})",
         )
-        self.emit_failure(schema, value, location, indentation + 2)
-        self.emit(indentation + 1, f"raise {best} from None")
+        self.emit(indentation, f"raise {union_error} from {union_error}.__cause__")
 
     def emit_failure(
         self,
@@ -443,15 +490,22 @@ class _ValidationEmitter:
         indentation: int,
         *,
         expected: str | None = None,
-        code: str = "type",
+        code: ErrorCode = ErrorCode.TYPE,
+        context: tuple[tuple[str, object], ...] = (),
     ) -> None:
         """Emit failure construction, including lazy location expressions."""
 
-        expected = self.describe(schema) if expected is None else expected
+        expected = describe_schema(schema) if expected is None else expected
         location_expression = self.location_expression(location)
+        code_name = self.runtime(f"error_code_{code.value}", code)
+        context_argument = ""
+        if context:
+            context_name = self.bind("error_context", context)
+            context_argument = f", context={context_name}"
         self.emit(
             indentation,
-            f"raise {self.validation_error_name}({expected!r}, {value}, {location_expression}, {code!r}) from None",
+            f"raise {self.validation_error_name}({expected!r}, {value}, {location_expression}, {code_name}"
+            f"{self.title_argument()}{context_argument}) from None",
         )
 
     @staticmethod
@@ -482,8 +536,9 @@ class _ValidationEmitter:
                 value,
                 location,
                 indentation + 1,
-                expected=self.constraint_description(schema, first),
-                code=self.constraint_code(first),
+                expected=constraint_description(schema, first),
+                code=constraint_code(first),
+                context=constraint_context(first),
             )
         for constraint in constraints:
             if isinstance(constraint, Gt):
@@ -513,8 +568,9 @@ class _ValidationEmitter:
                 value,
                 location,
                 indentation + 1,
-                expected=self.constraint_description(schema, constraint),
-                code=self.constraint_code(constraint),
+                expected=constraint_description(schema, constraint),
+                code=constraint_code(constraint),
+                context=constraint_context(constraint),
             )
 
     def multiple_of_failure(
@@ -565,13 +621,6 @@ class _ValidationEmitter:
         literal_value = self.bind("literal_value", item.value)
         return f"{type_name}({value}) is {literal_type} and {value} == {literal_value}"
 
-    @staticmethod
-    def literal_key(item: LiteralValue) -> tuple[str, str, str]:
-        """Define deterministic Literal order without consulting arbitrary metadata."""
-
-        value_name = item.value.name if isinstance(item.value, Enum) else repr(item.value)
-        return item.python_type.__module__, item.python_type.__qualname__, value_name
-
     def top_level_condition(self, schema: Schema, value: str) -> str:
         """Return source that selects structurally plausible union alternatives."""
 
@@ -595,9 +644,7 @@ class _ValidationEmitter:
             enum_type = self.bind("enum_type", schema.enum_type)
             return f"{type_name}({value}) is {enum_type}"
         if isinstance(schema, LiteralSchema):
-            return " or ".join(
-                self.literal_condition(item, value) for item in sorted(schema.values, key=self.literal_key)
-            )
+            return " or ".join(self.literal_condition(item, value) for item in sorted(schema.values, key=literal_key))
         if isinstance(schema, SpecReferenceSchema):
             instance_check = self.runtime("isinstance", isinstance)
             expected_type = self.bind("spec_type", schema.spec_type)
@@ -616,99 +663,10 @@ class _ValidationEmitter:
             return f"{type_name}({value}) is {tuple_type}"
         if isinstance(schema, UnionSchema):
             conditions = (
-                self.top_level_condition(option, value) for option in sorted(schema.options, key=self.order_key)
+                self.top_level_condition(option, value) for option in sorted(schema.options, key=schema_order_key)
             )
             return " or ".join(conditions)
         assert_never(schema)
-
-    def describe(self, schema: Schema) -> str:
-        """Project canonical structure into deterministic expected-type text."""
-
-        if isinstance(schema, PrimitiveSchema):
-            return "None" if schema.kind == "none" else schema.kind
-        if isinstance(schema, TypeSchema):
-            return schema.python_type.__qualname__
-        if isinstance(schema, EnumSchema):
-            return schema.enum_type.__qualname__
-        if isinstance(schema, LiteralSchema):
-            values = sorted(schema.values, key=self.literal_key)
-            return f"Literal[{', '.join(self.literal_description(item) for item in values)}]"
-        if isinstance(schema, ConstrainedSchema):
-            descriptions = ", ".join(self.constraint_label(item) for item in schema.constraints)
-            return f"Annotated[{self.describe(schema.schema)}, {descriptions}]"
-        if isinstance(schema, SpecReferenceSchema):
-            return schema.spec_type.__qualname__
-        if isinstance(schema, SequenceSchema):
-            return f"{schema.kind}[{self.describe(schema.item)}]"
-        if isinstance(schema, MappingSchema):
-            return f"dict[{self.describe(schema.key)}, {self.describe(schema.value)}]"
-        if isinstance(schema, VariadicTupleSchema):
-            return f"tuple[{self.describe(schema.item)}, ...]"
-        if isinstance(schema, FixedTupleSchema):
-            return f"tuple[{', '.join(self.describe(item) for item in schema.items)}]"
-        if isinstance(schema, UnionSchema):
-            options = sorted(schema.options, key=self.order_key)
-            return " | ".join(self.describe(option) for option in options)
-        assert_never(schema)
-
-    @staticmethod
-    def literal_description(item: LiteralValue) -> str:
-        """Render one canonical Literal alternative for error descriptions."""
-
-        if isinstance(item.value, Enum):
-            return f"{item.python_type.__qualname__}.{item.value.name}"
-        return repr(item.value)
-
-    def constraint_description(self, schema: Schema, constraint: object) -> str:
-        """Describe the single failed constraint without changing base type truth."""
-
-        return f"{self.describe(schema)} satisfying {self.constraint_label(constraint)}"
-
-    @staticmethod
-    def constraint_label(constraint: object) -> str:
-        """Return stable declaration-like text for one canonical constraint."""
-
-        if isinstance(constraint, Pattern):
-            return f"Pattern({constraint.pattern!r})"
-        if isinstance(constraint, (Gt, Ge, Lt, Le, MultipleOf, MinLength, MaxLength)):
-            return f"{type(constraint).__name__}({constraint.value!r})"
-        raise AssertionError("unsupported canonical constraint")
-
-    @staticmethod
-    def constraint_code(constraint: object) -> str:
-        """Return the stable failure category owned by one constraint type."""
-
-        if isinstance(constraint, Gt):
-            return "greater_than"
-        if isinstance(constraint, Ge):
-            return "greater_than_or_equal"
-        if isinstance(constraint, Lt):
-            return "less_than"
-        if isinstance(constraint, Le):
-            return "less_than_or_equal"
-        if isinstance(constraint, MultipleOf):
-            return "multiple_of"
-        if isinstance(constraint, MinLength):
-            return "min_length"
-        if isinstance(constraint, MaxLength):
-            return "max_length"
-        if isinstance(constraint, Pattern):
-            return "pattern"
-        raise AssertionError("unsupported canonical constraint")
-
-    def order_key(self, schema: Schema) -> tuple[int, str]:
-        """Define compiler-owned union execution order independently of schema equality."""
-
-        if isinstance(schema, PrimitiveSchema):
-            return self._primitive_order[schema.kind], schema.kind
-        if isinstance(schema, ConstrainedSchema):
-            base_order, _ = self.order_key(schema.schema)
-            return base_order, self.describe(schema)
-        if isinstance(schema, (TypeSchema, EnumSchema, LiteralSchema)):
-            return 6, self.describe(schema)
-        if isinstance(schema, SpecReferenceSchema):
-            return 6, f"{schema.spec_type.__module__}.{schema.spec_type.__qualname__}"
-        return 10, self.describe(schema)
 
     def variable(self, purpose: str) -> str:
         """Return a unique generated local name."""
@@ -735,6 +693,11 @@ class _ValidationEmitter:
         name = self.names.allocate(purpose)
         self.namespace[name] = value
         return name
+
+    def title_argument(self) -> str:
+        """Return a generated keyword argument only for Spec-bound errors."""
+
+        return f", title={self.title_name}" if self.title_name is not None else ""
 
     def emit(self, indentation: int, statement: str) -> None:
         """Append one generated statement at the requested indentation."""

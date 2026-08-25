@@ -48,6 +48,7 @@ nav:
   - Supported types: "supported-types.md"
   - Constraints: "constraints.md"
   - Custom validation: "custom-validation.md"
+  - Validation errors: "error-experience.md"
   - Composition and inheritance: "composition-inheritance.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"

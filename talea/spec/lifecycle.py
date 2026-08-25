@@ -100,9 +100,14 @@ class _SpecMeta(type):
             hook.fields[0] for hook in declared_hooks if hook.kind == "check" and len(hook.fields) == 1
         )
         if affected_defaults:
-            metaclass._validate_static_defaults(schema, validators, frozenset(affected_defaults))
+            metaclass._validate_static_defaults(
+                schema,
+                validators,
+                frozenset(affected_defaults),
+                cls.__name__,
+            )
         slot_setters = metaclass._slot_setters(cls, schema)
-        initializer = _ConstructorCompiler().compile(schema, slot_setters)
+        initializer = _ConstructorCompiler(cls.__name__).compile(schema, slot_setters)
         initializer.__module__ = cls.__module__
         initializer.__qualname__ = f"{cls.__qualname__}.__init__"
         initializer.__doc__ = "Validate and retain every declared field."
@@ -260,6 +265,7 @@ class _SpecMeta(type):
         schema: SpecSchema,
         validators: tuple[Validator, ...],
         affected_names: frozenset[str],
+        title: str,
     ) -> None:
         """Reject invalid or transitively mutable static defaults at declaration time."""
 
@@ -268,20 +274,8 @@ class _SpecMeta(type):
                 continue
             try:
                 validator(spec_field.default)
-            except CustomValidationError as error:
-                raise CustomValidationError(
-                    error.stage,
-                    error.hook,
-                    error.value,
-                    tuple((spec_field.name, *location) for location in error.locations),
-                ) from error.__cause__
             except ValidationError as error:
-                raise ValidationError(
-                    error.expected,
-                    error.value,
-                    (spec_field.name, *error.location),
-                    error.code,
-                ) from None
+                raise error.prefixed((spec_field.name,), title=title) from error.__cause__
             for hook in schema.hooks:
                 if hook.kind != "check" or hook.fields != (spec_field.name,):
                     continue
@@ -293,6 +287,7 @@ class _SpecMeta(type):
                         hook.name,
                         spec_field.default,
                         ((spec_field.name,),),
+                        title=title,
                     ) from error
                 if result is not None:
                     raise TypeError(f"validation check {hook.name!r} must return None")

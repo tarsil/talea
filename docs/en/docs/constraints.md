@@ -125,9 +125,10 @@ revalidation executes its length, item, pattern, and numeric constraints.
 ## Failures and performance
 
 Constraint failures retain the rejected value, exact nested location, expected
-contract, and a stable category such as `greater_than`, `max_length`, or
-`pattern`. Talea remains fail-fast in this campaign. Rich presentation and
-multi-error behavior belong to the future Error Experience.
+contract, stable category such as `greater_than`, `max_length`, or `pattern`,
+and structured context containing the failed limit or pattern. Talea remains
+fail-fast across Spec fields; [Validation errors](error-experience.md) documents
+human rendering, JSON projection, and union branch diagnostics.
 
 Unconstrained Specs contain no Campaign 6 metadata loops, regex machinery,
 type adapters, or registry lookups. Each used constraint adds only its direct

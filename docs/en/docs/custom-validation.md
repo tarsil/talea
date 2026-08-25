@@ -140,16 +140,19 @@ checks. Factories are never called at class declaration.
 ## Failures
 
 A hook deliberately rejects input by raising `ValueError`. Talea translates it
-to `CustomValidationError`, retains the hook name and lifecycle stage, records
-all affected root-relative locations, and preserves the original exception as
-the cause. Field transforms and checks have one location. Cross-field checks
-retain every named field location and use the Spec root as their primary legacy
-location.
+to the unified structured `ValidationError` interface, retains the hook name and
+lifecycle stage, records all affected root-relative locations, and preserves the
+original exception as the cause. `CustomValidationError` remains a compatibility
+subtype in `talea.validation`; applications can catch `ValidationError` from the
+root package for structural and custom failures alike. Field transforms and
+checks have one location. Cross-field checks retain every named field location
+and use the Spec root as their primary location.
 
 `TypeError`, `RuntimeError`, `KeyboardInterrupt`, `SystemExit`, and other
 unexpected exceptions are not relabeled as bad user input. Talea never catches
-`BaseException`. Campaign 8 will own polished rendering and error aggregation;
-Campaign 7 supplies the stable failure transport it can consume.
+`BaseException` around callback execution. See
+[Validation errors](error-experience.md) for codes, rendering, projection,
+causes, and fail-fast semantics.
 
 ## Nested trust and performance
 

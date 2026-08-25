@@ -22,6 +22,7 @@ from talea.schema import (
 from talea.schema.resolution import _apply_constraints
 from talea.validation import ValidationError, compile_validator
 from talea.validation.emission import _GeneratedNames, _ValidationEmitter
+from talea.validation.failure_contracts import constraint_code, constraint_context, constraint_label
 
 CONSTRAINT_TYPES = (Gt, Ge, Lt, Le, MultipleOf, MinLength, MaxLength, Pattern)
 
@@ -374,7 +375,7 @@ def test_constrained_unions_use_specialized_top_level_selection() -> None:
     ],
 )
 def test_constraint_failure_codes_are_owned_by_constraint_types(constraint: object, code: str) -> None:
-    assert _ValidationEmitter.constraint_code(constraint) == code
+    assert constraint_code(constraint) == code
 
 
 def test_emitter_rejects_values_outside_canonical_constraint_and_schema_unions() -> None:
@@ -394,9 +395,11 @@ def test_emitter_rejects_values_outside_canonical_constraint_and_schema_unions()
     with pytest.raises(AssertionError):
         emitter.top_level_condition(cast(object, object()), "value")  # type: ignore[arg-type]
     with pytest.raises(AssertionError):
-        emitter.constraint_label(object())
+        constraint_label(object())
     with pytest.raises(AssertionError):
-        emitter.constraint_code(object())
+        constraint_code(object())
+    with pytest.raises(AssertionError):
+        constraint_context(object())
 
 
 def test_unconstrained_spec_bytecode_pays_no_campaign_6_feature_tax() -> None:
