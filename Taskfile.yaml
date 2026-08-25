@@ -98,3 +98,8 @@ tasks:
     desc: Benchmarks canonical annotation resolution
     cmds:
       - hatch run test:benchmark_schema
+
+  benchmark_validator:
+    desc: Benchmarks validator compilation and execution
+    cmds:
+      - hatch run test:benchmark_validator

@@ -69,6 +69,10 @@ testing = [
     "pytest-cov>=4.0.0,<5.0.0",
     "zensical>=0.0.23,<0.1.0",
 ]
+benchmarking = [
+    "msgspec>=0.20.0,<1.0.0",
+    "pydantic>=2.12.0,<3.0.0",
+]
 
 [tool.hatch.envs.default.scripts]
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"
@@ -95,7 +99,7 @@ serve = "scripts/docs.py serve"
 dev = "scripts/docs.py serve"
 
 [tool.hatch.envs.test]
-features = ["testing"]
+features = ["testing", "benchmarking"]
 
 [tool.hatch.envs.test.scripts]
 test = "hatch test -- {args}"
@@ -103,6 +107,7 @@ test_man = "hatch test -- {args} -s -vv"
 coverage = "pytest --cov=talea --cov-report=term-missing {args}"
 check_types = "ty check talea benchmarks"
 benchmark_schema = "python benchmarks/schema_resolution.py"
+benchmark_validator = "python benchmarks/validator_compilation.py"
 
 [tool.isort]
 profile = "black"
@@ -131,6 +136,9 @@ parallel = true
 context = '${CONTEXT}'
 source = ["tests", "talea"]
 # omit = []
+
+[tool.coverage.report]
+fail_under = 100
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]
