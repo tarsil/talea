@@ -45,6 +45,7 @@ plugins:
 nav:
   - Introduction: "index.md"
   - Field semantics: "field-semantics.md"
+  - Composition and inheritance: "composition-inheritance.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"
   - Release Notes: "release-notes.md"

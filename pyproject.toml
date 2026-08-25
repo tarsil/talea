@@ -108,6 +108,7 @@ coverage = "pytest --cov=talea --cov-report=term-missing {args}"
 check_types = "ty check talea benchmarks typing_contracts"
 benchmark_schema = "python benchmarks/schema_resolution.py"
 benchmark_spec = "python benchmarks/spec_construction.py"
+benchmark_composition = "python benchmarks/spec_composition.py"
 benchmark_validator = "python benchmarks/validator_compilation.py"
 
 [tool.isort]

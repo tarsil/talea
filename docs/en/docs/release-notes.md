@@ -8,6 +8,11 @@
   compact slots, compile-once declaration processing, and field-aware errors.
 - Added validated static defaults, `field(default_factory=...)`, mutable-default
   safety, and immutable Spec instances.
+- Added nominal nested Spec fields across containers and unions, transitive
+  trust classification, inherited fields, covariant field overrides, and flat
+  specialized subclass construction.
+- Added compact multiple inheritance for one state-bearing Spec lineage and
+  empty-slotted method mixins.
 
 ### Changed
 

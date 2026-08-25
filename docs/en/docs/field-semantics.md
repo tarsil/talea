@@ -59,7 +59,10 @@ whose schema contains a list, set, or dictionary is validated at construction
 but is canonically marked as ineligible for Talea's future no-revalidation
 trust path, including when that mutable container is nested in a tuple,
 frozenset, or union. A declaration containing only transitively immutable value
-schemas is permanently trusted. This makes it impossible for Talea to classify
+schemas is permanently trusted. Referenced Spec declarations propagate their
+own classification: an immutable nested Spec preserves permanent trust, while
+a Spec containing a mutable value makes the containing declaration ineligible.
+This makes it impossible for Talea to classify
 a Spec as permanently trusted when normal container mutation could invalidate
 it, without copying explicit values or wrapping Python containers.
 

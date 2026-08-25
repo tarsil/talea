@@ -25,7 +25,8 @@ any instance is constructed. Field bindings are immutable after construction;
 only transitively immutable declarations are classified as permanently trusted.
 
 The current release supports scalar types, homogeneous built-in containers,
-dictionaries, fixed and variadic tuples, PEP 604 unions, static defaults, and
-per-instance default factories. See [Field semantics](field-semantics.md) for
-the declaration and lifecycle contract. Spec inheritance, parsing, and
-serialization are not available yet.
+dictionaries, fixed and variadic tuples, PEP 604 unions, static defaults,
+per-instance default factories, nested Specs, and Spec inheritance. See
+[Field semantics](field-semantics.md) for field lifecycle and
+[Composition and inheritance](composition-inheritance.md) for object graphs and
+subclass behavior. Parsing and serialization are not available yet.

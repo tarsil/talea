@@ -16,6 +16,18 @@ class User(Spec):
 user = User(id=1, name="Tiago")
 ```
 
+Specs compose and inherit as normal Python classes:
+
+```python
+class Employee(User):
+    employee_id: int
+
+
+class Team(Spec):
+    lead: Employee
+    members: list[User]
+```
+
 Spec declarations resolve their annotations, validate static defaults, and
 compile strict standalone validators once when the class is created. The same
 validation compiler emits those operations directly into each specialized Spec
@@ -33,7 +45,13 @@ class Basket(Spec):
     items: list[int] = field(default_factory=list)
 ```
 
-Spec inheritance, parsing, and serialization are not implemented yet.
+Subclass fields follow inherited fields, while an override keeps its inherited
+position. Each subclass has one flat keyword-only constructor for its complete
+effective declaration. Compact multiple inheritance is available when there is
+one state-bearing Spec slot lineage; method-only mixins must declare
+`__slots__ = ()`.
+
+Parsing and serialization are not implemented yet.
 
 The canonical schema foundation covers built-in scalar types, homogeneous
 built-in containers, dictionaries, fixed and variadic tuples, and PEP 604
