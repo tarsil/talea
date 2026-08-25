@@ -1,11 +1,13 @@
 """Measure Spec declaration, construction, field lifecycles, failure, and memory.
 
-The hand-written rows use slotted classes with the same exact integer checks
-as Talea and are the primary equivalent comparison.  Strict Pydantic also
-validates.  Slotted dataclasses and direct msgspec Struct construction do not
-validate their annotated values, so those rows provide construction context
-rather than equivalent semantics.  Msgspec failure uses strict mapping
-conversion because direct Struct construction has no validation failure path.
+The hand-written rows use slotted classes with the same exact integer checks as
+Talea.  The immutable row additionally uses bound slot descriptor setters and
+rejects normal assignment, making it the primary equivalent comparison.
+Strict Pydantic also validates.  Slotted dataclasses and direct msgspec Struct
+construction do not validate their annotated values, so those rows provide
+construction context rather than equivalent semantics.  Msgspec failure uses
+strict mapping conversion because direct Struct construction has no validation
+failure path.
 
 Spec performs no lazy instance initialization.  Its first construction uses
 the same retained constructor and validators as every repeated construction,
@@ -109,6 +111,32 @@ def make_handwritten(field_count: int) -> Constructor:
     )
 
 
+def make_handwritten_immutable(field_count: int) -> Constructor:
+    """Create an equivalent immutable direct-checking slotted class."""
+
+    names = field_names(field_count)
+
+    def immutable(instance: object, name: str, value: object) -> None:
+        raise AttributeError("instances are immutable")
+
+    cls = type(
+        f"HandwrittenImmutable{field_count}",
+        (),
+        {"__slots__": names, "__setattr__": immutable},
+    )
+    parameters = ", ".join(names)
+    lines = [f"def __init__(self, *, {parameters}):"]
+    namespace: dict[str, object] = {}
+    for index, name in enumerate(names):
+        lines.extend((f"    if type({name}) is not int:", "        raise TypeError"))
+        setter_name = f"_slot_{index}"
+        namespace[setter_name] = vars(cls)[name].__set__
+        lines.append(f"    {setter_name}(self, {name})")
+    exec(compile("\n".join(lines), "<hand-written immutable benchmark>", "exec"), namespace)
+    type.__setattr__(cls, "__init__", namespace["__init__"])
+    return cls
+
+
 def make_dataclass_type(field_count: int) -> Constructor:
     """Create a non-validating slotted dataclass reference."""
 
@@ -144,7 +172,8 @@ def implementations(field_count: int) -> dict[str, Constructor]:
 
     return {
         "talea validating": make_spec(field_count),
-        "handwritten validating": make_handwritten(field_count),
+        "handwritten mutable validating": make_handwritten(field_count),
+        "handwritten immutable validating": make_handwritten_immutable(field_count),
         "dataclass non-validating": make_dataclass_type(field_count),
         "pydantic validating": make_pydantic(field_count),
         "msgspec non-validating": make_msgspec(field_count),
@@ -224,8 +253,8 @@ def benchmark_failure() -> None:
     candidates = implementations(count)
     operations: dict[str, tuple[Operation, type[BaseException]]] = {
         "talea validating": (partial(candidates["talea validating"], **values), ValidationError),
-        "handwritten validating": (
-            partial(candidates["handwritten validating"], **values),
+        "handwritten mutable validating": (
+            partial(candidates["handwritten mutable validating"], **values),
             TypeError,
         ),
         "pydantic validating": (

@@ -4,7 +4,7 @@ import keyword
 from annotationlib import Format
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from types import FunctionType
+from types import FunctionType, MemberDescriptorType
 from typing import cast, dataclass_transform, get_type_hints
 from unicodedata import normalize
 
@@ -70,18 +70,29 @@ class _SpecArtifacts:
 class _ConstructorCompiler:
     """Compile a keyword-only initializer specialized for one Spec schema."""
 
-    def compile(self, schema: SpecSchema, validators: tuple[Validator, ...]) -> FunctionType:
-        """Return an initializer that validates, then assigns, every field."""
+    def compile(
+        self,
+        schema: SpecSchema,
+        validators: tuple[Validator, ...],
+        slot_setters: tuple[Callable[[object, object], None], ...],
+    ) -> FunctionType:
+        """Return an initializer that validates, then assigns, every field.
+
+        ``slot_setters`` are bound C-level member-descriptor operations from
+        the class being initialized.  Calling them after every validation has
+        succeeded bypasses the public immutable-assignment hook without making
+        the class or instance temporarily writable.
+        """
 
         fields = schema.fields
         field_names = tuple(field.name for field in fields)
         reserved = set(field_names)
         instance_name = self.variable("instance", reserved)
         error_type_name = self.variable("validation_error", reserved)
-        setattr_name = self.variable("setattr", reserved)
         field_names_name = self.variable("field_names", reserved)
         validator_names = tuple(self.variable(f"validator_{index}", reserved) for index in range(len(field_names)))
         error_names = tuple(self.variable(f"error_{index}", reserved) for index in range(len(field_names)))
+        slot_setter_names = tuple(self.variable(f"slot_{index}", reserved) for index in range(len(field_names)))
         if all(field.required for field in fields):
             default_names: dict[int, str] = {}
             factory_names: dict[int, str] = {}
@@ -140,13 +151,12 @@ class _ConstructorCompiler:
                         f"{indentation}    ) from None",
                     )
                 )
-            for field_name in field_names:
-                lines.append(f"    {setattr_name}({instance_name}, {field_name!r}, {field_name})")
+            for field_name, slot_setter_name in zip(field_names, slot_setter_names, strict=True):
+                lines.append(f"    {slot_setter_name}({instance_name}, {field_name})")
             source = "\n".join(lines)
 
         namespace: dict[str, object] = {
             error_type_name: ValidationError,
-            setattr_name: object.__setattr__,
             field_names_name: field_names,
             "__name__": __name__,
         }
@@ -159,6 +169,8 @@ class _ConstructorCompiler:
                 namespace[default_names[index]] = field.default
             if field.default_factory is not None:
                 namespace[factory_names[index]] = field.default_factory
+        for slot_setter_name, slot_setter in zip(slot_setter_names, slot_setters, strict=True):
+            namespace[slot_setter_name] = slot_setter
         exec(compile(source, "<talea Spec constructor>", "exec"), namespace)
         return cast(FunctionType, namespace["__init__"])
 
@@ -232,7 +244,8 @@ class _SpecMeta(type):
         validators = tuple(compile_validator(field.schema) for field in schema.fields)
         if declarations:
             metaclass._validate_static_defaults(schema, validators)
-        initializer = _ConstructorCompiler().compile(schema, validators)
+        slot_setters = tuple(cast(MemberDescriptorType, vars(cls)[field.name]).__set__ for field in schema.fields)
+        initializer = _ConstructorCompiler().compile(schema, validators, slot_setters)
         initializer.__module__ = cls.__module__
         initializer.__qualname__ = f"{cls.__qualname__}.__init__"
         initializer.__doc__ = "Validate and retain every declared field."

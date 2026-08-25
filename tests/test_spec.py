@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import builtins
+import gc
 import inspect
 import sys
+import weakref
 from dataclasses import FrozenInstanceError
 
 import pytest
@@ -135,9 +137,30 @@ def test_instances_are_compact_and_retain_only_declared_values() -> None:
 
 def test_required_only_constructor_retains_no_default_runtime_artifacts() -> None:
     globals_ = vars(User)["__init__"].__globals__
+    descriptors = {vars(User)[field] for field in User.__slots__}
+    retained_setters = {
+        value.__self__
+        for value in globals_.values()
+        if getattr(value, "__name__", None) == "__set__" and hasattr(value, "__self__")
+    }
 
     assert not any(isinstance(value, spec_module._FactorySentinel) for value in globals_.values())
     assert not any(isinstance(value, spec_module._FactoryDeclaration) for value in globals_.values())
+    assert object.__setattr__ not in globals_.values()
+    assert retained_setters == descriptors
+
+
+def test_compiled_slot_setters_do_not_keep_discarded_spec_classes_alive() -> None:
+    def declare() -> weakref.ReferenceType[type[Spec]]:
+        class Ephemeral(Spec):
+            value: int
+
+        return weakref.ref(Ephemeral)
+
+    reference = declare()
+    gc.collect()
+
+    assert reference() is None
 
 
 def test_spec_equality_and_hashing_use_object_identity() -> None:
@@ -443,10 +466,20 @@ def test_declaration_resolves_and_compiles_exactly_once(monkeypatch: pytest.Monk
         validator_calls += 1
         return original_validator(schema)  # type: ignore[invalid-argument-type]
 
-    def counted_constructor(compiler: object, schema: object, validators: object) -> object:
+    def counted_constructor(
+        compiler: object,
+        schema: object,
+        validators: object,
+        slot_setters: object,
+    ) -> object:
         nonlocal constructor_calls
         constructor_calls += 1
-        return original_constructor(compiler, schema, validators)  # type: ignore[invalid-argument-type]
+        return original_constructor(
+            compiler,
+            schema,
+            validators,
+            slot_setters,
+        )  # type: ignore[invalid-argument-type]
 
     def counted_compile(*args: object, **kwargs: object) -> object:
         nonlocal compile_calls
@@ -583,7 +616,7 @@ def test_generated_constructor_names_cannot_collide_with_fields() -> None:
         "ValidationError",
         "_talea_instance",
         "_talea_validation_error",
-        "_talea_setattr",
+        "_talea_slot_0",
         "_talea_field_names",
         "_talea_validator_0",
         "_talea_error_0",
