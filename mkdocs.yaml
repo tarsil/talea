@@ -1,0 +1,73 @@
+site_name: Talea
+site_description: A fast and light Python validation library of the future.
+site_url: https://talea.tarsild.io
+docs_dir: docs/generated
+site_dir: site
+theme:
+  name: material
+  language: en
+  icon:
+    logo: lucide/sparkles
+  palette:
+    - scheme: default
+      media: '(prefers-color-scheme: light)'
+      toggle:
+        icon: lucide/sun
+        name: Switch to dark mode
+    - scheme: slate
+      media: '(prefers-color-scheme: dark)'
+      toggle:
+        icon: lucide/moon
+        name: Switch to light mode
+  favicon: statics/images/favicon.ico
+  logo: statics/images/logo-white.svg
+  features:
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.copy
+
+repo_name: tarsil/talea
+repo_url: https://github.com/tarsil/talea
+edit_uri: ""
+extra_css:
+  - stylesheets/extra.css
+plugins:
+  - search
+  - meta-descriptions:
+      export_csv: false
+      quiet: false
+      enable_checks: false
+      min_length: 50
+      max_length: 160
+      trim: false
+
+nav:
+  - Introduction: "index.md"
+  - Contributing: "contributing.md"
+  - Sponsorship: "sponsorship.md"
+  - Release Notes: "release-notes.md"
+
+markdown_extensions:
+  - toc:
+      permalink: true
+  - admonition
+  - pymdownx.highlight:
+      use_pygments: true
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+
+extra:
+  alternate:
+    - link: /
+      name: English
+      lang: en

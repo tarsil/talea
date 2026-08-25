@@ -1,0 +1,139 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "talea"
+description = "A fast and light Python validation library of the future"
+readme = "README.md"
+requires-python = ">=3.14"
+dynamic = ['version']
+license = "MIT"
+authors = [
+    { name = "Tiago Silva", email = "tiago.arasilva@gmail.com" },
+]
+classifiers = [
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python",
+    "Topic :: Internet",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development",
+    "Typing :: Typed",
+    "Development Status :: 4 - Beta",
+    "Environment :: Web Environment",
+    "Framework :: AsyncIO",
+    "Framework :: AnyIO",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: Internet :: WWW/HTTP",
+]
+dependencies = []
+keywords = ["talea"]
+
+[project.urls]
+Homepage = "https://github.com/tarsil/talea"
+Documentation = "https://talea.tarsild.io"
+Changelog = "https://talea.tarsild.io/release-notes/"
+Funding = "https://github.com/sponsors/tarsil"
+Source = "https://github.com/tarsil/talea"
+
+
+[tool.hatch.version]
+path = "talea/__init__.py"
+
+[tool.hatch.envs.default]
+dependencies = [
+    "ty",
+    "ruff>=0.3.0,<5.0.0",
+    "pre-commit>=3.3.1,<4.0.0",
+    "devtools>=0.12.2",
+    "ipython",
+    "ptpython",
+    "twine",
+]
+
+[project.optional-dependencies]
+testing = [
+    "autoflake>=2.0.2,<3.0.0",
+    "black==24.1.1,<25.0",
+    "isort>=5.12.0,<6.0.0",
+    "pytest>=7.2.2,<9.0.0",
+    "pytest-cov>=4.0.0,<5.0.0",
+    "zensical>=0.0.23,<0.1.0",
+]
+
+[tool.hatch.envs.default.scripts]
+clean_pyc = "find . -type f -name \"*.pyc\" -delete"
+clean_pyi = "find . -type f -name \"*.pyi\" -delete"
+clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
+build_with_check = "hatch build; twine check dist/*"
+lint = "ruff check --fix --line-length 99  talea tests {args}"
+format = "hatch fmt && hatch fmt --check && hatch run test:check_types"
+
+[tool.hatch.envs.docs]
+dependencies = [
+    "sayer",
+    "griffe-typingdoc>=0.2.2,<1.0",
+    "mdx-include>=1.4.2",
+    "zensical>=0.0.23,<0.1.0",
+    "pyyaml>=6.0,<7.0.0",
+]
+
+[tool.hatch.envs.docs.scripts]
+prepare = "scripts/docs.py prepare"
+clean = "scripts/docs.py clean"
+build = "scripts/docs.py build --clean"
+serve = "scripts/docs.py serve"
+dev = "scripts/docs.py serve"
+
+[tool.hatch.envs.test]
+features = ["testing"]
+
+[tool.hatch.envs.test.scripts]
+test = "hatch test -- {args}"
+test_man = "hatch test -- {args} -s -vv"
+check_types = "ty check talea"
+
+[tool.isort]
+profile = "black"
+known_third_party = []
+src_paths = ["talea"]
+
+[tool.ty]
+
+[tool.ty.environment]
+python-version = "3.10"
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "C", "B", "I"]
+ignore = ["E501", "B008", "C901", "B026"]
+
+exclude = ["docs_src/"]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.coverage.run]
+parallel = true
+context = '${CONTEXT}'
+source = ["tests", "talea"]
+# omit = []
+
+[tool.pytest.ini_options]
+addopts = ["--strict-config", "--strict-markers"]
+xfail_strict = true
+junit_family = "xunit2"
+
+[tool.hatch.build.targets.sdist]
+include = ["/talea"]
