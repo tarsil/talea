@@ -51,7 +51,7 @@ path = "talea/__init__.py"
 
 [tool.hatch.envs.default]
 dependencies = [
-    "ty",
+    "ty==0.0.72",
     "ruff>=0.3.0,<5.0.0",
     "pre-commit>=3.3.1,<4.0.0",
     "devtools>=0.12.2",
@@ -75,7 +75,7 @@ clean_pyc = "find . -type f -name \"*.pyc\" -delete"
 clean_pyi = "find . -type f -name \"*.pyi\" -delete"
 clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
 build_with_check = "hatch build; twine check dist/*"
-lint = "ruff check --fix --line-length 99  talea tests {args}"
+lint = "ruff check --fix --line-length 99 talea tests benchmarks {args}"
 format = "hatch fmt && hatch fmt --check && hatch run test:check_types"
 
 [tool.hatch.envs.docs]
@@ -100,7 +100,8 @@ features = ["testing"]
 [tool.hatch.envs.test.scripts]
 test = "hatch test -- {args}"
 test_man = "hatch test -- {args} -s -vv"
-check_types = "ty check talea"
+check_types = "ty check talea benchmarks"
+benchmark_schema = "python benchmarks/schema_resolution.py"
 
 [tool.isort]
 profile = "black"
@@ -110,7 +111,7 @@ src_paths = ["talea"]
 [tool.ty]
 
 [tool.ty.environment]
-python-version = "3.10"
+python-version = "3.14"
 
 [tool.ruff]
 line-length = 120

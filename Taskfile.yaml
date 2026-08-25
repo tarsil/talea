@@ -93,3 +93,8 @@ tasks:
     desc: Runs the coverage tests
     cmds:
       - hatch run test:coverage {{ .ARGS }}
+
+  benchmark_schema:
+    desc: Benchmarks canonical annotation resolution
+    cmds:
+      - hatch run test:benchmark_schema
