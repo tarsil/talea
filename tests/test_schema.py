@@ -57,8 +57,10 @@ def test_primitive_schema_is_immutable() -> None:
     with pytest.raises(FrozenInstanceError):
         schema.kind = "str"
 
-    with pytest.raises(TypeError):
+    with pytest.raises((FrozenInstanceError, TypeError)):
         schema.extra = True
+
+    assert not hasattr(schema, "extra")
 
 
 @pytest.mark.parametrize(
