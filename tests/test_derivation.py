@@ -1,5 +1,6 @@
 import pickle
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from copy import copy, deepcopy, replace
 from inspect import signature
 from typing import Annotated, Literal
@@ -281,6 +282,21 @@ def test_apply_patch_preserves_changed_and_mutable_current_state_validation() ->
     assert raised.value.location == ("items", 0)
 
 
+def test_patch_source_compatibility_uses_exact_concrete_generic_identity() -> None:
+    class Page[T](Spec):
+        items: list[T]
+
+    IntPatch = derive_spec(Page[int], partial=True)
+    StrPatch = derive_spec(Page[str], partial=True)
+    page = Page[int](items=[1])
+
+    updated = apply_patch(page, IntPatch(items=[2]))
+    assert type(updated) is Page[int]
+    assert updated.items == [2]
+    with pytest.raises(TypeError, match="cannot apply"):
+        apply_patch(page, StrPatch(items=["wrong"]))
+
+
 def test_inheritance_concrete_generics_recursion_and_tagged_fields_remain_canonical() -> None:
     class Base(Spec):
         identifier: int
@@ -441,6 +457,18 @@ def test_normal_spec_layout_and_repeated_derivation_identity_remain_deliberate()
     assert first is not second
 
 
+def test_concurrent_uncached_derivation_produces_consistent_distinct_classes() -> None:
+    class Source(Spec):
+        value: int
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        derived = tuple(executor.map(lambda _: derive_spec(Source, partial=True), range(32)))
+
+    assert len({id(spec) for spec in derived}) == 32
+    assert all(spec(value=1).to_dict() == {"value": 1} for spec in derived)
+    assert all(inspect_spec(spec).derivation.source is Source for spec in derived)
+
+
 def test_zero_and_large_field_partial_contracts_use_unbounded_integer_presence() -> None:
     Empty = create_spec("EmptySource", {})
     EmptyPatch = derive_spec(Empty, partial=True)
@@ -474,3 +502,22 @@ def test_presence_property_tracks_arbitrary_supplied_subsets(names: set[str]) ->
 
     assert patch.present_fields == frozenset(names)
     assert patch.to_dict() == values
+
+
+@given(st.sets(st.sampled_from(("first", "second", "third"))))
+def test_pick_and_omit_property_preserve_source_order(names: set[str]) -> None:
+    class Source(Spec):
+        first: int = 1
+        second: int = 2
+        third: int = 3
+
+    source_order = ("first", "second", "third")
+    picked = derive_spec(Source, include=names)
+    omitted = derive_spec(Source, exclude=names)
+
+    assert tuple(field.name for field in inspect_spec(picked).fields) == tuple(
+        name for name in source_order if name in names
+    )
+    assert tuple(field.name for field in inspect_spec(omitted).fields) == tuple(
+        name for name in source_order if name not in names
+    )
