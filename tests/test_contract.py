@@ -175,7 +175,7 @@ def test_contract_has_no_copy_or_global_canonicalization_magic() -> None:
     second = Contract[int](int)
 
     assert first is not second
-    assert first._artifacts.validator is not second._artifacts.validator
+    assert first.validate is not second.validate
     assert copy(first) is not first
 
 
@@ -184,3 +184,7 @@ def test_contract_annotation_property_is_read_only() -> None:
 
     with pytest.raises(AttributeError):
         contract.annotation = str  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        contract.validate = lambda value: value
+    with pytest.raises(AttributeError):
+        del contract.validate

@@ -7,7 +7,6 @@ from talea.input.emission import InputMode
 from talea.input.value import ValueInput, compile_value_input
 from talea.schema.nodes import Schema
 from talea.serialization.emission import OutputMode, ValueProjector, compile_value_projector
-from talea.validation.compilation import Validator
 
 
 @dataclass(slots=True)
@@ -16,7 +15,6 @@ class _ContractArtifacts:
 
     schema: Schema
     title: str
-    validator: Validator
     python_input: ValueInput | None = None
     json_input: ValueInput | None = None
     python_output: ValueProjector | None = None

@@ -18,6 +18,8 @@ from typing import Annotated, Required, TypedDict, cast
 
 from talea import Contract, Ge, Spec, check, create_spec
 from talea.introspection import inspect_contract, inspect_spec
+from talea.schema import resolve_annotation
+from talea.validation import compile_validator
 
 _REPEATS = 5
 _HOT_ITERATIONS = 50_000
@@ -188,6 +190,8 @@ def benchmark_contracts() -> None:
     page_contract = Contract[Page[User]](Page[User])
     node = Node(value=1, children=[])
     node_contract = Contract[Node](Node)
+    direct_integer = compile_validator(resolve_annotation(int))
+    direct_integers = compile_validator(resolve_annotation(list[int]))
 
     cases: tuple[tuple[str, Operation], ...] = (
         ("Contract(int)", partial(integer.validate, 1)),
@@ -202,12 +206,12 @@ def benchmark_contracts() -> None:
     for name, operation in cases:
         report(name, "public retained", measure(operation))
 
-    report("int validate", "direct artifact", measure(partial(integer._artifacts.validator, 1)))
+    report("int validate", "direct compiler owner", measure(partial(direct_integer, 1)))
     report("int validate", "hand-written", measure(partial(strict_int, 1)))
     report(
         "list[int] validate",
-        "direct artifact",
-        measure(partial(integers._artifacts.validator, [1, 2, 3])),
+        "direct compiler owner",
+        measure(partial(direct_integers, [1, 2, 3])),
     )
     report("list[int] validate", "hand-written", measure(partial(strict_int_list, [1, 2, 3])))
 
@@ -224,6 +228,11 @@ def benchmark_contract_boundaries() -> None:
     contract.to_json(users)
 
     report("Contract construction", "cold resolve/validator", measure(lambda: Contract(list[int]), _COLD_ITERATIONS))
+    report(
+        "schema resolve + validator",
+        "direct compiler owner",
+        measure(lambda: compile_validator(resolve_annotation(list[int])), _COLD_ITERATIONS),
+    )
     report(
         "construction + first validate",
         "eager strict artifact",

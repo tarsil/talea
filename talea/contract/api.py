@@ -1,6 +1,7 @@
 """Expose retained arbitrary annotation contracts over canonical Talea owners."""
 
-from typing import Generic, TypeVar, overload
+from collections.abc import Callable
+from typing import Generic, TypeVar, cast, overload
 
 from talea.contract.artifacts import _ContractArtifacts
 from talea.input.json import JsonInput, JsonLoads, decode_json
@@ -26,7 +27,10 @@ class Contract(Generic[T]):
     static output precision is required.
     """
 
-    __slots__ = ("_annotation", "_artifacts")
+    __slots__ = ("_annotation", "_artifacts", "validate")
+
+    validate: Callable[[object], T]
+    """The retained strict Python validator for this Contract."""
 
     @overload
     def __init__(self, annotation: type[T], /) -> None: ...
@@ -47,30 +51,26 @@ class Contract(Generic[T]):
 
         schema = resolve_annotation(annotation)
         self._annotation = annotation
-        self._artifacts = _ContractArtifacts(
-            schema,
-            describe_schema(schema),
-            compile_validator(schema),
-        )
+        self._artifacts = _ContractArtifacts(schema, describe_schema(schema))
+        self.validate = cast(Callable[[object], T], compile_validator(schema))
+
+    def __setattr__(self, name: str, value: object) -> None:
+        """Set initialization state once and reject later Contract mutation."""
+
+        if hasattr(self, name):
+            raise AttributeError("Contract attributes are read-only")
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        """Reject deletion from the retained Contract identity."""
+
+        raise AttributeError(f"Contract attribute {name!r} is read-only")
 
     @property
     def annotation(self) -> object:
         """Return the exact runtime annotation supplied at construction."""
 
         return self._annotation
-
-    def validate(self, value: object, /) -> T:
-        """Validate an existing Python value strictly and preserve its identity.
-
-        No coercion, annotation reflection, or schema traversal occurs on this
-        repeated path. Mutable nested Specs follow Talea's canonical current-
-        state trust semantics.
-
-        Raises:
-            ValidationError: If ``value`` does not satisfy this contract.
-        """
-
-        return self._artifacts.validator(value)  # ty: ignore[invalid-return-type]
 
     def from_python(self, value: object, /) -> T:
         """Convert and validate one untrusted external Python representation.
@@ -123,7 +123,7 @@ class Contract(Generic[T]):
             SerializationError: If a valid value cannot be projected safely.
         """
 
-        validated = self._artifacts.validator(value)
+        validated = self.validate(value)
         compiled = self._artifacts.python_output
         if compiled is None:
             compiled = self._artifacts.output_for("python")
@@ -146,7 +146,7 @@ class Contract(Generic[T]):
             SerializationError: If projection or JSON encoding fails.
         """
 
-        validated = self._artifacts.validator(value)
+        validated = self.validate(value)
         compiled = self._artifacts.json_output
         if compiled is None:
             compiled = self._artifacts.output_for("json")

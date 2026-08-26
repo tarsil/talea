@@ -172,4 +172,4 @@ def test_repeated_contract_creation_has_no_canonical_or_global_cache() -> None:
     contracts = [Contract[list[int]](list[int]) for _ in range(200)]
 
     assert len({id(contract._artifacts) for contract in contracts}) == len(contracts)
-    assert len({id(contract._artifacts.validator) for contract in contracts}) == len(contracts)
+    assert len({id(contract.validate) for contract in contracts}) == len(contracts)

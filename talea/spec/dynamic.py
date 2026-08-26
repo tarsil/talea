@@ -96,6 +96,28 @@ def create_spec(
         raise TypeError("create_spec base must be a Spec class")
     if any(isinstance(annotation, str) for annotation in fields.values()):
         raise TypeError("create_spec requires evaluated field annotations")
+    if (
+        defaults is None
+        and factories is None
+        and module is None
+        and qualname is None
+        and doc is None
+        and namespace is None
+    ):
+        caller_module = str(_getframe(1).f_globals.get("__name__", "__main__"))
+        _validate_module(caller_module)
+        return cast(
+            type[Spec],
+            type(base)(
+                name,
+                (base,),
+                {
+                    "__annotations__": dict(fields),
+                    "__module__": caller_module,
+                    "__qualname__": name,
+                },
+            ),
+        )
     default_values = _normalize_field_values(defaults, "defaults")
     factory_values = _normalize_field_values(factories, "factories")
     field_names = frozenset(fields)
