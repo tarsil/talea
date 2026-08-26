@@ -13,12 +13,16 @@ from talea.input.artifacts import _InputArtifacts
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
+    EnumSchema,
     FixedTupleSchema,
+    LiteralSchema,
     MappingSchema,
+    PrimitiveSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
     TypedDictSchema,
+    TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -111,6 +115,8 @@ class _SpecDeclaration:
 def _referenced_specs(schema: Schema) -> tuple[type[object], ...]:
     """Return canonical Spec targets reachable from one field schema."""
 
+    if isinstance(schema, (PrimitiveSchema, TypeSchema, EnumSchema, LiteralSchema)):
+        return ()
     if isinstance(schema, ConstrainedSchema):
         return _referenced_specs(schema.schema)
     if isinstance(schema, AliasSchema):
@@ -127,9 +133,8 @@ def _referenced_specs(schema: Schema) -> tuple[type[object], ...]:
         return _referenced_specs(schema.item)
     if isinstance(schema, FixedTupleSchema):
         return tuple(target for item in schema.items for target in _referenced_specs(item))
-    if isinstance(schema, UnionSchema):
-        return tuple(target for option in schema.options for target in _referenced_specs(option))
-    return ()
+    assert isinstance(schema, UnionSchema)
+    return tuple(target for option in schema.options for target in _referenced_specs(option))
 
 
 def _reaches_spec(

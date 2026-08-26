@@ -126,10 +126,6 @@ class _ValidationEmitter:
         else:
             base = schema
             constraints = ()
-        if isinstance(base, AliasSchema):
-            self.emit_schema(base.schema, value, location, indentation)
-            self.emit_constraints(base, constraints, value, location, indentation)
-            return
         if isinstance(base, PrimitiveSchema):
             self.emit_primitive(base, value, location, indentation, constraints)
             return
@@ -141,6 +137,10 @@ class _ValidationEmitter:
             return
         if isinstance(base, LiteralSchema):
             self.emit_literal(base, value, location, indentation)
+            return
+        if isinstance(base, AliasSchema):
+            self.emit_schema(base.schema, value, location, indentation)
+            self.emit_constraints(base, constraints, value, location, indentation)
             return
         if isinstance(base, SpecReferenceSchema):
             self.emit_spec_reference(base, value, location, indentation)

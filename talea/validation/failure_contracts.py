@@ -35,8 +35,6 @@ _PRIMITIVE_ORDER = {"int": 0, "float": 1, "str": 2, "bool": 3, "bytes": 4, "none
 def describe_schema(schema: Schema) -> str:
     """Return deterministic expected-contract text from canonical truth."""
 
-    if isinstance(schema, AliasSchema):
-        return schema.name
     if isinstance(schema, PrimitiveSchema):
         return "None" if schema.kind == "none" else schema.kind
     if isinstance(schema, TypeSchema):
@@ -46,6 +44,8 @@ def describe_schema(schema: Schema) -> str:
     if isinstance(schema, LiteralSchema):
         values = sorted(schema.values, key=literal_key)
         return f"Literal[{', '.join(literal_description(item) for item in values)}]"
+    if isinstance(schema, AliasSchema):
+        return schema.name
     if isinstance(schema, ConstrainedSchema):
         descriptions = ", ".join(constraint_label(item) for item in schema.constraints)
         return f"Annotated[{describe_schema(schema.schema)}, {descriptions}]"

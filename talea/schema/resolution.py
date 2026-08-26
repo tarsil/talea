@@ -127,23 +127,6 @@ def resolve_annotation(annotation: object) -> Schema:
 def _resolve_annotation(annotation: object, resolving: set[object]) -> Schema:
     """Resolve one annotation while rejecting unsupported recursive expansion."""
 
-    origin = get_origin(annotation)
-    arguments = get_args(annotation)
-
-    if isinstance(annotation, TypeAliasType):
-        return _resolve_alias(annotation, (), resolving)
-    if isinstance(origin, TypeAliasType):
-        return _resolve_alias(origin, arguments, resolving)
-    if isinstance(annotation, NewType):
-        return AliasSchema(
-            annotation.__name__,
-            annotation.__module__,
-            _resolve_annotation(annotation.__supertype__, resolving),
-        )
-    typed_dict = annotation if is_typeddict(annotation) else origin
-    if typed_dict is not None and is_typeddict(typed_dict):
-        return _resolve_typed_dict(cast(type[object], typed_dict), arguments, resolving)
-
     if annotation is int:
         return PrimitiveSchema("int")
     if annotation is float:
@@ -168,6 +151,23 @@ def _resolve_annotation(annotation: object, resolving: set[object]) -> Schema:
             return TypeSchema(cast(type[object], annotation), "nominal")
         if getattr(annotation, "__talea_spec__", False) is True and "__talea_declaration__" in vars(annotation):
             return SpecReferenceSchema(annotation)
+
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+
+    if isinstance(annotation, TypeAliasType):
+        return _resolve_alias(annotation, (), resolving)
+    if isinstance(origin, TypeAliasType):
+        return _resolve_alias(origin, arguments, resolving)
+    if isinstance(annotation, NewType):
+        return AliasSchema(
+            annotation.__name__,
+            annotation.__module__,
+            _resolve_annotation(annotation.__supertype__, resolving),
+        )
+    typed_dict = annotation if is_typeddict(annotation) else origin
+    if typed_dict is not None and is_typeddict(typed_dict):
+        return _resolve_typed_dict(cast(type[object], typed_dict), arguments, resolving)
 
     if origin is Annotated:
         schema = _resolve_annotation(arguments[0], resolving)
