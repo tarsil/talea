@@ -168,6 +168,10 @@ def test_json_float_accepts_json_numbers_and_rejects_non_finite_custom_values() 
     assert non_finite.value.code == "json_invalid"
     assert non_finite.value.location == ("value",)
 
+    with pytest.raises(ValidationError) as overflow:
+        Measurement.from_json("ignored", loads=lambda data: {"value": 10**1000})
+    assert overflow.value.code == "type"
+
 
 def test_json_constrained_float_and_singleton_tuple_conversion() -> None:
     class Payload(Spec):
@@ -202,6 +206,12 @@ def test_default_json_decoder_rejects_duplicate_keys_at_any_object_depth() -> No
     assert raised.value.code == "json_duplicate"
     assert raised.value.errors()[0]["context"] == {"key": "value"}
 
+    huge = '{"padding":"' + "x" * 5000 + '","nested":{"value":1,"value":2}}'
+    with pytest.raises(ValidationError) as large:
+        Payload.from_json(huge)
+    assert large.value.code == "json_duplicate"
+    assert large.value.__cause__ is None
+
 
 def test_malformed_json_has_parser_context_bounded_input_and_safe_cause_policy() -> None:
     class Payload(Spec):
@@ -224,6 +234,12 @@ def test_malformed_json_has_parser_context_bounded_input_and_safe_cause_policy()
         Payload.from_json(b'{"value":"\xff"}')
     assert encoding.value.code == "json_invalid"
     assert encoding.value.errors()[0]["context"]["reason"]
+
+    huge_number = '{"value":' + "9" * 5_000 + "}"
+    with pytest.raises(ValidationError) as pathological_number:
+        Payload.from_json(huge_number)
+    assert pathological_number.value.code == "json_invalid"
+    assert pathological_number.value.__cause__ is None
 
 
 def test_custom_decoder_contract_preserves_talea_semantics_and_exception_boundaries() -> None:
@@ -254,6 +270,20 @@ def test_custom_decoder_contract_preserves_talea_semantics_and_exception_boundar
     with pytest.raises(RuntimeError) as propagated:
         Payload.from_json("encoded", loads=lambda data: (_ for _ in ()).throw(failure))
     assert propagated.value is failure
+
+    with pytest.raises(ValidationError) as large_custom_failure:
+        Payload.from_json(
+            "x" * 5_000,
+            loads=lambda data: (_ for _ in ()).throw(ValueError("bad syntax")),
+        )
+    assert large_custom_failure.value.__cause__ is None
+
+    text = "x" * 10_000
+
+    class Text(Spec):
+        value: str
+
+    assert Text.from_json(f'{{"value":"{text}"}}').value == text
 
 
 def test_custom_decoder_cannot_change_validation_or_recover_duplicate_evidence() -> None:
@@ -309,6 +339,14 @@ def test_json_rejects_unfrozen_representations_and_malformed_standard_values() -
         ["status"],
     ]
     assert all(error["code"] == "type" for error in raised.value.errors())
+
+    class ImpossibleSet(Spec):
+        values: set[list[int]]
+
+    with pytest.raises(ValidationError) as impossible:
+        ImpossibleSet.from_json('{"values":[[1]]}')
+    assert impossible.value.code == "type"
+    assert impossible.value.location == ("values",)
 
 
 def test_json_nested_custom_decoder_spec_identity_uses_existing_trust_semantics() -> None:

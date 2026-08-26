@@ -117,6 +117,8 @@ benchmark_validator = "python benchmarks/validator_compilation.py"
 benchmark_types = "python benchmarks/type_constraints.py"
 benchmark_hooks = "python benchmarks/custom_validation.py"
 benchmark_errors = "python benchmarks/error_experience.py"
+benchmark_mapping = "python benchmarks/input_boundaries.py mapping"
+benchmark_json = "python benchmarks/input_boundaries.py json"
 
 [tool.isort]
 profile = "black"

@@ -3,12 +3,15 @@
 import json
 from collections.abc import Callable
 from decimal import Decimal
+from typing import NoReturn
 
 from talea.errors import ErrorCode
 from talea.errors.models import ValidationError
 
 type JsonInput = str | bytes | bytearray
 type JsonLoads = Callable[[JsonInput], object]
+
+_MAX_CAUSE_INPUT = 4096
 
 
 class _DuplicateKeyError(ValueError):
@@ -49,6 +52,16 @@ def _default_loads(data: JsonInput) -> object:
     )
 
 
+def _raise_decoder_failure(
+    failure: ValidationError,
+    cause: BaseException,
+    data: JsonInput,
+) -> NoReturn:
+    if len(data) <= _MAX_CAUSE_INPUT:
+        raise failure from cause
+    raise failure from None
+
+
 def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> object:
     """Decode JSON syntax with strict stdlib defaults or one explicit callable.
 
@@ -62,23 +75,25 @@ def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> obje
     try:
         return decoder(data)
     except _DuplicateKeyError as error:
-        raise ValidationError(
+        failure = ValidationError(
             None,
             error.key,
             (),
             ErrorCode.JSON_DUPLICATE,
             title=title,
             context=(("key", error.key),),
-        ) from error
+        )
+        _raise_decoder_failure(failure, error, data)
     except _NonFiniteNumberError as error:
-        raise ValidationError(
+        failure = ValidationError(
             None,
             error.token,
             (),
             ErrorCode.JSON_INVALID,
             title=title,
             context=(("reason", "non_finite_number"),),
-        ) from error
+        )
+        _raise_decoder_failure(failure, error, data)
     except json.JSONDecodeError as error:
         failure = ValidationError(
             None,
@@ -88,24 +103,24 @@ def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> obje
             title=title,
             context=(("line", error.lineno), ("column", error.colno), ("position", error.pos)),
         )
-        if len(data) <= 4096:
-            raise failure from error
-        raise failure from None
+        _raise_decoder_failure(failure, error, data)
     except UnicodeDecodeError as error:
-        raise ValidationError(
+        failure = ValidationError(
             None,
             data[:160],
             (),
             ErrorCode.JSON_INVALID,
             title=title,
             context=(("start", error.start), ("end", error.end), ("reason", error.reason)),
-        ) from error
+        )
+        _raise_decoder_failure(failure, error, data)
     except ValueError as error:
-        raise ValidationError(
+        failure = ValidationError(
             None,
             data[:160],
             (),
             ErrorCode.JSON_INVALID,
             title=title,
             context=(("decoder", type(decoder).__qualname__),),
-        ) from error
+        )
+        _raise_decoder_failure(failure, error, data)

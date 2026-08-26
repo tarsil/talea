@@ -38,6 +38,7 @@ class _InputCompiler:
         field_names = tuple(field.name for field in fields)
         names = _GeneratedNames((*field_names, "data"))
         errors = names.allocate("errors")
+        missing_fields = names.allocate("missing_fields")
         trusted = (
             names.allocate("trusted_instances")
             if any(schema_may_construct_spec(field.schema) for field in fields)
@@ -46,7 +47,11 @@ class _InputCompiler:
         missing = names.allocate("missing")
         field_names_name = names.allocate("field_names")
         known_names = names.allocate("known_names")
-        lines = ["def construct(data):", f"    {errors} = None"]
+        lines = [
+            "def construct(data):",
+            f"    {errors} = None",
+            f"    {missing_fields} = False",
+        ]
         if trusted is not None:
             lines.append(f"    {trusted} = None")
         namespace: dict[str, object] = {
@@ -75,6 +80,7 @@ class _InputCompiler:
                     f"    except {key_error}:",
                     f"        {value} = {missing}",
                     f"    if {value} is {missing}:",
+                    f"        {missing_fields} = True",
                 )
             )
             if field.required:
@@ -102,17 +108,19 @@ class _InputCompiler:
         string_type = emitter.runtime("str", str)
         lines.extend(
             (
-                f"    for {unexpected_key} in data:",
-                f"        if {emitter.runtime('type', type)}({unexpected_key}) is not {string_type} "
+                f"    if {emitter.runtime('type', type)}(data) is not {emitter.runtime('dict', dict)} "
+                f"or {missing_fields} or {emitter.runtime('len', len)}(data) != {len(fields)}:",
+                f"        for {unexpected_key} in data:",
+                f"            if {emitter.runtime('type', type)}({unexpected_key}) is not {string_type} "
                 f"or {unexpected_key} not in {known_names}:",
-                f"            {unexpected_value} = data[{unexpected_key}]",
-                f"            {unexpected_error} = {emitter.validation_error_name}("
+                f"                {unexpected_value} = data[{unexpected_key}]",
+                f"                {unexpected_error} = {emitter.validation_error_name}("
                 f"None, {unexpected_value}, ({unexpected_key},), "
                 f"{emitter.runtime('error_code_unexpected', ErrorCode.UNEXPECTED)}, "
                 f"title={emitter.title_name})",
             )
         )
-        self._emit_collect(lines, errors, unexpected_error, 3)
+        self._emit_collect(lines, errors, unexpected_error, 4)
         self._emit_raise_aggregate(lines, emitter, errors, 1)
 
         for index, (field, value) in enumerate(zip(fields, values, strict=True)):

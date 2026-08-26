@@ -128,3 +128,13 @@ tasks:
     desc: Benchmarks structured error creation, rendering, projection, and allocations
     cmds:
       - hatch run test:benchmark_errors
+
+  benchmark_mapping:
+    desc: Benchmarks compiled Mapping input, aggregation, allocations, and declaration cost
+    cmds:
+      - hatch run test:benchmark_mapping
+
+  benchmark_json:
+    desc: Benchmarks JSON decode, Talea boundary work, full input, codecs, and allocations
+    cmds:
+      - hatch run test:benchmark_json

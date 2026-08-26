@@ -264,6 +264,31 @@ def test_unexpected_mapping_implementation_exceptions_propagate() -> None:
     with pytest.raises(RuntimeError, match="mapping failed"):
         Payload.from_mapping(ExplodingMapping())
 
+    class InconsistentMapping(CustomMapping):
+        def __len__(self) -> int:
+            return 1
+
+    with pytest.raises(ValidationError) as inconsistent:
+        Payload.from_mapping(InconsistentMapping({"value": 1, "extra": True}))
+    assert inconsistent.value.location == ("extra",)
+
+
+def test_huge_mapping_is_bounded_to_individual_error_inputs() -> None:
+    class Payload(Spec):
+        value: int
+
+    data: dict[str, object] = {"value": 1}
+    data.update({f"extra_{index}": True for index in range(2_000)})
+
+    with pytest.raises(ValidationError) as raised:
+        Payload.from_mapping(data)
+
+    errors = raised.value.errors()
+    assert len(errors) == 2_000
+    assert errors[0]["location"] == ["extra_0"]
+    assert errors[-1]["location"] == ["extra_1999"]
+    assert all(error["input"] is True for error in errors)
+
 
 @given(
     required=st.booleans(),

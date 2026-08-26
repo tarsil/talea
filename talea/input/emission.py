@@ -280,9 +280,16 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         target = self._sequence_types[schema.kind]
         if target is list:
             expression = converted
+            self.emit(indentation + 1, f"{value} = {expression}")
         else:
             expression = f"{self.runtime(schema.kind, target)}({converted})"
-        self.emit(indentation + 1, f"{value} = {expression}")
+            self.emit(indentation + 1, "try:")
+            self.emit(indentation + 2, f"{value} = {expression}")
+            self.emit(
+                indentation + 1,
+                f"except {self.runtime('type_error', TypeError)}:",
+            )
+            self.emit(indentation + 2, "pass")
 
     def emit_mapping_conversion(
         self,
@@ -367,9 +374,18 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         decimal_type = self.bind("decimal_type", Decimal)
         finite = self.runtime("isfinite", isfinite)
         self.emit(indentation, f"if {type_name}({value}) is {int_type}:")
-        self.emit(indentation + 1, f"{value} = {float_type}({value})")
-        self.emit(indentation, f"elif {type_name}({value}) is {decimal_type}:")
         converted = self.variable("float_value")
+        self.emit(indentation + 1, "try:")
+        self.emit(indentation + 2, f"{converted} = {float_type}({value})")
+        self.emit(
+            indentation + 1,
+            f"except {self.runtime('overflow_error', OverflowError)}:",
+        )
+        self.emit(indentation + 2, "pass")
+        self.emit(indentation + 1, "else:")
+        self.emit(indentation + 2, f"if {finite}({converted}):")
+        self.emit(indentation + 3, f"{value} = {converted}")
+        self.emit(indentation, f"elif {type_name}({value}) is {decimal_type}:")
         self.emit(indentation + 1, f"{converted} = {float_type}({value})")
         self.emit(indentation + 1, f"if {finite}({converted}):")
         self.emit(indentation + 2, f"{value} = {converted}")
