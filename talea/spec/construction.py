@@ -5,10 +5,11 @@ from inspect import signature
 from types import FunctionType
 from typing import cast
 
+from talea.codegen import _GeneratedNames
 from talea.declaration.models import SpecSchema
 from talea.errors import ErrorCode, ValidationError
 from talea.spec.fields import FACTORY_SENTINEL, _StaticDefaultSentinel
-from talea.validation.emission import _GeneratedNames, _ValidationEmitter
+from talea.validation.emission import _ValidationEmitter
 
 
 class _ConstructorCompiler:

@@ -4,7 +4,7 @@ import inspect
 import pytest
 
 import talea.schema.resolution as annotation_resolution
-import talea.spec.lifecycle as spec_module
+import talea.spec.declaration as spec_module
 import talea.validation.emission as validation_emission
 from talea import Spec, field
 from talea.schema import PrimitiveSchema

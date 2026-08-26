@@ -11,6 +11,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 from talea import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern, Spec
+from talea.codegen import _GeneratedNames
 from talea.constraints import Constraint
 from talea.schema import (
     AnnotationResolutionError,
@@ -21,7 +22,7 @@ from talea.schema import (
 )
 from talea.schema.resolution import _apply_constraints
 from talea.validation import ValidationError, compile_validator
-from talea.validation.emission import _GeneratedNames, _ValidationEmitter
+from talea.validation.emission import _ValidationEmitter
 from talea.validation.failure_contracts import (
     constraint_code,
     constraint_context,

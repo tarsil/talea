@@ -4,9 +4,9 @@ from collections.abc import Callable
 from types import FunctionType
 from typing import cast
 
+from talea.codegen import _GeneratedNames
 from talea.declaration.models import SpecSchema
 from talea.serialization.emission import OutputMode, _ValueProjectionCompiler, project_hook_value
-from talea.validation.emission import _GeneratedNames
 
 type SpecSerializer = Callable[[object], dict[str, object]]
 type FilteredSpecSerializer = Callable[

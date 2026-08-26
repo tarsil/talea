@@ -17,6 +17,7 @@ from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, W
 from typing import Literal, assert_never
 from uuid import UUID
 
+from talea.codegen import _GeneratedNames
 from talea.errors import ErrorCode
 from talea.json.representations import decode_bytes, encode_bytes, parse_timedelta
 from talea.schema.nodes import (
@@ -33,7 +34,7 @@ from talea.schema.nodes import (
     UnionSchema,
     VariadicTupleSchema,
 )
-from talea.validation.emission import _GeneratedNames, _ValidationEmitter
+from talea.validation.emission import _ValidationEmitter
 from talea.validation.failure_contracts import describe_schema, schema_order_key
 
 type InputMode = Literal["mapping", "json"]

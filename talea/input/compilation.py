@@ -4,6 +4,7 @@ from collections.abc import Callable, Mapping
 from types import FunctionType
 from typing import cast
 
+from talea.codegen import _GeneratedNames
 from talea.declaration.models import SpecSchema
 from talea.errors import ErrorCode
 from talea.input.emission import (
@@ -12,7 +13,6 @@ from talea.input.emission import (
     schema_may_construct_spec,
 )
 from talea.spec.fields import FACTORY_SENTINEL
-from talea.validation.emission import _GeneratedNames
 
 type InputCallable = Callable[[object], object]
 

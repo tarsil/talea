@@ -11,6 +11,7 @@ from uuid import UUID
 import pytest
 
 from talea import Ge, Spec, ValidationError, check, transform
+from talea.codegen import _GeneratedNames
 from talea.input.emission import _BoundaryValidationEmitter, schema_needs_conversion
 from talea.schema import (
     ConstrainedSchema,
@@ -24,7 +25,6 @@ from talea.schema import (
     TypeSchema,
     UnionSchema,
 )
-from talea.validation.emission import _GeneratedNames
 
 
 class State(Enum):

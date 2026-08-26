@@ -11,8 +11,9 @@ import pytest
 
 import talea
 import talea.schema.resolution as annotation_resolution
+import talea.spec.declaration as spec_module
 import talea.spec.fields as field_module
-import talea.spec.lifecycle as spec_module
+import talea.spec.metaclass as metaclass_module
 from talea import Spec, field
 from talea.declaration import MISSING_DEFAULT, SpecSchema
 from talea.schema import (
@@ -775,7 +776,7 @@ def test_declaration_name_is_not_executable_generated_source() -> None:
 
 def test_malformed_annotation_protocols_are_rejected() -> None:
     with pytest.raises(TypeError, match="requires at least one Spec base"):
-        spec_module._SpecMeta("Detached", (object,), {})
+        metaclass_module._SpecMeta("Detached", (object,), {})
     with pytest.raises(TypeError, match="requires an annotations mapping"):
         type("InvalidAnnotations", (Spec,), {"__annotations__": 1})
     with pytest.raises(TypeError, match="requires a callable annotation function"):

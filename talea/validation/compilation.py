@@ -3,9 +3,10 @@
 from collections.abc import Callable
 from typing import cast
 
+from talea.codegen import _GeneratedNames
 from talea.declaration.models import SpecSchema
 from talea.schema.nodes import Schema
-from talea.validation.emission import _GeneratedNames, _ValidationEmitter
+from talea.validation.emission import _ValidationEmitter
 
 type Validator = Callable[[object], object]
 

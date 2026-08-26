@@ -18,6 +18,7 @@ from types import FunctionType
 from typing import Literal, assert_never, cast
 from uuid import UUID
 
+from talea.codegen import _GeneratedNames
 from talea.json.representations import encode_bytes, format_timedelta
 from talea.schema.nodes import (
     ConstrainedSchema,
@@ -35,7 +36,6 @@ from talea.schema.nodes import (
 )
 from talea.serialization.errors import SerializationError
 from talea.validation import ValidationError, compile_validator
-from talea.validation.emission import _GeneratedNames
 from talea.validation.failure_contracts import schema_order_key
 
 type OutputMode = Literal["python", "json"]

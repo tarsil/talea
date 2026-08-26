@@ -16,6 +16,7 @@ from hypothesis import given, strategies as st
 
 import talea.serialization.artifacts as output_module
 from talea import Alias, Ge, SerializationError, Spec, serialize, transform
+from talea.codegen import _GeneratedNames
 from talea.declaration import SpecField, SpecSchema
 from talea.declaration.models import SerializationHook
 from talea.input.emission import _BoundaryValidationEmitter
@@ -28,7 +29,6 @@ from talea.schema import (
 )
 from talea.serialization.emission import _ValueProjectionCompiler, compile_value_projector
 from talea.serialization.hooks import _SERIALIZER_MARKER
-from talea.validation.emission import _GeneratedNames
 
 
 class State(Enum):

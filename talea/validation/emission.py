@@ -7,12 +7,12 @@ retain neither the source schema nor the annotation that produced it, and
 successful validation creates no error metadata.
 """
 
-from collections.abc import Iterable
 from contextvars import ContextVar
 from decimal import Decimal
 from math import isclose, isfinite, remainder
 from typing import assert_never, cast
 
+from talea.codegen import _GeneratedNames
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.declaration.models import SpecSchema, ValidationHook
 from talea.errors import ErrorCode
@@ -84,28 +84,6 @@ class _RecursiveSpecValidator:
             active.remove(identity)
             if token is not None:
                 _RECURSIVE_VALIDATION.reset(token)
-
-
-class _GeneratedNames:
-    """Allocate deterministic compiler-owned names within one generated unit."""
-
-    __slots__ = ("counters", "reserved")
-
-    def __init__(self, reserved: Iterable[str] = ()) -> None:
-        self.counters: dict[str, int] = {}
-        self.reserved = set(reserved)
-
-    def allocate(self, purpose: str) -> str:
-        """Return a unique identifier disjoint from user and compiler names."""
-
-        index = self.counters.get(purpose, 0)
-        while True:
-            index += 1
-            candidate = f"_talea_{purpose}_{index}"
-            if candidate not in self.reserved:
-                self.counters[purpose] = index
-                self.reserved.add(candidate)
-                return candidate
 
 
 class _ValidationEmitter:
