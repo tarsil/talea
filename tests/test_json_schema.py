@@ -549,6 +549,30 @@ def test_partial_requiredness_property_accepts_arbitrary_presence(values: dict[s
     assert Patch.from_mapping(values).to_dict() == values
 
 
+@given(
+    st.fixed_dictionaries(
+        {"required": st.integers()},
+        optional={"optional": st.text(max_size=20), "immutable": st.integers()},
+    )
+)
+def test_typed_dict_property_matches_runtime_requiredness(values: ProjectionPayload) -> None:
+    contract = Contract(ProjectionPayload)
+    Draft202012Validator(contract.json_schema()).validate(values)
+    assert contract.from_json(json.dumps(values)) == values
+
+
+@given(
+    st.one_of(
+        st.builds(lambda number: {"kind": "card", "number": number}, st.text(max_size=20)),
+        st.builds(lambda iban: {"kind": "bank", "iban": iban}, st.text(max_size=20)),
+    )
+)
+def test_tagged_union_property_matches_runtime_dispatch(values: dict[str, str]) -> None:
+    contract = Contract(Payment)
+    Draft202012Validator(contract.json_schema()).validate(values)
+    assert contract.from_json(json.dumps(values)).kind == values["kind"]
+
+
 def test_invalid_mode_is_rejected_without_projector_state_leakage() -> None:
     with pytest.raises(TypeError, match="schema mode"):
         Contract(int).json_schema(mode="invalid")  # type: ignore[arg-type]
