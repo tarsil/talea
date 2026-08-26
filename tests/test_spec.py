@@ -517,15 +517,35 @@ def test_declaration_resolves_and_compiles_exactly_once(monkeypatch: pytest.Monk
 
     declaration_compile_calls = compile_calls
     declaration_exec_calls = exec_calls
+    artifacts = vars(Lifecycle)["__talea_artifacts__"]
+    assert artifacts.inputs.mapping_input is None
+    assert artifacts.inputs.json_input is None
     assert Lifecycle(id=1, labels=["one"]).id == 1
     assert Lifecycle(id=2, labels=["two"]).id == 2
     assert resolution_calls == 2
     assert validator_calls == 2
     assert constructor_calls == 1
     assert declaration_compile_calls >= 3
-    assert declaration_exec_calls == 5
+    assert declaration_exec_calls == 3
     assert compile_calls == declaration_compile_calls
     assert exec_calls == declaration_exec_calls
+
+    assert Lifecycle.from_mapping({"id": 3, "labels": ["three"]}).id == 3
+    mapping_compile_calls = compile_calls
+    mapping_exec_calls = exec_calls
+    assert artifacts.inputs.mapping_input is not None
+    assert artifacts.inputs.json_input is None
+    assert Lifecycle.from_mapping({"id": 4, "labels": ["four"]}).id == 4
+    assert compile_calls == mapping_compile_calls
+    assert exec_calls == mapping_exec_calls
+
+    assert Lifecycle.from_json('{"id":5,"labels":["five"]}').id == 5
+    json_compile_calls = compile_calls
+    json_exec_calls = exec_calls
+    assert artifacts.inputs.json_input is not None
+    assert Lifecycle.from_json('{"id":6,"labels":["six"]}').id == 6
+    assert compile_calls == json_compile_calls
+    assert exec_calls == json_exec_calls
 
 
 def test_repeated_construction_uses_no_reflection_or_compilation(monkeypatch: pytest.MonkeyPatch) -> None:

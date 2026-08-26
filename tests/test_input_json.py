@@ -14,6 +14,10 @@ from talea import Ge, Spec, ValidationError, check, transform
 from talea.input.emission import _BoundaryValidationEmitter, schema_needs_conversion
 from talea.schema import (
     ConstrainedSchema,
+    EnumSchema,
+    FixedTupleSchema,
+    LiteralSchema,
+    LiteralValue,
     MappingSchema,
     PrimitiveSchema,
     Schema,
@@ -383,12 +387,26 @@ def test_boundary_emitter_rejects_impossible_schema_values_and_covers_union_shap
         {},
         mode="json",
     )
+    mapping_emitter = _BoundaryValidationEmitter([], _GeneratedNames(), {}, mode="mapping")
     constrained_float = ConstrainedSchema(PrimitiveSchema("float"), (Ge(0.0),))
     nested_union = UnionSchema(frozenset({PrimitiveSchema("int"), PrimitiveSchema("str")}))
     outer_union = UnionSchema(frozenset({nested_union, PrimitiveSchema("none")}))
+    enum_schema = EnumSchema(State, (LiteralValue(State, State.OPEN),))
+    enum_literal = LiteralSchema(frozenset({LiteralValue(State, State.OPEN)}))
+    primitive_literal = LiteralSchema(frozenset({LiteralValue(str, "open")}))
+    primitive_mapping = MappingSchema(PrimitiveSchema("str"), PrimitiveSchema("int"))
+    primitive_tuple = FixedTupleSchema((PrimitiveSchema("int"), PrimitiveSchema("str")))
 
     assert "json_number_types" in emitter.boundary_condition(constrained_float, "value")
+    assert schema_needs_conversion(constrained_float, "json")
+    assert schema_needs_conversion(enum_schema, "json")
+    assert schema_needs_conversion(enum_literal, "json")
+    assert not schema_needs_conversion(primitive_mapping, "mapping")
     emitter.emit_conversion(constrained_float, "value", (), 0)
+    emitter.emit_schema(nested_union, "value", (), 0)
+    emitter.emit_mapping_conversion(primitive_mapping, "value", (), 0)
+    mapping_emitter.emit_fixed_tuple_conversion(primitive_tuple, "value", (), 0)
+    emitter.emit_enum_conversion(primitive_literal, "value", 0)
     assert "standard_type" in emitter.boundary_condition(TypeSchema(timedelta, "nominal"), "value")
     assert "dict" in emitter.boundary_condition(
         MappingSchema(PrimitiveSchema("str"), PrimitiveSchema("int")),
@@ -396,6 +414,12 @@ def test_boundary_emitter_rejects_impossible_schema_values_and_covers_union_shap
     )
     assert " or " in emitter.boundary_condition(outer_union, "value")
     assert "int" in emitter.boundary_condition(TypeSchema(Decimal, "nominal"), "value")
+    assert emitter.boundary_condition(enum_schema, "value") == "True"
+
+    class Empty(Spec):
+        pass
+
+    assert type(Empty.from_json("{}")) is Empty
 
     with pytest.raises(AssertionError):
         schema_needs_conversion(cast(Schema, object()), "json")

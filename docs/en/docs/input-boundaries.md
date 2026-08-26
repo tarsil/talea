@@ -268,11 +268,18 @@ propagate rather than being mislabeled as field failures.
 
 ## Performance model
 
-Each Spec declaration compiles separate Mapping and decoded-JSON functions.
-Repeated boundary calls perform no annotation reflection or schema traversal.
-This raises one-time declaration cost but keeps the normal generated
-`Spec(...)` constructor free of Mapping extraction, codec selection,
-missing/unexpected checks, and aggregation state.
+Each Spec declaration retains a small boundary owner but does not compile its
+Mapping or decoded-JSON function until that operation is first used. The two
+functions are independent: using `from_mapping` does not compile JSON support.
+First-use installation is synchronized; repeated calls bypass the lock and
+perform no annotation reflection or schema traversal. This keeps ordinary class
+declaration and the generated `Spec(...)` constructor free of Mapping
+extraction, codec selection, missing/unexpected checks, and aggregation state.
+
+Complete exact dictionaries with required fields use direct constant-key
+extraction before the general Mapping path. Missing or unexpected shapes fall
+back before transforms or factories run, preserving aggregation and once-only
+callback behavior.
 
 JSON timings should be separated into decoder-only, Talea boundary-only, and
 full JSON-to-Spec work. A faster optional decoder changes the first category;

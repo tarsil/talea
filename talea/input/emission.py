@@ -93,7 +93,8 @@ def schema_may_construct_spec(schema: Schema) -> bool:
     if isinstance(schema, ConstrainedSchema):
         return schema_may_construct_spec(schema.schema)
     if isinstance(schema, SpecReferenceSchema):
-        return True
+        artifacts = vars(schema.spec_type)["__talea_artifacts__"]
+        return not artifacts.schema.instances_are_permanently_trusted
     if isinstance(schema, SequenceSchema):
         return schema_may_construct_spec(schema.item)
     if isinstance(schema, MappingSchema):
@@ -230,11 +231,13 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         if self.mode == "mapping":
             input_type = self.runtime("mapping", Mapping)
             shape = f"{instance_check}({value}, {input_type})"
-            nested_input = vars(schema.spec_type)["__talea_artifacts__"].mapping_input
+            artifacts = vars(schema.spec_type)["__talea_artifacts__"]
+            nested_input = artifacts.inputs.input_for(artifacts.schema, schema.spec_type, "mapping")
         else:
             input_type = self.runtime("dict", dict)
             shape = f"{self.runtime('type', type)}({value}) is {input_type}"
-            nested_input = vars(schema.spec_type)["__talea_artifacts__"].json_input
+            artifacts = vars(schema.spec_type)["__talea_artifacts__"]
+            nested_input = artifacts.inputs.input_for(artifacts.schema, schema.spec_type, "json")
         converter = self.bind("nested_input", nested_input)
         error = self.variable("nested_error")
         prefixed = self.variable("prefixed_error")

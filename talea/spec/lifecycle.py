@@ -11,12 +11,14 @@ from inspect import (
     isgeneratorfunction,
     signature,
 )
+from threading import RLock
 from types import FunctionType, MemberDescriptorType
-from typing import Self, cast, dataclass_transform, get_type_hints
+from typing import ClassVar, Self, cast, dataclass_transform, get_type_hints
 from unicodedata import normalize
 
 from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema, ValidationHook
 from talea.input.compilation import InputCallable, compile_input
+from talea.input.emission import InputMode
 from talea.input.json import JsonInput, JsonLoads, decode_json
 from talea.schema.resolution import resolve_annotation
 from talea.spec.construction import _ConstructorCompiler
@@ -28,14 +30,46 @@ from talea.validation.errors import CustomValidationError, ValidationError
 __all__ = ["Spec", "field"]
 
 
+_INPUT_COMPILATION_LOCK = RLock()
+
+
+@dataclass(slots=True)
+class _InputArtifacts:
+    """Own lazily compiled input functions for one Spec declaration."""
+
+    slot_setters: tuple[Callable[[object, object], None], ...]
+    mapping_input: InputCallable | None = None
+    json_input: InputCallable | None = None
+
+    def input_for(
+        self,
+        schema: SpecSchema,
+        spec_type: type[object],
+        mode: InputMode,
+    ) -> InputCallable:
+        """Return one boundary, compiling and publishing it atomically on first use."""
+
+        compiled = self.mapping_input if mode == "mapping" else self.json_input
+        if compiled is not None:
+            return compiled
+        with _INPUT_COMPILATION_LOCK:
+            compiled = self.mapping_input if mode == "mapping" else self.json_input
+            if compiled is None:
+                compiled = compile_input(schema, spec_type, self.slot_setters, mode)
+                if mode == "mapping":
+                    self.mapping_input = compiled
+                else:
+                    self.json_input = compiled
+        return compiled
+
+
 @dataclass(frozen=True, slots=True)
 class _SpecArtifacts:
-    """Retain one declaration's canonical schema and compiled validators."""
+    """Retain one declaration's canonical schema, validators, and input owner."""
 
     schema: SpecSchema
     validators: tuple[Validator, ...]
-    mapping_input: InputCallable
-    json_input: InputCallable
+    inputs: _InputArtifacts
 
 
 @dataclass_transform(kw_only_default=True, frozen_default=True, field_specifiers=(field,))
@@ -60,8 +94,7 @@ class _SpecMeta(type):
                 _SpecArtifacts(
                     schema,
                     (),
-                    compile_input(schema, cls, (), "mapping"),
-                    compile_input(schema, cls, (), "json"),
+                    _InputArtifacts(()),
                 ),
             )
             return cls
@@ -122,8 +155,6 @@ class _SpecMeta(type):
             )
         slot_setters = metaclass._slot_setters(cls, schema)
         initializer = _ConstructorCompiler(cls.__name__).compile(schema, slot_setters)
-        mapping_input = compile_input(schema, cls, slot_setters, "mapping")
-        json_input = compile_input(schema, cls, slot_setters, "json")
         initializer.__module__ = cls.__module__
         initializer.__qualname__ = f"{cls.__qualname__}.__init__"
         initializer.__doc__ = "Validate and retain every declared field."
@@ -131,7 +162,7 @@ class _SpecMeta(type):
         type.__setattr__(
             cls,
             "__talea_artifacts__",
-            _SpecArtifacts(schema, validators, mapping_input, json_input),
+            _SpecArtifacts(schema, validators, _InputArtifacts(slot_setters)),
         )
         return cls
 
@@ -388,6 +419,8 @@ class Spec(metaclass=_SpecMeta):
     hooks retain the same generated construction path.
     """
 
+    __talea_artifacts__: ClassVar[_SpecArtifacts]
+
     def __setattr__(self, name: str, value: object) -> None:
         """Reject mutation so a validated Spec cannot silently become invalid."""
 
@@ -419,12 +452,17 @@ class Spec(metaclass=_SpecMeta):
             Exception: Unexpected exceptions from Mapping operations, transforms,
                 checks, or factories retain their documented lifecycle behavior.
 
-        The callable is compiled once with the declaration. It performs no
-        annotation reflection or runtime schema interpretation.
+        The callable is compiled once on first Mapping use and cached on the
+        declaration. Repeated calls perform no annotation reflection or runtime
+        schema interpretation.
         """
 
-        artifacts = cast(_SpecArtifacts, vars(cls)["__talea_artifacts__"])
-        return cast(Self, artifacts.mapping_input(data))
+        artifacts = cls.__talea_artifacts__
+        construct = artifacts.inputs.mapping_input
+        if construct is None:
+            construct = artifacts.inputs.input_for(artifacts.schema, cls, "mapping")
+        # The internal callable erases the dynamic class that it was compiled to allocate.
+        return construct(data)  # ty: ignore[invalid-return-type]
 
     @classmethod
     def from_json(
@@ -465,12 +503,17 @@ class Spec(metaclass=_SpecMeta):
                 unexpected application callback exceptions propagate unchanged.
 
         Codec state is per call and is never retained by a Spec class or
-        instance. Outbound encoding is intentionally outside this API.
+        instance. The decoded-value boundary is compiled and cached on first
+        JSON use. Outbound encoding is intentionally outside this API.
         """
 
         decoded = decode_json(data, loads, title=cls.__name__)
-        artifacts = cast(_SpecArtifacts, vars(cls)["__talea_artifacts__"])
-        return cast(Self, artifacts.json_input(decoded))
+        artifacts = cls.__talea_artifacts__
+        construct = artifacts.inputs.json_input
+        if construct is None:
+            construct = artifacts.inputs.input_for(artifacts.schema, cls, "json")
+        # The internal callable erases the dynamic class that it was compiled to allocate.
+        return construct(decoded)  # ty: ignore[invalid-return-type]
 
     def __delattr__(self, name: str) -> None:
         """Reject deletion so a validated Spec cannot lose a required value."""

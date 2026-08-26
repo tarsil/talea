@@ -12,6 +12,10 @@
   precision-safe Decimal tokens, and schema-aware standard-library types.
 - Dedicated Mapping/JSON timing, allocation, codec, and declaration-cost
   benchmarks plus production input-boundary documentation.
+- Lazy, independently cached Mapping and JSON boundary compilation, with a
+  complete-dict execution path that preserves aggregation while restoring
+  ordinary Spec declaration cost and converging on equivalent handwritten
+  Mapping performance.
 - Public `ValidationError`, `ErrorCode`, and typed JSON-compatible `ErrorData`
   projection with structured locations and stable machine codes.
 - Talea-native multiline rendering, bounded hostile-input representation,
