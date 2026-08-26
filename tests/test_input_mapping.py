@@ -9,6 +9,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 import talea
+import talea.input
 from talea import Ge, Spec, ValidationError, check, field, transform
 
 
@@ -24,6 +25,12 @@ class CustomMapping(Mapping[str, object]):
 
     def __len__(self) -> int:
         return len(self.values)
+
+
+def test_input_compiler_internals_are_not_public_api() -> None:
+    assert talea.input.__all__ == ()
+    assert not hasattr(talea.input, "compile_input")
+    assert not hasattr(talea.input, "decode_json")
 
 
 def test_from_mapping_accepts_mapping_implementations_and_returns_the_invoked_type() -> None:
