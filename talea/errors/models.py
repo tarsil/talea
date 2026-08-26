@@ -117,6 +117,10 @@ class _ErrorDetail:
             return f"Spec check {self.hook!r} rejected the values"
         if self.code is ErrorCode.FACTORY:
             return "Default factory failed"
+        if self.code is ErrorCode.JSON_INVALID:
+            return "Invalid JSON input"
+        if self.code is ErrorCode.JSON_DUPLICATE:
+            return "Duplicate JSON object key"
         raise AssertionError("unknown canonical Talea error code")
 
 
@@ -214,6 +218,40 @@ class ValidationError(TypeError):
         self._details = details
         self._values = values
         self.title = safe_text(title) if title is not None else None
+
+    @classmethod
+    def _missing(cls, location: ErrorLocation, *, title: str) -> "ValidationError":
+        """Build one field-omission detail without manufacturing an input value."""
+
+        error = cls.__new__(cls)
+        error._initialize(
+            (_ErrorDetail(ErrorCode.MISSING, location, None, None, None),),
+            (None,),
+            title,
+        )
+        return error
+
+    @classmethod
+    def _aggregate(
+        cls,
+        failures: tuple["ValidationError", ...],
+        *,
+        title: str,
+    ) -> "ValidationError":
+        """Flatten independent boundary failures into one canonical exception."""
+
+        if not failures:
+            raise ValueError("validation error aggregation requires at least one failure")
+        error = cls.__new__(cls)
+        error._initialize(
+            tuple(detail for failure in failures for detail in failure._details),
+            tuple(value for failure in failures for value in failure._values),
+            title,
+        )
+        causes = tuple(failure.__cause__ for failure in failures)
+        if causes and causes[0] is not None and all(cause is causes[0] for cause in causes):
+            error.__cause__ = causes[0]
+        return error
 
     @classmethod
     def union(

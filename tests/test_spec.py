@@ -523,7 +523,7 @@ def test_declaration_resolves_and_compiles_exactly_once(monkeypatch: pytest.Monk
     assert validator_calls == 2
     assert constructor_calls == 1
     assert declaration_compile_calls >= 3
-    assert declaration_exec_calls == 3
+    assert declaration_exec_calls == 5
     assert compile_calls == declaration_compile_calls
     assert exec_calls == declaration_exec_calls
 

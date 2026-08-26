@@ -85,6 +85,7 @@ class _ValidationEmitter:
         namespace: dict[str, object],
         *,
         title: str | None = None,
+        trusted_instances: str | None = None,
     ) -> None:
         self.lines = lines
         self.names = names
@@ -92,6 +93,7 @@ class _ValidationEmitter:
         self.runtime_names: dict[str, str] = {}
         self.validation_error_name = self.runtime("validation_error", ValidationError)
         self.title_name = self.bind("error_title", title) if title is not None else None
+        self.trusted_instances = trusted_instances
 
     def emit_schema(
         self,
@@ -157,6 +159,13 @@ class _ValidationEmitter:
         declaration = cast(SpecSchema, artifacts.schema)
         if declaration.instances_are_permanently_trusted:
             return
+        if self.trusted_instances is not None:
+            identity = self.runtime("id", id)
+            self.emit(
+                indentation,
+                f"if {self.trusted_instances} is None or {identity}({value}) not in {self.trusted_instances}:",
+            )
+            indentation += 1
         field_names = self.bind("spec_field_names", tuple(field.name for field in declaration.fields))
         for index, field in enumerate(declaration.fields):
             nested_value = f"{value}.{field.name}"

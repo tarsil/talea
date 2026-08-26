@@ -12,10 +12,12 @@ from inspect import (
     signature,
 )
 from types import FunctionType, MemberDescriptorType
-from typing import cast, dataclass_transform, get_type_hints
+from typing import Self, cast, dataclass_transform, get_type_hints
 from unicodedata import normalize
 
 from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema, ValidationHook
+from talea.input.compilation import InputCallable, compile_input
+from talea.input.json import JsonInput, JsonLoads, decode_json
 from talea.schema.resolution import resolve_annotation
 from talea.spec.construction import _ConstructorCompiler
 from talea.spec.fields import _FactoryDeclaration, field
@@ -32,6 +34,8 @@ class _SpecArtifacts:
 
     schema: SpecSchema
     validators: tuple[Validator, ...]
+    mapping_input: InputCallable
+    json_input: InputCallable
 
 
 @dataclass_transform(kw_only_default=True, frozen_default=True, field_specifiers=(field,))
@@ -49,7 +53,17 @@ class _SpecMeta(type):
             namespace["__slots__"] = ()
             namespace["__talea_spec__"] = True
             cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
-            type.__setattr__(cls, "__talea_artifacts__", _SpecArtifacts(SpecSchema(()), ()))
+            schema = SpecSchema(())
+            type.__setattr__(
+                cls,
+                "__talea_artifacts__",
+                _SpecArtifacts(
+                    schema,
+                    (),
+                    compile_input(schema, cls, (), "mapping"),
+                    compile_input(schema, cls, (), "json"),
+                ),
+            )
             return cls
 
         spec_bases = tuple(base for base in bases if isinstance(base, _SpecMeta))
@@ -108,11 +122,17 @@ class _SpecMeta(type):
             )
         slot_setters = metaclass._slot_setters(cls, schema)
         initializer = _ConstructorCompiler(cls.__name__).compile(schema, slot_setters)
+        mapping_input = compile_input(schema, cls, slot_setters, "mapping")
+        json_input = compile_input(schema, cls, slot_setters, "json")
         initializer.__module__ = cls.__module__
         initializer.__qualname__ = f"{cls.__qualname__}.__init__"
         initializer.__doc__ = "Validate and retain every declared field."
         type.__setattr__(cls, "__init__", initializer)
-        type.__setattr__(cls, "__talea_artifacts__", _SpecArtifacts(schema, validators))
+        type.__setattr__(
+            cls,
+            "__talea_artifacts__",
+            _SpecArtifacts(schema, validators, mapping_input, json_input),
+        )
         return cls
 
     @staticmethod
@@ -232,7 +252,7 @@ class _SpecMeta(type):
 
         if "__slots__" in namespace:
             raise TypeError("Spec manages instance slots from declared fields")
-        if "__init__" in namespace:
+        if "__init__" in namespace or "__new__" in namespace:
             raise TypeError("Spec manages construction from declared fields")
         if "__setattr__" in namespace or "__delattr__" in namespace:
             raise TypeError("Spec manages immutable field bindings")
@@ -372,6 +392,85 @@ class Spec(metaclass=_SpecMeta):
         """Reject mutation so a validated Spec cannot silently become invalid."""
 
         raise AttributeError(f"{type(self).__name__} instances are immutable")
+
+    @classmethod
+    def from_mapping(cls, data: Mapping[str, object]) -> Self:
+        """Construct ``cls`` from an untrusted Python mapping.
+
+        The mapping boundary accepts any :class:`collections.abc.Mapping` with
+        exact declared field names. Python values remain strict: primitives and
+        containers are not coerced, while a nested Mapping may construct a
+        nested Spec. Field transforms run once before boundary conversion and
+        canonical validation. Independent declared-field failures are reported
+        in declaration order, followed by unexpected keys in mapping encounter
+        order. Missing defaulted fields use their retained value; factories run
+        only after supplied fields and the external key set are valid.
+
+        Args:
+            data: Untrusted field values keyed by exact Spec field names.
+
+        Returns:
+            A fully validated immutable instance of the invoked Spec subclass.
+
+        Raises:
+            ValidationError: If the input is not a Mapping, a field is missing
+                or unexpected, nested conversion fails, or Talea validation
+                rejects one or more independent fields.
+            Exception: Unexpected exceptions from Mapping operations, transforms,
+                checks, or factories retain their documented lifecycle behavior.
+
+        The callable is compiled once with the declaration. It performs no
+        annotation reflection or runtime schema interpretation.
+        """
+
+        artifacts = cast(_SpecArtifacts, vars(cls)["__talea_artifacts__"])
+        return cast(Self, artifacts.mapping_input(data))
+
+    @classmethod
+    def from_json(
+        cls,
+        data: JsonInput,
+        *,
+        loads: JsonLoads | None = None,
+    ) -> Self:
+        """Decode JSON and construct ``cls`` through Talea's input contract.
+
+        ``str``, ``bytes``, and ``bytearray`` are accepted. The default standard
+        library decoder rejects duplicate keys, NaN, and Infinity and preserves
+        fractional tokens for precision-safe Decimal fields. ``loads`` may
+        select an external decoder per call; it must accept the supplied input
+        and return a JSON-native Python tree. Decoder syntax choices never
+        replace Talea's compiled schema conversion, transforms, constraints, or
+        checks.
+
+        JSON arrays convert to the declared list, tuple, set, or frozenset
+        representation. Strings convert to supported UUID, temporal, path, IP,
+        and JSON-compatible Enum contracts. Decimal numbers never pass through
+        float on the default path. Timedelta has no JSON representation in this
+        release. Transforms receive the decoded JSON value before Talea's
+        schema-specific conversion and run exactly once.
+
+        Args:
+            data: Serialized JSON text or bytes accepted by the selected decoder.
+            loads: Optional one-argument decoder callable for this operation.
+
+        Returns:
+            A fully validated immutable instance of the invoked Spec subclass.
+
+        Raises:
+            ValidationError: If decoding fails, default decoding finds a
+                duplicate/non-standard token, the top level is not an object,
+                or converted field data violates the Spec contract.
+            Exception: Non-``ValueError`` exceptions from a custom decoder and
+                unexpected application callback exceptions propagate unchanged.
+
+        Codec state is per call and is never retained by a Spec class or
+        instance. Outbound encoding is intentionally outside this API.
+        """
+
+        decoded = decode_json(data, loads, title=cls.__name__)
+        artifacts = cast(_SpecArtifacts, vars(cls)["__talea_artifacts__"])
+        return cast(Self, artifacts.json_input(decoded))
 
     def __delattr__(self, name: str) -> None:
         """Reject deletion so a validated Spec cannot lose a required value."""

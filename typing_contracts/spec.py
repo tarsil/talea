@@ -34,7 +34,18 @@ tags: list[str] = user.tags
 
 assert_type(User(id=1, name="Tiago"), User)
 assert_type(User(id=1, name="Tiago", active=False, tags=["maintainer"]), User)
+assert_type(User.from_mapping({"id": 1, "name": "Tiago"}), User)
+assert_type(User.from_json('{"id": 1, "name": "Tiago"}'), User)
 assert (identifier, name, tags) == (1, "Tiago", [])
+
+
+def custom_loads(data: str | bytes | bytearray) -> object:
+    """Exercise the external decoder callable contract."""
+
+    return {"id": 1, "name": "Tiago"}
+
+
+assert_type(User.from_json("encoded", loads=custom_loads), User)
 
 
 class Person(Spec):
@@ -74,6 +85,7 @@ inherited_name: str = employee.name
 inherited_aliases: list[str] = employee.aliases
 
 assert_type(Employee(name="Ada", employee_id=1), Employee)
+assert_type(Employee.from_mapping({"name": "Ada", "employee_id": 1}), Employee)
 assert_type(Employee(name="Ada", employee_id=1, active=False, aliases=["A"]), Employee)
 assert_type(NamedEmployee(employee_id=2), NamedEmployee)
 assert_type(department.manager, Employee)

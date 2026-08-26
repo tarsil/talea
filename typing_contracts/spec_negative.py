@@ -18,6 +18,9 @@ User(id="1")  # ty: ignore[invalid-argument-type]
 User(id=1, active="yes")  # ty: ignore[invalid-argument-type]
 User(id=1, tags=[1])  # ty: ignore[invalid-argument-type]
 User(id=1, unknown=True)  # ty: ignore[unknown-argument]
+User.from_mapping([])  # ty: ignore[invalid-argument-type]
+User.from_json(1)  # ty: ignore[invalid-argument-type]
+User.from_json("{}", loads=lambda: {})  # ty: ignore[invalid-argument-type]
 
 user = User(id=1)
 user.id = 2  # ty: ignore[invalid-assignment]

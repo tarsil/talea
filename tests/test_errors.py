@@ -35,6 +35,8 @@ def test_error_code_vocabulary_is_public_stable_and_string_serializable() -> Non
         "field_check",
         "spec_check",
         "factory",
+        "json_invalid",
+        "json_duplicate",
     }
     assert ErrorCode.TYPE == "type"
     assert json.dumps(ErrorCode.TYPE) == '"type"'
@@ -103,6 +105,8 @@ def test_constraint_detail_separates_code_context_and_human_wording() -> None:
         (ErrorCode.MIN_LENGTH, (("minimum", 1),), "Expected length >= 1"),
         (ErrorCode.MAX_LENGTH, (("maximum", 4),), "Expected length <= 4"),
         (ErrorCode.PATTERN, (("pattern", "^[a-z]+$"),), "Expected a match for pattern '^[a-z]+$'"),
+        (ErrorCode.JSON_INVALID, (), "Invalid JSON input"),
+        (ErrorCode.JSON_DUPLICATE, (), "Duplicate JSON object key"),
     ],
 )
 def test_every_structural_and_constraint_code_owns_its_message(
@@ -378,6 +382,9 @@ def test_multiple_canonical_details_render_a_count_without_sharing_projection_st
 
     assert str(combined).startswith("Payload (2 errors)\n")
     assert [detail["location"] for detail in combined.errors()] == [["first"], ["second"]]
+
+    with pytest.raises(ValueError, match="at least one failure"):
+        ValidationError._aggregate((), title="Payload")
 
 
 @given(st.text(max_size=300))
