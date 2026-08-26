@@ -44,6 +44,24 @@ class Team(Spec):
     members: list[User]
 ```
 
+Forward references, recursive graphs, and Python 3.14 generic declarations use
+the same canonical schema and compiled execution:
+
+```python
+class Tree[T](Spec):
+    value: T
+    children: list[Tree[T]]
+
+
+tree = Tree[int].from_mapping(
+    {"value": 1, "children": [{"value": 2, "children": []}]}
+)
+```
+
+Concrete specializations such as `Tree[int]` are cached classes with concrete
+validators; construction performs no runtime type-parameter dispatch. Cyclic
+Mapping input and cyclic serialization fail deliberately with structured paths.
+
 Spec declarations resolve their annotations, validate static defaults, and
 compile strict standalone validators once when the class is created. The same
 validation compiler emits those operations directly into each specialized Spec

@@ -4,6 +4,17 @@
 
 ### Added
 
+- Python 3.14 generic Specs with concrete weakly cached specializations,
+  bounds, constraints, parameter defaults, nested generic composition, generic
+  inheritance, and recursive generic schemas.
+- Deferred forward-reference graph finalization for self and mutually recursive
+  Specs without a global registry, plus recursive Mapping/JSON conversion and
+  Python/JSON serialization.
+- Deliberate cyclic-input and cyclic-serialization failures with exact paths,
+  recursion-safe current-state validation, copy/deep-copy support, and acyclic
+  pickle reconstruction for importable Spec classes.
+- Dedicated generic cold/hot specialization, equivalent concrete construction,
+  recursive traversal, cycle detection, and specialization-retention benchmarks.
 - Lazy compiled `Spec.to_dict()` Python projection and `Spec.to_json()` strict
   JSON encoding with detached container output and nested Spec serialization.
 - Precision-safe Decimal strings, exact ISO 8601 timedelta durations, strict

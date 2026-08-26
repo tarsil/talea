@@ -27,8 +27,9 @@ only transitively immutable declarations are classified as permanently trusted.
 The current release supports scalar and standard-library types, `Literal`,
 `Annotated` constraints, homogeneous built-in containers, dictionaries, fixed
 and variadic tuples, PEP 604 unions, static defaults, per-instance default
-factories, nested Specs, Spec inheritance, explicit inbound transforms, and
-post-structural field and cross-field checks. See
+factories, nested and recursive Specs, concrete generic specialization, Spec
+inheritance, explicit inbound transforms, and post-structural field and
+cross-field checks. See
 [Supported types](supported-types.md), [Constraints](constraints.md), and
 [Field semantics](field-semantics.md) for the corresponding contracts, and
 [Composition and inheritance](composition-inheritance.md) for object graphs and
@@ -37,5 +38,7 @@ application lifecycle. [Validation errors](error-experience.md) documents stable
 codes, structured locations, JSON projection, union diagnostics, and safe human
 rendering. [Input boundaries](input-boundaries.md) covers aggregated Mapping
 construction, nested data, strict JSON decoding, schema-aware standard-library
-conversion, and per-call decoder selection. Outbound serialization is not
-available yet.
+conversion, and per-call decoder selection. [Serialization and JSON output](serialization.md)
+covers compiled Python projection and strict JSON encoding. [Forward references,
+recursion, and generics](recursive-generics.md) covers deferred graph finalization,
+cycle behavior, Python 3.14 type parameters, and concrete specialization.
