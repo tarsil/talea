@@ -214,18 +214,29 @@ class _ValidationEmitter:
         if artifacts is None or target_identity.is_recursive():
             if target_identity.values_are_immutable(frozenset({schema.spec_type})):
                 return
-            validator = self.bind("recursive_validator", _RecursiveSpecValidator(schema.spec_type))
+            validator = self.bind("recursive_validator", self.recursive_spec_validator(schema.spec_type))
             error = self.variable("recursive_error")
             prefixed = self.variable("prefixed_error")
-            self.emit(indentation, "try:")
-            self.emit(indentation + 1, f"{validator}({value})")
-            self.emit(indentation, f"except {self.validation_error_name} as {error}:")
+            recursive_indentation = indentation
+            if self.trusted_instances is not None:
+                identity = self.runtime("id", id)
+                self.emit(
+                    indentation,
+                    f"if {self.trusted_instances} is None or {identity}({value}) not in {self.trusted_instances}:",
+                )
+                recursive_indentation += 1
+            self.emit(recursive_indentation, "try:")
             self.emit(
-                indentation + 1,
+                recursive_indentation + 1,
+                self.recursive_spec_call_expression(validator, value, location),
+            )
+            self.emit(recursive_indentation, f"except {self.validation_error_name} as {error}:")
+            self.emit(
+                recursive_indentation + 1,
                 f"{prefixed} = {error}.prefixed({self.location_expression(location)}"
                 f"{self.title_argument()}{self.sensitive_argument()})",
             )
-            self.emit(indentation + 1, f"raise {prefixed} from {prefixed}.__cause__")
+            self.emit(recursive_indentation + 1, f"raise {prefixed} from {prefixed}.__cause__")
             return
         declaration = cast(SpecSchema, artifacts.schema)
         if declaration.instances_are_permanently_trusted:
@@ -511,6 +522,26 @@ class _ValidationEmitter:
         from talea.validation.compilation import compile_validator
 
         return compile_validator(schema, sensitive=self.sensitive)
+
+    @staticmethod
+    def operation_call_expression(operation: str, value: str, location: tuple[str, ...]) -> str:
+        """Return a direct selected-branch call for strict validation."""
+
+        del location
+        return f"{operation}({value})"
+
+    @staticmethod
+    def recursive_spec_validator(spec_type: type[object]) -> object:
+        """Return the strict current-state back-edge owned by validation."""
+
+        return _RecursiveSpecValidator(spec_type)
+
+    @staticmethod
+    def recursive_spec_call_expression(operation: str, value: str, location: tuple[str, ...]) -> str:
+        """Return a direct strict recursive current-state call."""
+
+        del location
+        return f"{operation}({value})"
 
     def emit_variadic_tuple(
         self,

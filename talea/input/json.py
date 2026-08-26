@@ -8,6 +8,8 @@ from typing import NoReturn
 from talea.errors import ErrorCode
 from talea.errors.models import ValidationError
 from talea.errors.safety import REDACTED
+from talea.resources.policy import DEFAULT_RESOURCE_POLICY, ResourcePolicy
+from talea.resources.state import check_input_size
 
 type JsonInput = str | bytes | bytearray
 type JsonLoads = Callable[[JsonInput], object]
@@ -70,15 +72,18 @@ def decode_json(
     *,
     title: str,
     sensitive: bool = False,
+    policy: ResourcePolicy = DEFAULT_RESOURCE_POLICY,
 ) -> object:
     """Decode JSON syntax with strict stdlib defaults or one explicit callable.
 
     The default preserves fractional number tokens as :class:`Decimal`, rejects
     duplicate object keys, and rejects the non-standard NaN and Infinity tokens.
-    A custom callable owns its parser behavior; Talea still applies the same
-    compiled schema-aware conversion and validation to its returned object.
+    Transport size is checked before either decoder runs. A custom callable owns
+    its parser behavior; Talea still applies the same compiled schema-aware
+    conversion and validation to its returned object.
     """
 
+    check_input_size(data, policy)
     decoder = _default_loads if loads is None else loads
     try:
         return decoder(data)

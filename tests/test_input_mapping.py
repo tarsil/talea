@@ -321,9 +321,10 @@ def test_huge_mapping_is_bounded_to_individual_error_inputs() -> None:
         Payload.from_mapping(data)
 
     errors = raised.value.errors()
-    assert len(errors) == 2_000
+    assert len(errors) == 100
+    assert raised.value.truncated is True
     assert errors[0]["location"] == ["extra_0"]
-    assert errors[-1]["location"] == ["extra_1999"]
+    assert errors[-1]["location"] == ["extra_99"]
     assert all(error["input"] is True for error in errors)
 
 

@@ -150,7 +150,10 @@ class _TaggedValidationEmission:
         error = emitter.variable("tagged_error")
         prefixed = emitter.variable("prefixed_error")
         emitter.emit(indentation, "try:")
-        emitter.emit(indentation + 1, f"{value} = {operation}({value})")
+        emitter.emit(
+            indentation + 1,
+            f"{value} = {emitter.operation_call_expression(operation, value, location)}",
+        )
         emitter.emit(indentation, f"except {emitter.validation_error_name} as {error}:")
         emitter.emit(
             indentation + 1,

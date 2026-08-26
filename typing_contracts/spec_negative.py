@@ -8,6 +8,7 @@ from talea import (
     Alias,
     Contract,
     Ge,
+    ResourcePolicy,
     Sensitive,
     Spec,
     Title,
@@ -36,11 +37,17 @@ User(id=1, unknown=True)  # ty: ignore[unknown-argument]
 User.from_mapping([])  # ty: ignore[invalid-argument-type]
 User.from_json(1)  # ty: ignore[invalid-argument-type]
 User.from_json("{}", loads=lambda: {})  # ty: ignore[invalid-argument-type]
+User.from_mapping({"id": 1}, policy=object())  # ty: ignore[invalid-argument-type]
+User.from_json("{}", policy=object())  # ty: ignore[invalid-argument-type]
 User(id=1).to_dict(include=["id"])  # ty: ignore[invalid-argument-type]
 User(id=1).to_json(dumps=lambda value: 1)  # ty: ignore[invalid-argument-type]
 Contract[int](int).to_python("1")  # ty: ignore[invalid-argument-type]
 Contract[int](int).to_json("1")  # ty: ignore[invalid-argument-type]
 Contract[int](int).from_json(1)  # ty: ignore[invalid-argument-type]
+Contract[int](int, policy=object())  # ty: ignore[no-matching-overload]
+Contract[int](int).from_python(1, policy=object())  # ty: ignore[invalid-argument-type]
+Contract[int](int).to_python(1, policy=ResourcePolicy())  # ty: ignore[unknown-argument]
+User(id=1).to_json(policy=ResourcePolicy())  # ty: ignore[unknown-argument]
 Contract[int](int).json_schema(mode="validation")  # ty: ignore[invalid-argument-type]
 User.json_schema(mode="serialization")  # ty: ignore[invalid-argument-type]
 create_spec(1, {"value": int})  # ty: ignore[invalid-argument-type]

@@ -5,11 +5,13 @@ from contextvars import ContextVar
 from typing import Literal
 
 from talea.errors import ErrorCode
+from talea.resources.state import UNLIMITED_RESOURCE_STATE, _ResourceState, _UnlimitedResourceState
 from talea.schema.nodes import NamedReferenceSchema
 from talea.validation.errors import ValidationError
 
 type InputMode = Literal["mapping", "json"]
-type ValueInput = Callable[[object], object]
+type InputResourceState = _ResourceState | _UnlimitedResourceState
+type ValueInput = Callable[..., object]
 
 _RECURSIVE_NAMED_INPUT: ContextVar[set[int] | None] = ContextVar(
     "talea_recursive_named_input",
@@ -34,7 +36,11 @@ class _NamedInputReference:
         self.title = title
         self.sensitive = sensitive
 
-    def __call__(self, value: object) -> object:
+    def __call__(
+        self,
+        value: object,
+        resource_state: InputResourceState = UNLIMITED_RESOURCE_STATE,
+    ) -> object:
         from talea.input.value import compile_value_input
 
         compiled: ValueInput = self.reference._target.operation(
@@ -46,7 +52,7 @@ class _NamedInputReference:
                 sensitive=self.sensitive,
             ),
         )
-        return compiled(value)
+        return compiled(value, resource_state)
 
 
 class _NamedInputRoot:
@@ -59,7 +65,11 @@ class _NamedInputRoot:
         self.title = title
         self.sensitive = sensitive
 
-    def __call__(self, value: object) -> object:
+    def __call__(
+        self,
+        value: object,
+        resource_state: InputResourceState = UNLIMITED_RESOURCE_STATE,
+    ) -> object:
         active = _RECURSIVE_NAMED_INPUT.get()
         token = None
         if active is None:
@@ -77,7 +87,7 @@ class _NamedInputRoot:
             ) from None
         active.add(identity)
         try:
-            return self.boundary(value)
+            return self.boundary(value, resource_state)
         finally:
             active.remove(identity)
             if token is not None:

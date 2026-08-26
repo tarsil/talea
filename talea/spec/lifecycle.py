@@ -5,6 +5,8 @@ from typing import ClassVar, Literal, Protocol, Self, SupportsIndex, cast
 
 from talea.errors.safety import REDACTED
 from talea.input.json import JsonInput, JsonLoads, decode_json
+from talea.resources.policy import ResourcePolicy, resolve_policy
+from talea.resources.state import resource_state
 from talea.serialization.api import to_dict as _to_dict, to_json as _to_json
 from talea.spec.declaration import _ensure_finalized, _SpecArtifacts, _SpecDeclaration
 from talea.spec.fields import field
@@ -191,7 +193,12 @@ class Spec(metaclass=_SpecMeta):
     to_json = _to_json
 
     @classmethod
-    def from_mapping(cls, data: Mapping[str, object]) -> Self:
+    def from_mapping(
+        cls,
+        data: Mapping[str, object],
+        *,
+        policy: ResourcePolicy | None = None,
+    ) -> Self:
         """Construct ``cls`` from an untrusted Python mapping.
 
         The mapping boundary accepts any :class:`collections.abc.Mapping` with
@@ -201,11 +208,15 @@ class Spec(metaclass=_SpecMeta):
 
         Args:
             data: Untrusted values keyed by canonical external names.
+            policy: Immutable limits for this operation. ``None`` selects
+                Talea's finite default policy.
 
         Returns:
             A fully validated immutable instance of the invoked Spec subclass.
 
         Raises:
+            ResourceLimitError: If the selected depth, node, or error-work
+                policy terminates the operation.
             ValidationError: If mapping conversion or validation fails.
 
         The boundary callable is compiled once on first use and retained by the
@@ -216,7 +227,8 @@ class Spec(metaclass=_SpecMeta):
         construct = artifacts.inputs.mapping_input
         if construct is None:
             construct = artifacts.inputs.input_for(artifacts.schema, cls, "mapping")
-        return construct(data)  # ty: ignore[invalid-return-type]
+        selected_policy = resolve_policy(policy)
+        return construct(data, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
 
     @classmethod
     def from_json(
@@ -224,6 +236,7 @@ class Spec(metaclass=_SpecMeta):
         data: JsonInput,
         *,
         loads: JsonLoads | None = None,
+        policy: ResourcePolicy | None = None,
     ) -> Self:
         """Decode JSON and construct ``cls`` through Talea's input contract.
 
@@ -235,25 +248,31 @@ class Spec(metaclass=_SpecMeta):
         Args:
             data: Serialized JSON accepted by the selected decoder.
             loads: Optional one-argument decoder for this operation.
+            policy: Immutable limits for transport size and compiled input
+                work. ``None`` selects Talea's finite default policy.
 
         Returns:
             A fully validated immutable instance of the invoked Spec subclass.
 
         Raises:
+            ResourceLimitError: If the transport or compiled input exceeds a
+                selected resource limit.
             ValidationError: If decoding, conversion, or validation fails.
         """
 
         artifacts = _ensure_finalized(cls)
+        selected_policy = resolve_policy(policy)
         decoded = decode_json(
             data,
             loads,
             title=cls.__name__,
             sensitive=artifacts.contains_sensitive,
+            policy=selected_policy,
         )
         construct = artifacts.inputs.json_input
         if construct is None:
             construct = artifacts.inputs.input_for(artifacts.schema, cls, "json")
-        return construct(decoded)  # ty: ignore[invalid-return-type]
+        return construct(decoded, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
 
     @classmethod
     def json_schema(cls, *, mode: Literal["input", "output"] = "input") -> dict[str, object]:

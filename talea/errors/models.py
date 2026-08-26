@@ -197,7 +197,9 @@ class ValidationError(TypeError):
     set members. Sensitive failures retain only ``"<redacted>"`` as ``value``
     and drop callback causes; ordinary callback and factory exceptions remain
     available as ``__cause__``. Message strings are presentation and should
-    never be parsed as machine contracts.
+    never be parsed as machine contracts. ``truncated`` is true when a selected
+    error budget stopped independent boundary aggregation; ``errors()`` then
+    contains the deterministic prefix collected before termination.
     """
 
     def __init__(
@@ -235,12 +237,15 @@ class ValidationError(TypeError):
         values: tuple[object, ...],
         title: str | None,
         received_types: tuple[type[object], ...] | None = None,
+        *,
+        truncated: bool = False,
     ) -> None:
         TypeError.__init__(self)
         self._details = details
         self._values = values
         self._received_types = tuple(type(value) for value in values) if received_types is None else received_types
         self.title = safe_text(title) if title is not None else None
+        self.truncated = truncated
 
     @classmethod
     def _missing(cls, location: ErrorLocation, *, title: str) -> "ValidationError":
@@ -326,6 +331,7 @@ class ValidationError(TypeError):
         failures: tuple["ValidationError", ...],
         *,
         title: str,
+        truncated: bool = False,
     ) -> "ValidationError":
         """Flatten independent boundary failures into one canonical exception."""
 
@@ -337,6 +343,7 @@ class ValidationError(TypeError):
             tuple(value for failure in failures for value in failure._values),
             title,
             tuple(received for failure in failures for received in failure._received_types),
+            truncated=truncated or any(failure.truncated for failure in failures),
         )
         causes = tuple(failure.__cause__ for failure in failures)
         if causes and causes[0] is not None and all(cause is causes[0] for cause in causes):
@@ -397,6 +404,7 @@ class ValidationError(TypeError):
             (REDACTED if sensitive else value,),
             title,
             (type(value),),
+            truncated=any(failure.truncated for _, failure in failures),
         )
         causes = tuple(failure.__cause__ for _, failure in failures if failure.__cause__ is not None)
         if not sensitive and causes and all(cause is causes[0] for cause in causes):
@@ -418,6 +426,7 @@ class ValidationError(TypeError):
             tuple(REDACTED for _ in self._values) if sensitive else self._values,
             title if title is not None else self.title,
             self._received_types,
+            truncated=self.truncated,
         )
         if isinstance(self, CustomValidationError):
             custom_error = cast(CustomValidationError, error)
@@ -475,6 +484,8 @@ class ValidationError(TypeError):
         header = self.title or "Validation error"
         if len(self._details) != 1:
             header = f"{header} ({len(self._details)} errors)"
+        if self.truncated:
+            header = f"{header} [truncated]"
         lines = [header]
         for detail in self._details:
             _render_detail(lines, detail, 1)

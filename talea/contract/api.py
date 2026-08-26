@@ -8,6 +8,8 @@ from talea.contract.artifacts import _ContractArtifacts
 from talea.declaration.policies import schema_contains_sensitive_metadata
 from talea.input.json import JsonInput, JsonLoads, decode_json
 from talea.metadata import DeclarationMetadata, annotation_metadata
+from talea.resources.policy import ResourcePolicy, resolve_policy
+from talea.resources.state import resource_state
 from talea.schema.nodes import AliasSchema, ConstrainedSchema, Schema
 from talea.schema.resolution import resolve_annotation
 from talea.serialization.json import JsonDumps, encode_json
@@ -44,22 +46,43 @@ class Contract(Generic[T]):
     static output precision is required.
     """
 
-    __slots__ = ("_annotation", "_artifacts", "validate")
+    __slots__ = ("_annotation", "_artifacts", "_policy", "validate")
 
     validate: Callable[[object], T]
     """The retained strict Python validator for this Contract."""
 
     @overload
-    def __init__(self, annotation: type[T], /) -> None: ...
+    def __init__(
+        self,
+        annotation: type[T],
+        /,
+        *,
+        policy: ResourcePolicy | None = None,
+    ) -> None: ...
 
     @overload
-    def __init__(self, annotation: object, /) -> None: ...
+    def __init__(
+        self,
+        annotation: object,
+        /,
+        *,
+        policy: ResourcePolicy | None = None,
+    ) -> None: ...
 
-    def __init__(self, annotation: object, /) -> None:
+    def __init__(
+        self,
+        annotation: object,
+        /,
+        *,
+        policy: ResourcePolicy | None = None,
+    ) -> None:
         """Resolve and retain one supported runtime annotation.
 
         Args:
             annotation: A Talea-supported Python runtime type expression.
+            policy: Immutable input limits retained by this Contract. An
+                explicit per-call policy replaces, rather than merges with,
+                this policy.
 
         Raises:
             AnnotationResolutionError: If the annotation has no canonical Talea
@@ -70,6 +93,7 @@ class Contract(Generic[T]):
         metadata = _contract_metadata(schema, annotation_metadata(annotation))
         validator = compile_validator(schema, sensitive=bool(metadata.sensitive))
         self._annotation = annotation
+        self._policy = resolve_policy(policy)
         contains_sensitive = bool(metadata.sensitive) or schema_contains_sensitive_metadata(schema)
         self._artifacts = _ContractArtifacts(
             schema,
@@ -97,22 +121,32 @@ class Contract(Generic[T]):
 
         return self._annotation
 
-    def from_python(self, value: object, /) -> T:
+    def from_python(
+        self,
+        value: object,
+        /,
+        *,
+        policy: ResourcePolicy | None = None,
+    ) -> T:
         """Convert and validate one untrusted external Python representation.
 
         Primitive values remain strict. Mappings may construct nested Specs;
         TypedDict boundaries accept ``Mapping`` and return detached exact
         dictionaries; containers recursively use the existing Talea input
-        semantics.
+        semantics. ``policy`` replaces the Contract's retained policy for this
+        call; it is not merged with it.
 
         Raises:
+            ResourceLimitError: If compiled input exceeds a selected depth or
+                node limit.
             ValidationError: If conversion or validation fails.
         """
 
         compiled = self._artifacts.python_input
         if compiled is None:
             compiled = self._artifacts.input_for("mapping")
-        return compiled(value)  # ty: ignore[invalid-return-type]
+        selected_policy = self._policy if policy is None else resolve_policy(policy)
+        return compiled(value, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
 
     def from_json(
         self,
@@ -120,27 +154,33 @@ class Contract(Generic[T]):
         /,
         *,
         loads: JsonLoads | None = None,
+        policy: ResourcePolicy | None = None,
     ) -> T:
         """Decode JSON and validate it through the canonical root boundary.
 
         The default strict standard-library decoder is used unless ``loads`` is
         supplied for this call. Codec selection never changes Talea conversion
-        or validation semantics.
+        or validation semantics. ``policy`` replaces the Contract's retained
+        policy for this call; it is not merged with it.
 
         Raises:
+            ResourceLimitError: If the transport or compiled input exceeds a
+                selected resource limit.
             ValidationError: If JSON decoding, conversion, or validation fails.
         """
 
+        selected_policy = self._policy if policy is None else resolve_policy(policy)
         decoded = decode_json(
             data,
             loads,
             title=self._artifacts.title,
             sensitive=self._artifacts.contains_sensitive,
+            policy=selected_policy,
         )
         compiled = self._artifacts.json_input
         if compiled is None:
             compiled = self._artifacts.input_for("json")
-        return compiled(decoded)  # ty: ignore[invalid-return-type]
+        return compiled(decoded, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
 
     def to_python(self, value: T, /) -> object:
         """Validate and return a detached Python representation of ``value``.

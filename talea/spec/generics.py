@@ -203,6 +203,10 @@ def validate_annotation_expression(expression: str) -> None:
     for node in ast.walk(tree):
         if not isinstance(node, allowed):
             raise AnnotationResolutionError(expression)
+        if isinstance(node, ast.Name) and node.id.startswith("__") and not _is_annotationlib_placeholder(node.id):
+            raise AnnotationResolutionError(expression)
+        if isinstance(node, ast.Attribute) and node.attr.startswith("_"):
+            raise AnnotationResolutionError(expression)
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             validate_annotation_expression(node.value)
         if isinstance(node, ast.Call) and not (
@@ -214,3 +218,10 @@ def validate_annotation_expression(expression: str) -> None:
             and not node.keywords
         ):
             raise AnnotationResolutionError(expression)
+
+
+def _is_annotationlib_placeholder(name: str) -> bool:
+    """Recognize Python 3.14's compiler-owned generic forward-ref names."""
+
+    prefix = "__annotationlib_name_"
+    return name.startswith(prefix) and name.endswith("__") and name[len(prefix) : -2].isdigit()

@@ -16,6 +16,7 @@ from talea.json.representations import (
     parse_timedelta,
     standard_json_representation,
 )
+from talea.resources.state import UNLIMITED_RESOURCE_STATE
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
@@ -107,6 +108,27 @@ def schema_may_construct_spec(schema: Schema) -> bool:
     return False
 
 
+def _resource_visit_depth(schema: Schema, location: tuple[str, ...]) -> int | None:
+    """Return canonical depth for one logical visit, excluding wrapper nodes."""
+
+    base = schema.schema if isinstance(schema, ConstrainedSchema) else schema
+    if isinstance(base, (AliasSchema, NamedReferenceSchema)):
+        return None
+    container = isinstance(
+        base,
+        (
+            SequenceSchema,
+            MappingSchema,
+            TypedDictSchema,
+            TaggedUnionSchema,
+            VariadicTupleSchema,
+            FixedTupleSchema,
+            SpecReferenceSchema,
+        ),
+    )
+    return len(location) + int(container)
+
+
 def _json_enum_members(schema: EnumSchema | LiteralSchema) -> dict[tuple[type[object], object], object]:
     members: dict[tuple[type[object], object], object] = {}
     values = (
@@ -140,6 +162,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         mode: InputMode,
         title: str | None = None,
         trusted_instances: str | None = None,
+        resource_state: str | None = None,
     ) -> None:
         super().__init__(
             lines,
@@ -150,6 +173,9 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         )
         self.mode = mode
         self._validating = False
+        self.resource_state = (
+            self.bind("resource_state", UNLIMITED_RESOURCE_STATE) if resource_state is None else resource_state
+        )
 
     def emit_schema(
         self,
@@ -166,16 +192,40 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         if sensitive is not None:
             self.sensitive = previous or sensitive
         try:
+            self._emit_resource_visit(schema, location, indentation)
             self._emit_boundary_schema(schema, value, location, indentation)
         finally:
             self.sensitive = previous
 
+    def _emit_resource_visit(
+        self,
+        schema: Schema,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Charge one logical generated visit without counting wrapper nodes."""
+
+        base = schema.schema if isinstance(schema, ConstrainedSchema) else schema
+        if isinstance(base, SpecReferenceSchema):
+            return
+        depth = _resource_visit_depth(schema, location)
+        if depth is not None:
+            self.emit(indentation, f"{self.resource_state}.consume_node({depth})")
+
+    def operation_call_expression(
+        self,
+        operation: str,
+        value: str,
+        location: tuple[str, ...],
+    ) -> str:
+        """Call a separately compiled branch with shared state and depth."""
+
+        return f"{self.resource_state}.call_nested({operation}, {value}, {len(location)})"
+
     def tagged_branch_operation(self, schema: Schema, *, json: bool):
         """Compile one selected large-union boundary converter."""
 
-        if self._validating:
-            return super().tagged_branch_operation(schema, json=False)
-        assert json is (self.mode == "json")
+        del json
         from talea.input.value import compile_value_input
 
         return compile_value_input(
@@ -206,7 +256,10 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         error = self.variable("named_input_error")
         prefixed = self.variable("prefixed_error")
         self.emit(indentation, "try:")
-        self.emit(indentation + 1, f"{value} = {operation}({value})")
+        self.emit(
+            indentation + 1,
+            f"{value} = {self.operation_call_expression(operation, value, location)}",
+        )
         self.emit(indentation, f"except {self.validation_error_name} as {error}:")
         self.emit(
             indentation + 1,
@@ -359,11 +412,19 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             artifacts = vars(schema.spec_type)["__talea_artifacts__"]
             nested_input = artifacts.inputs.reference_for(artifacts.schema, schema.spec_type, "json")
         converter = self.bind("nested_input", nested_input)
+        existing = f"{instance_check}({value}, {spec_type})"
+        depth = _resource_visit_depth(schema, location)
+        assert depth is not None
+        self.emit(indentation, f"if {existing} or not ({shape}):")
+        self.emit(indentation + 1, f"{self.resource_state}.consume_node({depth})")
         error = self.variable("nested_error")
         prefixed = self.variable("prefixed_error")
-        self.emit(indentation, f"if not {instance_check}({value}, {spec_type}) and {shape}:")
+        self.emit(indentation, f"if not {existing} and {shape}:")
         self.emit(indentation + 1, "try:")
-        self.emit(indentation + 2, f"{value} = {converter}({value})")
+        self.emit(
+            indentation + 2,
+            f"{value} = {self.operation_call_expression(converter, value, location)}",
+        )
         self.emit(indentation + 1, f"except {self.validation_error_name} as {error}:")
         self.emit(
             indentation + 2,
@@ -379,6 +440,24 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                 indentation + 1,
                 f"{self.trusted_instances}.add({self.runtime('id', id)}({value}))",
             )
+
+    @staticmethod
+    def recursive_spec_validator(spec_type: type[object]) -> object:
+        """Return a lazily compiled resource-aware current-state back-edge."""
+
+        from talea.input.current import _ResourceSpecValidator
+
+        return _ResourceSpecValidator(spec_type)
+
+    def recursive_spec_call_expression(
+        self,
+        operation: str,
+        value: str,
+        location: tuple[str, ...],
+    ) -> str:
+        """Share policy state across a recursive current-state back-edge."""
+
+        return self.operation_call_expression(operation, value, location)
 
     def emit_boundary_tagged_union(
         self,

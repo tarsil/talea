@@ -20,6 +20,8 @@ from talea import (
     MaxLength,
     MinLength,
     ReadOnly,
+    ResourceLimitError,
+    ResourcePolicy,
     SchemaProjectionError,
     Sensitive,
     Spec,
@@ -52,7 +54,9 @@ tags: list[str] = user.tags
 assert_type(User(id=1, name="Tiago"), User)
 assert_type(User(id=1, name="Tiago", active=False, tags=["maintainer"]), User)
 assert_type(User.from_mapping({"id": 1, "name": "Tiago"}), User)
+assert_type(User.from_mapping({"id": 1, "name": "Tiago"}, policy=ResourcePolicy()), User)
 assert_type(User.from_json('{"id": 1, "name": "Tiago"}'), User)
+assert_type(User.from_json('{"id": 1, "name": "Tiago"}', policy=ResourcePolicy()), User)
 assert_type(User.json_schema(), dict[str, object])
 assert_type(User.json_schema(mode="output"), dict[str, object])
 assert_type(User.openapi_schema(), dict[str, object])
@@ -67,6 +71,13 @@ assert (identifier, name, tags) == (1, "Tiago", [])
 assert_type(Contract(int).validate(1), int)
 assert_type(Contract[list[int]](list[int]).validate([1]), list[int])
 assert_type(Contract[list[int]](list[int]).from_python([1]), list[int])
+assert_type(
+    Contract[list[int]](list[int], policy=ResourcePolicy()).from_python(
+        [1],
+        policy=ResourcePolicy(max_nodes=None),
+    ),
+    list[int],
+)
 assert_type(Contract[list[int]](list[int]).from_json("[1]"), list[int])
 assert_type(Contract[list[int]](list[int]).to_python([1]), object)
 assert_type(Contract[list[int]](list[int]).to_json([1]), str)
@@ -74,6 +85,7 @@ assert_type(Contract[list[int]](list[int]).json_schema(), dict[str, object])
 assert_type(Contract[list[int]](list[int]).openapi_schema(mode="output"), dict[str, object])
 
 schema_projection_error: type[TypeError] = SchemaProjectionError
+resource_limit_error: type[Exception] = ResourceLimitError
 
 
 class ContractPayload(TypedDict):

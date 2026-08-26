@@ -12,9 +12,10 @@ from talea.input.emission import (
     _BoundaryValidationEmitter,
     schema_may_construct_spec,
 )
+from talea.resources.state import UNLIMITED_RESOURCE_STATE
 from talea.spec.fields import FACTORY_SENTINEL
 
-type InputCallable = Callable[[object], object]
+type InputCallable = Callable[..., object]
 
 
 class _InputCompiler:
@@ -49,8 +50,11 @@ class _InputCompiler:
         missing = names.allocate("missing")
         field_names_name = names.allocate("field_names")
         known_names = names.allocate("known_names")
+        resource_state = names.allocate("resource_state")
+        unlimited_resource_state = names.allocate("unlimited_resource_state")
         lines = [
-            "def construct(data):",
+            f"def construct(data, {resource_state}={unlimited_resource_state}):",
+            f"    {resource_state}.consume_node(1)",
             f"    {errors} = None",
             f"    {missing_fields} = False",
         ]
@@ -61,6 +65,7 @@ class _InputCompiler:
             missing: FACTORY_SENTINEL,
             field_names_name: field_names,
             known_names: frozenset(field_names),
+            unlimited_resource_state: UNLIMITED_RESOURCE_STATE,
         }
         emitter = _BoundaryValidationEmitter(
             lines,
@@ -69,6 +74,7 @@ class _InputCompiler:
             title=self.title,
             trusted_instances=trusted,
             mode=self.mode,
+            resource_state=resource_state,
         )
         lines.append(f"    {exact_dict} = {emitter.runtime('type', type)}(data) is {emitter.runtime('dict', dict)}")
         self._emit_root_check(emitter, "data", exact_dict, 1)
@@ -115,7 +121,7 @@ class _InputCompiler:
                     f"        {missing_error} = {emitter.validation_error_name}._missing("
                     f"({field_names_name}[{index}],), title={emitter.title_name})"
                 )
-                self._emit_collect(lines, errors, missing_error, 2)
+                self._emit_collect(lines, emitter, errors, missing_error, 2)
             elif field.has_static_default:
                 default_name = emitter.bind("static_default", field.default)
                 lines.append(f"        {value} = {default_name}")
@@ -126,7 +132,7 @@ class _InputCompiler:
             self._emit_field_pipeline(emitter, schema, index, value, 3)
             error = validation_errors[index]
             lines.append(f"        except {emitter.validation_error_name} as {error}:")
-            self._emit_collect(lines, errors, error, 3)
+            self._emit_collect(lines, emitter, errors, error, 3)
 
         lines.extend(
             (
@@ -141,7 +147,7 @@ class _InputCompiler:
                 f"title={emitter.title_name})",
             )
         )
-        self._emit_collect(lines, errors, unexpected_error, 4)
+        self._emit_collect(lines, emitter, errors, unexpected_error, 4)
         self._emit_raise_aggregate(lines, emitter, errors, 1)
 
         has_factories = False
@@ -166,13 +172,13 @@ class _InputCompiler:
                     f"title={emitter.title_name}, context={context}{sensitive_argument})",
                 )
             )
-            self._emit_collect(lines, errors, factory_failure, 3)
+            self._emit_collect(lines, emitter, errors, factory_failure, 3)
             lines.append("        else:")
             lines.append("            try:")
             self._emit_field_pipeline(emitter, schema, index, value, 4)
             error = validation_errors[index]
             lines.append(f"            except {emitter.validation_error_name} as {error}:")
-            self._emit_collect(lines, errors, error, 4)
+            self._emit_collect(lines, emitter, errors, error, 4)
         if has_factories:
             self._emit_raise_aggregate(lines, emitter, errors, 1)
 
@@ -229,7 +235,7 @@ class _InputCompiler:
             self._emit_field_pipeline(emitter, schema, index, value, 4)
             error = validation_errors[index]
             emitter.emit(3, f"except {emitter.validation_error_name} as {error}:")
-            self._emit_collect(emitter.lines, errors, error, 4)
+            self._emit_collect(emitter.lines, emitter, errors, error, 4)
         emitter.emit(3, f"if {emitter.runtime('len', len)}(data) != {len(schema.fields)}:")
         emitter.emit(4, f"for {unexpected_key} in data:")
         emitter.emit(
@@ -245,7 +251,7 @@ class _InputCompiler:
             f"{emitter.runtime('error_code_unexpected', ErrorCode.UNEXPECTED)}, "
             f"title={emitter.title_name})",
         )
-        self._emit_collect(emitter.lines, errors, unexpected_error, 6)
+        self._emit_collect(emitter.lines, emitter, errors, unexpected_error, 6)
         self._emit_raise_aggregate(emitter.lines, emitter, errors, 3)
         self._emit_commit(
             emitter,
@@ -362,14 +368,28 @@ class _InputCompiler:
                 )
 
     @staticmethod
-    def _emit_collect(lines: list[str], errors: str, error: str, indentation: int) -> None:
+    def _emit_collect(
+        lines: list[str],
+        emitter: _BoundaryValidationEmitter,
+        errors: str,
+        error: str,
+        indentation: int,
+    ) -> None:
         prefix = "    " * indentation
+        resource_state = emitter.resource_state
+        title = emitter.title_name
+        assert title is not None
         lines.extend(
             (
+                f"{prefix}if {error}.truncated:",
+                f"{prefix}    raise {error}",
                 f"{prefix}if {errors} is None:",
                 f"{prefix}    {errors} = [{error}]",
                 f"{prefix}else:",
                 f"{prefix}    {errors}.append({error})",
+                f"{prefix}if {resource_state}.error_limit_reached(len({errors})):",
+                f"{prefix}    raise {emitter.validation_error_name}._aggregate("
+                f"tuple({errors}), title={title}, truncated=True) from None",
             )
         )
 

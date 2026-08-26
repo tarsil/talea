@@ -9,6 +9,7 @@ from talea.declaration.models import SpecSchema
 from talea.errors import ErrorCode
 from talea.input.compilation import InputCallable, compile_input
 from talea.input.emission import InputMode
+from talea.resources.state import UNLIMITED_RESOURCE_STATE, _ResourceState, _UnlimitedResourceState
 from talea.validation.errors import ValidationError
 
 _INPUT_COMPILATION_LOCK = RLock()
@@ -109,10 +110,14 @@ class _RecursiveInputReference:
         self.spec_type = spec_type
         self.mode = mode
 
-    def __call__(self, data: object) -> object:
+    def __call__(
+        self,
+        data: object,
+        resource_state: _ResourceState | _UnlimitedResourceState = UNLIMITED_RESOURCE_STATE,
+    ) -> object:
         artifacts = vars(self.spec_type)["__talea_artifacts__"]
         boundary = artifacts.inputs.input_for(artifacts.schema, self.spec_type, self.mode)
-        return boundary(data)
+        return boundary(data, resource_state)
 
 
 class _RecursiveInput:
@@ -124,7 +129,11 @@ class _RecursiveInput:
         self.boundary = boundary
         self.spec_type = spec_type
 
-    def __call__(self, data: object) -> object:
+    def __call__(
+        self,
+        data: object,
+        resource_state: _ResourceState | _UnlimitedResourceState = UNLIMITED_RESOURCE_STATE,
+    ) -> object:
         active = _RECURSIVE_INPUT.get()
         token = None
         if active is None:
@@ -135,7 +144,7 @@ class _RecursiveInput:
             raise ValidationError(None, data, (), ErrorCode.CYCLE, title=self.spec_type.__name__) from None
         active.add(identity)
         try:
-            return self.boundary(data)
+            return self.boundary(data, resource_state)
         finally:
             active.remove(identity)
             if token is not None:
