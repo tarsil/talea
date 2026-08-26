@@ -21,6 +21,7 @@ from talea.codegen import _GeneratedNames
 from talea.errors import ErrorCode
 from talea.json.representations import decode_bytes, encode_bytes, parse_timedelta
 from talea.schema.nodes import (
+    AliasSchema,
     ConstrainedSchema,
     EnumSchema,
     FixedTupleSchema,
@@ -30,6 +31,7 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
@@ -67,6 +69,8 @@ def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
 
     if isinstance(schema, ConstrainedSchema):
         return schema_needs_conversion(schema.schema, mode)
+    if isinstance(schema, AliasSchema):
+        return schema_needs_conversion(schema.schema, mode)
     if isinstance(schema, SpecReferenceSchema):
         return True
     if isinstance(schema, PrimitiveSchema):
@@ -83,6 +87,8 @@ def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
         return (mode == "json" and schema.kind != "list") or schema_needs_conversion(schema.item, mode)
     if isinstance(schema, MappingSchema):
         return schema_needs_conversion(schema.value, mode)
+    if isinstance(schema, TypedDictSchema):
+        return True
     if isinstance(schema, VariadicTupleSchema):
         return mode == "json" or schema_needs_conversion(schema.item, mode)
     if isinstance(schema, FixedTupleSchema):
@@ -97,6 +103,8 @@ def schema_may_construct_spec(schema: Schema) -> bool:
 
     if isinstance(schema, ConstrainedSchema):
         return schema_may_construct_spec(schema.schema)
+    if isinstance(schema, AliasSchema):
+        return schema_may_construct_spec(schema.schema)
     if isinstance(schema, SpecReferenceSchema):
         artifacts = vars(schema.spec_type)["__talea_artifacts__"]
         return not artifacts.schema.instances_are_permanently_trusted
@@ -104,6 +112,8 @@ def schema_may_construct_spec(schema: Schema) -> bool:
         return schema_may_construct_spec(schema.item)
     if isinstance(schema, MappingSchema):
         return schema_may_construct_spec(schema.value)
+    if isinstance(schema, TypedDictSchema):
+        return any(schema_may_construct_spec(field.schema) for field in schema.fields)
     if isinstance(schema, VariadicTupleSchema):
         return schema_may_construct_spec(schema.item)
     if isinstance(schema, FixedTupleSchema):
@@ -198,6 +208,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
 
         if isinstance(schema, ConstrainedSchema):
             self.emit_conversion(schema.schema, value, location, indentation)
+        elif isinstance(schema, AliasSchema):
+            self.emit_conversion(schema.schema, value, location, indentation)
         elif isinstance(schema, SpecReferenceSchema):
             self.emit_spec_conversion(schema, value, location, indentation)
         elif isinstance(schema, PrimitiveSchema):
@@ -219,6 +231,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             self.emit_sequence_conversion(schema, value, location, indentation)
         elif isinstance(schema, MappingSchema):
             self.emit_mapping_conversion(schema, value, location, indentation)
+        elif isinstance(schema, TypedDictSchema):
+            self.emit_typed_dict_conversion(schema, value, location, indentation)
         elif isinstance(schema, VariadicTupleSchema):
             self.emit_variadic_tuple_conversion(schema, value, location, indentation)
         elif isinstance(schema, FixedTupleSchema):
@@ -325,6 +339,34 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         self.emit(indentation + 1, f"for {key}, {item} in {value}.items():")
         self.emit_conversion(schema.value, item, (*location, key), indentation + 2)
         self.emit(indentation + 2, f"{converted}[{key}] = {item}")
+        self.emit(indentation + 1, f"{value} = {converted}")
+
+    def emit_typed_dict_conversion(
+        self,
+        schema: TypedDictSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Detach a TypedDict boundary and convert each declared child."""
+
+        if self.mode == "mapping":
+            instance_check = self.runtime("isinstance", isinstance)
+            mapping_type = self.runtime("mapping", Mapping)
+            condition = f"{instance_check}({value}, {mapping_type})"
+        else:
+            condition = self._exact_type_condition(value, dict)
+        dictionary = self.runtime("dict", dict)
+        converted = self.variable("converted_typed_dict")
+        names = self.bind("typed_dict_names", tuple(field.name for field in schema.fields))
+        self.emit(indentation, f"if {condition}:")
+        self.emit(indentation + 1, f"{converted} = {dictionary}({value})")
+        for index, field in enumerate(schema.fields):
+            self.emit(indentation + 1, f"if {names}[{index}] in {converted}:")
+            item = self.variable("typed_dict_item")
+            self.emit(indentation + 2, f"{item} = {converted}[{names}[{index}]]")
+            self.emit_conversion(field.schema, item, (*location, f"{names}[{index}]"), indentation + 2)
+            self.emit(indentation + 2, f"{converted}[{names}[{index}]] = {item}")
         self.emit(indentation + 1, f"{value} = {converted}")
 
     def emit_variadic_tuple_conversion(
@@ -544,6 +586,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
 
         if isinstance(schema, ConstrainedSchema):
             return self.boundary_condition(schema.schema, value)
+        if isinstance(schema, AliasSchema):
+            return self.boundary_condition(schema.schema, value)
         if self.mode == "mapping":
             if isinstance(schema, SpecReferenceSchema):
                 return (
@@ -576,6 +620,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             existing = self.top_level_condition(schema, value)
             return f"({existing}) or {type_name}({value}) is {self.runtime('list', list)}"
         if isinstance(schema, MappingSchema):
+            return self.top_level_condition(schema, value)
+        if isinstance(schema, TypedDictSchema):
             return self.top_level_condition(schema, value)
         if isinstance(schema, (VariadicTupleSchema, FixedTupleSchema)):
             existing = self.top_level_condition(schema, value)

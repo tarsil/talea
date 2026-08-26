@@ -11,12 +11,14 @@ from talea.declaration.metadata import Alias
 from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema, ValidationHook
 from talea.input.artifacts import _InputArtifacts
 from talea.schema.nodes import (
+    AliasSchema,
     ConstrainedSchema,
     FixedTupleSchema,
     MappingSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TypedDictSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -111,12 +113,16 @@ def _referenced_specs(schema: Schema) -> tuple[type[object], ...]:
 
     if isinstance(schema, ConstrainedSchema):
         return _referenced_specs(schema.schema)
+    if isinstance(schema, AliasSchema):
+        return _referenced_specs(schema.schema)
     if isinstance(schema, SpecReferenceSchema):
         return (schema.spec_type,)
     if isinstance(schema, SequenceSchema):
         return _referenced_specs(schema.item)
     if isinstance(schema, MappingSchema):
         return (*_referenced_specs(schema.key), *_referenced_specs(schema.value))
+    if isinstance(schema, TypedDictSchema):
+        return tuple(target for field in schema.fields for target in _referenced_specs(field.schema))
     if isinstance(schema, VariadicTupleSchema):
         return _referenced_specs(schema.item)
     if isinstance(schema, FixedTupleSchema):

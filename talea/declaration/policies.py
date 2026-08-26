@@ -5,6 +5,7 @@ from typing import assert_never
 
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf
 from talea.schema.nodes import (
+    AliasSchema,
     ConstrainedSchema,
     EnumSchema,
     FixedTupleSchema,
@@ -14,6 +15,7 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
@@ -27,6 +29,8 @@ def schema_values_are_immutable(schema: Schema, visiting: frozenset[type[object]
         return True
     if isinstance(schema, ConstrainedSchema):
         return schema_values_are_immutable(schema.schema, visiting)
+    if isinstance(schema, AliasSchema):
+        return schema_values_are_immutable(schema.schema, visiting)
     if isinstance(schema, SpecReferenceSchema):
         declaration = vars(schema.spec_type)["__talea_declaration__"]
         if schema.spec_type in visiting:
@@ -35,6 +39,8 @@ def schema_values_are_immutable(schema: Schema, visiting: frozenset[type[object]
     if isinstance(schema, SequenceSchema):
         return schema.kind == "frozenset" and schema_values_are_immutable(schema.item, visiting)
     if isinstance(schema, MappingSchema):
+        return False
+    if isinstance(schema, TypedDictSchema):
         return False
     if isinstance(schema, VariadicTupleSchema):
         return schema_values_are_immutable(schema.item, visiting)
@@ -80,6 +86,8 @@ def schema_is_covariant_override(candidate: Schema, inherited: Schema) -> bool:
 
 
 def _unwrap(schema: Schema) -> tuple[Schema, tuple[object, ...]]:
+    if isinstance(schema, AliasSchema):
+        return _unwrap(schema.schema)
     if isinstance(schema, ConstrainedSchema):
         return schema.schema, schema.constraints
     return schema, ()

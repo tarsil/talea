@@ -12,6 +12,7 @@ from typing import assert_never
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.errors import ErrorCode
 from talea.schema.nodes import (
+    AliasSchema,
     ConstrainedSchema,
     EnumSchema,
     FixedTupleSchema,
@@ -22,6 +23,7 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
@@ -33,6 +35,8 @@ _PRIMITIVE_ORDER = {"int": 0, "float": 1, "str": 2, "bool": 3, "bytes": 4, "none
 def describe_schema(schema: Schema) -> str:
     """Return deterministic expected-contract text from canonical truth."""
 
+    if isinstance(schema, AliasSchema):
+        return schema.name
     if isinstance(schema, PrimitiveSchema):
         return "None" if schema.kind == "none" else schema.kind
     if isinstance(schema, TypeSchema):
@@ -51,6 +55,8 @@ def describe_schema(schema: Schema) -> str:
         return f"{schema.kind}[{describe_schema(schema.item)}]"
     if isinstance(schema, MappingSchema):
         return f"dict[{describe_schema(schema.key)}, {describe_schema(schema.value)}]"
+    if isinstance(schema, TypedDictSchema):
+        return schema.name
     if isinstance(schema, VariadicTupleSchema):
         return f"tuple[{describe_schema(schema.item)}, ...]"
     if isinstance(schema, FixedTupleSchema):
@@ -138,8 +144,13 @@ def schema_order_key(schema: Schema) -> tuple[int, str]:
     if isinstance(schema, ConstrainedSchema):
         base_order, _ = schema_order_key(schema.schema)
         return base_order, describe_schema(schema)
+    if isinstance(schema, AliasSchema):
+        base_order, _ = schema_order_key(schema.schema)
+        return base_order, f"{schema.module}.{schema.name}"
     if isinstance(schema, (TypeSchema, EnumSchema, LiteralSchema)):
         return 6, describe_schema(schema)
     if isinstance(schema, SpecReferenceSchema):
         return 6, f"{schema.spec_type.__module__}.{schema.spec_type.__qualname__}"
+    if isinstance(schema, TypedDictSchema):
+        return 7, f"{schema.module}.{schema.name}"
     return 10, describe_schema(schema)

@@ -13,11 +13,27 @@ from ipaddress import (
 )
 from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
 from types import GenericAlias, NoneType, UnionType
-from typing import Annotated, Literal, Union, cast, get_args, get_origin
+from typing import (
+    Annotated,
+    Literal,
+    NewType,
+    NotRequired,
+    ReadOnly,
+    Required,
+    TypeAliasType,
+    TypeVar,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+    get_type_hints,
+    is_typeddict,
+)
 from uuid import UUID
 
 from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.schema.nodes import (
+    AliasSchema,
     ConstrainedSchema,
     EnumSchema,
     FixedTupleSchema,
@@ -28,6 +44,8 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TypedDictField,
+    TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
@@ -103,6 +121,29 @@ def resolve_annotation(annotation: object) -> Schema:
             form an obvious contradiction.
     """
 
+    return _resolve_annotation(annotation, set())
+
+
+def _resolve_annotation(annotation: object, resolving: set[object]) -> Schema:
+    """Resolve one annotation while rejecting unsupported recursive expansion."""
+
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+
+    if isinstance(annotation, TypeAliasType):
+        return _resolve_alias(annotation, (), resolving)
+    if isinstance(origin, TypeAliasType):
+        return _resolve_alias(origin, arguments, resolving)
+    if isinstance(annotation, NewType):
+        return AliasSchema(
+            annotation.__name__,
+            annotation.__module__,
+            _resolve_annotation(annotation.__supertype__, resolving),
+        )
+    typed_dict = annotation if is_typeddict(annotation) else origin
+    if typed_dict is not None and is_typeddict(typed_dict):
+        return _resolve_typed_dict(cast(type[object], typed_dict), arguments, resolving)
+
     if annotation is int:
         return PrimitiveSchema("int")
     if annotation is float:
@@ -128,11 +169,8 @@ def resolve_annotation(annotation: object) -> Schema:
         if getattr(annotation, "__talea_spec__", False) is True and "__talea_declaration__" in vars(annotation):
             return SpecReferenceSchema(annotation)
 
-    origin = get_origin(annotation)
-    arguments = get_args(annotation)
-
     if origin is Annotated:
-        schema = resolve_annotation(arguments[0])
+        schema = _resolve_annotation(arguments[0], resolving)
         constraints = tuple(item for item in arguments[1:] if isinstance(item, _CONSTRAINT_TYPES))
         return _apply_constraints(schema, constraints)
     if origin is Literal:
@@ -141,7 +179,7 @@ def resolve_annotation(annotation: object) -> Schema:
         return _resolve_literal(arguments)
 
     if origin in (UnionType, Union):
-        options = frozenset(resolve_annotation(argument) for argument in arguments)
+        options = frozenset(_resolve_annotation(argument, resolving) for argument in arguments)
         if len(options) == 1:
             return next(iter(options))
         return UnionSchema(options)
@@ -150,20 +188,116 @@ def resolve_annotation(annotation: object) -> Schema:
         raise AnnotationResolutionError(annotation)
 
     if origin is list and len(arguments) == 1:
-        return SequenceSchema("list", resolve_annotation(arguments[0]))
+        return SequenceSchema("list", _resolve_annotation(arguments[0], resolving))
     if origin is set and len(arguments) == 1:
-        return SequenceSchema("set", resolve_annotation(arguments[0]))
+        return SequenceSchema("set", _resolve_annotation(arguments[0], resolving))
     if origin is frozenset and len(arguments) == 1:
-        return SequenceSchema("frozenset", resolve_annotation(arguments[0]))
+        return SequenceSchema("frozenset", _resolve_annotation(arguments[0], resolving))
     if origin is dict and len(arguments) == 2:
-        return MappingSchema(resolve_annotation(arguments[0]), resolve_annotation(arguments[1]))
+        return MappingSchema(
+            _resolve_annotation(arguments[0], resolving),
+            _resolve_annotation(arguments[1], resolving),
+        )
     if origin is tuple:
         if len(arguments) == 2 and arguments[1] is Ellipsis:
-            return VariadicTupleSchema(resolve_annotation(arguments[0]))
+            return VariadicTupleSchema(_resolve_annotation(arguments[0], resolving))
         if arguments and Ellipsis not in arguments:
-            return FixedTupleSchema(tuple(resolve_annotation(item) for item in arguments))
+            return FixedTupleSchema(tuple(_resolve_annotation(item, resolving) for item in arguments))
 
     raise AnnotationResolutionError(annotation)
+
+
+def _resolve_alias(
+    alias: TypeAliasType,
+    arguments: tuple[object, ...],
+    resolving: set[object],
+) -> Schema:
+    if alias in resolving:
+        raise AnnotationResolutionError(alias)
+    parameters = cast(tuple[TypeVar, ...], alias.__type_params__)
+    if len(parameters) != len(arguments):
+        raise AnnotationResolutionError(alias)
+    substitutions = dict(zip(parameters, arguments, strict=True))
+    value = _substitute_alias(alias.__value__, substitutions)
+    resolving.add(alias)
+    try:
+        schema = _resolve_annotation(value, resolving)
+    finally:
+        resolving.remove(alias)
+    return AliasSchema(alias.__name__, alias.__module__ or "__main__", schema)
+
+
+def _resolve_typed_dict(
+    typed_dict: type[object],
+    arguments: tuple[object, ...],
+    resolving: set[object],
+) -> TypedDictSchema:
+    if typed_dict in resolving:
+        raise AnnotationResolutionError(typed_dict)
+    parameters = tuple(getattr(typed_dict, "__type_params__", ()))
+    if parameters and len(parameters) != len(arguments):
+        raise AnnotationResolutionError(typed_dict)
+    substitutions = dict(zip(parameters, arguments, strict=True))
+    annotations = get_type_hints(typed_dict, include_extras=True)
+    required_keys = cast(frozenset[str], vars(typed_dict)["__required_keys__"])
+    readonly_keys = cast(frozenset[str], getattr(typed_dict, "__readonly_keys__", frozenset()))
+    resolving.add(typed_dict)
+    try:
+        fields = []
+        for name, annotation in annotations.items():
+            if substitutions:
+                annotation = _substitute_alias(annotation, substitutions)
+            annotation, required, read_only = _unwrap_typed_dict_qualifiers(
+                annotation,
+                name in required_keys,
+                name in readonly_keys,
+            )
+            fields.append(
+                TypedDictField(
+                    name,
+                    _resolve_annotation(annotation, resolving),
+                    required,
+                    read_only,
+                )
+            )
+    finally:
+        resolving.remove(typed_dict)
+    return TypedDictSchema(typed_dict.__name__, typed_dict.__module__, tuple(fields))
+
+
+def _unwrap_typed_dict_qualifiers(
+    annotation: object,
+    required: bool,
+    read_only: bool,
+) -> tuple[object, bool, bool]:
+    while (origin := get_origin(annotation)) in (Required, NotRequired, ReadOnly):
+        if origin is Required:
+            required = True
+        elif origin is NotRequired:
+            required = False
+        else:
+            read_only = True
+        annotation = get_args(annotation)[0]
+    return annotation, required, read_only
+
+
+def _substitute_alias(annotation: object, substitutions: dict[TypeVar, object]) -> object:
+    if isinstance(annotation, TypeVar):
+        return substitutions.get(annotation, annotation)
+    origin = get_origin(annotation)
+    arguments = get_args(annotation)
+    if not arguments:
+        return annotation
+    if origin is Annotated:
+        return Annotated[_substitute_alias(arguments[0], substitutions), *arguments[1:]]
+    if origin in (UnionType, Union):
+        return Union[tuple(_substitute_alias(item, substitutions) for item in arguments)]
+    substituted = tuple(_substitute_alias(item, substitutions) for item in arguments)
+    if isinstance(annotation, GenericAlias):
+        return GenericAlias(cast(type, origin), substituted[0] if len(substituted) == 1 else substituted)
+    copier = getattr(annotation, "copy_with", None)
+    assert copier is not None
+    return copier(substituted)
 
 
 def _resolve_literal(arguments: tuple[object, ...]) -> LiteralSchema:
@@ -216,6 +350,10 @@ def _normalize_constraints(schema: Schema, declared: tuple[Constraint, ...]) -> 
 
 
 def _numeric_type(schema: Schema) -> type[object] | None:
+    if isinstance(schema, AliasSchema):
+        return _numeric_type(schema.schema)
+    if isinstance(schema, ConstrainedSchema):
+        return _numeric_type(schema.schema)
     if schema == PrimitiveSchema("int"):
         return int
     if schema == PrimitiveSchema("float"):
@@ -226,6 +364,10 @@ def _numeric_type(schema: Schema) -> type[object] | None:
 
 
 def _is_sized_schema(schema: Schema) -> bool:
+    if isinstance(schema, AliasSchema):
+        return _is_sized_schema(schema.schema)
+    if isinstance(schema, ConstrainedSchema):
+        return _is_sized_schema(schema.schema)
     return schema in (PrimitiveSchema("str"), PrimitiveSchema("bytes")) or isinstance(
         schema, (SequenceSchema, MappingSchema, VariadicTupleSchema, FixedTupleSchema)
     )
@@ -274,6 +416,8 @@ def _normalize_lengths(schema: Schema, constraints: tuple[Constraint, ...]) -> t
 
 
 def _schema_label(schema: Schema) -> str:
+    if isinstance(schema, AliasSchema):
+        return schema.name
     if isinstance(schema, PrimitiveSchema):
         return "None" if schema.kind == "none" else schema.kind
     if isinstance(schema, TypeSchema):

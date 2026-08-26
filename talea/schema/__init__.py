@@ -1,6 +1,7 @@
 """Canonical Talea schema values and annotation resolution."""
 
 from talea.schema.nodes import (
+    AliasSchema,
     ConstrainedSchema,
     EnumSchema,
     FixedTupleSchema,
@@ -14,6 +15,8 @@ from talea.schema.nodes import (
     SequenceSchema,
     SpecReferenceSchema,
     TypeCheckMode,
+    TypedDictField,
+    TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
@@ -25,6 +28,7 @@ from talea.schema.resolution import (
 )
 
 __all__ = [
+    "AliasSchema",
     "AnnotationResolutionError",
     "ConstrainedSchema",
     "ConstraintDeclarationError",
@@ -41,6 +45,8 @@ __all__ = [
     "SpecReferenceSchema",
     "TypeCheckMode",
     "TypeSchema",
+    "TypedDictField",
+    "TypedDictSchema",
     "UnionSchema",
     "VariadicTupleSchema",
     "resolve_annotation",

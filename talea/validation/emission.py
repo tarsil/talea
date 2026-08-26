@@ -18,6 +18,7 @@ from talea.declaration.models import SpecSchema, ValidationHook
 from talea.errors import ErrorCode
 from talea.errors.models import CustomValidationError, ValidationError
 from talea.schema.nodes import (
+    AliasSchema,
     ConstrainedSchema,
     EnumSchema,
     FixedTupleSchema,
@@ -28,6 +29,7 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
@@ -124,6 +126,10 @@ class _ValidationEmitter:
         else:
             base = schema
             constraints = ()
+        if isinstance(base, AliasSchema):
+            self.emit_schema(base.schema, value, location, indentation)
+            self.emit_constraints(base, constraints, value, location, indentation)
+            return
         if isinstance(base, PrimitiveSchema):
             self.emit_primitive(base, value, location, indentation, constraints)
             return
@@ -144,6 +150,9 @@ class _ValidationEmitter:
             return
         if isinstance(base, MappingSchema):
             self.emit_mapping(base, value, location, indentation, constraints)
+            return
+        if isinstance(base, TypedDictSchema):
+            self.emit_typed_dict(base, value, location, indentation)
             return
         if isinstance(base, VariadicTupleSchema):
             self.emit_variadic_tuple(base, value, location, indentation, constraints)
@@ -402,6 +411,51 @@ class _ValidationEmitter:
         member_location = (*location, key)
         self.emit_schema(schema.key, key, member_location, indentation + 1)
         self.emit_schema(schema.value, item, member_location, indentation + 1)
+
+    def emit_typed_dict(
+        self,
+        schema: TypedDictSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Emit one closed exact-dict contract with required-key semantics."""
+
+        type_name = self.runtime("type", type)
+        dictionary_type = self.runtime("dict", dict)
+        self.emit(indentation, f"if {type_name}({value}) is not {dictionary_type}:")
+        self.emit_failure(schema, value, location, indentation + 1)
+        names = self.bind("typed_dict_names", tuple(field.name for field in schema.fields))
+        known = self.bind("typed_dict_known", frozenset(field.name for field in schema.fields))
+        title = self.title_name or self.bind("typed_dict_title", schema.name)
+        for index, field in enumerate(schema.fields):
+            member_location = (*location, f"{names}[{index}]")
+            if field.required:
+                self.emit(indentation, f"if {names}[{index}] not in {value}:")
+                missing = self.variable("missing_error")
+                self.emit(
+                    indentation + 1,
+                    f"{missing} = {self.validation_error_name}._missing("
+                    f"{self.location_expression(member_location)}, title={title})",
+                )
+                self.emit(indentation + 1, f"raise {missing} from None")
+            self.emit(indentation, f"if {names}[{index}] in {value}:")
+            self.emit_schema(
+                field.schema,
+                f"{value}[{names}[{index}]]",
+                member_location,
+                indentation + 1,
+            )
+        key = self.variable("typed_dict_key")
+        item = self.variable("typed_dict_item")
+        code = self.runtime("error_code_unexpected", ErrorCode.UNEXPECTED)
+        self.emit(indentation, f"for {key}, {item} in {value}.items():")
+        self.emit(indentation + 1, f"if {key} not in {known}:")
+        self.emit(
+            indentation + 2,
+            f"raise {self.validation_error_name}(None, {item}, "
+            f"{self.location_expression((*location, key))}, {code}, title={title}) from None",
+        )
 
     def emit_variadic_tuple(
         self,
@@ -666,6 +720,8 @@ class _ValidationEmitter:
 
         if isinstance(schema, ConstrainedSchema):
             return self.top_level_condition(schema.schema, value)
+        if isinstance(schema, AliasSchema):
+            return self.top_level_condition(schema.schema, value)
         if isinstance(schema, PrimitiveSchema):
             if schema.kind == "none":
                 return f"{value} is None"
@@ -694,6 +750,10 @@ class _ValidationEmitter:
             sequence_type = self.runtime(schema.kind, self._sequence_types[schema.kind])
             return f"{type_name}({value}) is {sequence_type}"
         if isinstance(schema, MappingSchema):
+            type_name = self.runtime("type", type)
+            dictionary_type = self.runtime("dict", dict)
+            return f"{type_name}({value}) is {dictionary_type}"
+        if isinstance(schema, TypedDictSchema):
             type_name = self.runtime("type", type)
             dictionary_type = self.runtime("dict", dict)
             return f"{type_name}({value}) is {dictionary_type}"

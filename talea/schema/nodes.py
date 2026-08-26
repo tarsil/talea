@@ -13,6 +13,7 @@ from typing import Literal
 from talea.constraints import Constraint
 
 __all__ = [
+    "AliasSchema",
     "FixedTupleSchema",
     "ConstrainedSchema",
     "EnumSchema",
@@ -27,6 +28,8 @@ __all__ = [
     "SpecReferenceSchema",
     "TypeCheckMode",
     "TypeSchema",
+    "TypedDictField",
+    "TypedDictSchema",
     "UnionSchema",
     "VariadicTupleSchema",
 ]
@@ -34,6 +37,20 @@ __all__ = [
 type PrimitiveKind = Literal["int", "float", "str", "bool", "bytes", "none"]
 type SequenceKind = Literal["list", "set", "frozenset"]
 type TypeCheckMode = Literal["exact", "nominal"]
+
+
+@dataclass(frozen=True, slots=True)
+class AliasSchema:
+    """Retain a named Python alias while sharing its structural semantics.
+
+    Validation and projection compilers unwrap ``schema`` at compile time. The
+    stable name and module remain available for errors, introspection, recursive
+    design, and future schema component naming without adding runtime dispatch.
+    """
+
+    name: str
+    module: str
+    schema: "Schema"
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +170,35 @@ class MappingSchema:
 
 
 @dataclass(frozen=True, slots=True)
+class TypedDictField:
+    """Canonical key contract for one TypedDict declaration."""
+
+    name: str
+    schema: "Schema"
+    required: bool
+    read_only: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class TypedDictSchema:
+    """Canonical closed structural mapping declared by ``typing.TypedDict``.
+
+    Values are exact dictionaries during strict validation. Boundary conversion
+    may accept a general Mapping and always produces a detached dictionary.
+    Unknown keys are rejected consistently across Python and JSON input.
+    """
+
+    name: str
+    module: str
+    fields: tuple[TypedDictField, ...]
+
+    def __post_init__(self) -> None:
+        names = tuple(field.name for field in self.fields)
+        if len(names) != len(set(names)):
+            raise ValueError("a TypedDict schema requires unique field names")
+
+
+@dataclass(frozen=True, slots=True)
 class VariadicTupleSchema:
     """Schema for ``tuple[T, ...]``.
 
@@ -215,13 +261,15 @@ class ConstrainedSchema:
 
 
 type Schema = (
-    PrimitiveSchema
+    AliasSchema
+    | PrimitiveSchema
     | SpecReferenceSchema
     | TypeSchema
     | LiteralSchema
     | EnumSchema
     | SequenceSchema
     | MappingSchema
+    | TypedDictSchema
     | VariadicTupleSchema
     | FixedTupleSchema
     | UnionSchema

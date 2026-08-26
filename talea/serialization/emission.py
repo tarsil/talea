@@ -21,6 +21,7 @@ from uuid import UUID
 from talea.codegen import _GeneratedNames
 from talea.json.representations import encode_bytes, format_timedelta
 from talea.schema.nodes import (
+    AliasSchema,
     ConstrainedSchema,
     EnumSchema,
     FixedTupleSchema,
@@ -30,6 +31,7 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
@@ -162,6 +164,8 @@ class _ValueProjectionCompiler:
 
         if isinstance(schema, ConstrainedSchema):
             return self.expression(schema.schema, value, location, names, namespace)
+        if isinstance(schema, AliasSchema):
+            return self.expression(schema.schema, value, location, names, namespace)
         if isinstance(schema, PrimitiveSchema):
             if self.mode == "json" and schema.kind == "bytes":
                 encoder = self._bind(names, namespace, "encode_bytes", encode_bytes)
@@ -209,6 +213,8 @@ class _ValueProjectionCompiler:
             return self._sequence_expression(schema, value, location, names, namespace)
         if isinstance(schema, MappingSchema):
             return self._mapping_expression(schema, value, location, names, namespace)
+        if isinstance(schema, TypedDictSchema):
+            return self._typed_dict_expression(schema, value, location, names, namespace)
         if isinstance(schema, VariadicTupleSchema):
             return self._variadic_tuple_expression(schema, value, location, names, namespace)
         if isinstance(schema, FixedTupleSchema):
@@ -272,6 +278,29 @@ class _ValueProjectionCompiler:
         item_expression = self.expression(schema.value, item, member_location, names, namespace)
         return f"{{{key_expression}: {item_expression} for {key}, {item} in {value}.items()}}"
 
+    def _typed_dict_expression(
+        self,
+        schema: TypedDictSchema,
+        value: str,
+        location: str,
+        names: _GeneratedNames,
+        namespace: dict[str, object],
+    ) -> str:
+        """Project present declared keys into a detached dictionary."""
+
+        fields = []
+        for field in schema.fields:
+            key = self._bind(names, namespace, "typed_dict_key", field.name)
+            projected = self.expression(
+                field.schema,
+                f"{value}[{key}]",
+                f"(*{location}, {key})",
+                names,
+                namespace,
+            )
+            fields.append(f"**({{{key}: {projected}}} if {key} in {value} else {{}})")
+        return f"{{{', '.join(fields)}}}"
+
     def _variadic_tuple_expression(
         self,
         schema: VariadicTupleSchema,
@@ -309,6 +338,8 @@ class _ValueProjectionCompiler:
 
     def _python_key_supported(self, schema: Schema) -> bool:
         if isinstance(schema, ConstrainedSchema):
+            return self._python_key_supported(schema.schema)
+        if isinstance(schema, AliasSchema):
             return self._python_key_supported(schema.schema)
         if isinstance(schema, (PrimitiveSchema, TypeSchema, EnumSchema, LiteralSchema)):
             return True
