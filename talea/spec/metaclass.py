@@ -381,7 +381,7 @@ class _SpecMeta(type):
             raise TypeError("Spec manages construction from declared fields")
         if "__setattr__" in namespace or "__delattr__" in namespace:
             raise TypeError("Spec manages immutable field bindings")
-        if "__talea_artifacts__" in namespace or "__talea_spec__" in namespace:
+        if any(name.startswith("__talea_") for name in namespace):
             raise TypeError("Spec manages internal declaration state")
         for field_name in field_names:
             if (

@@ -103,6 +103,32 @@ class Spec(metaclass=_SpecMeta):
             setter(copied, deepcopy(getattr(self, spec_field.name), memo))
         return copied
 
+    def __replace__(self, /, **changes: object) -> Self:
+        """Return a validated immutable replacement for :func:`copy.replace`.
+
+        Keywords are canonical Python field names; aliases remain external
+        boundary metadata. Changed values follow direct-construction transform,
+        validation, and field-check semantics. Untouched permanently trusted
+        values are reused directly, while mutable current state is revalidated.
+        Whole-Spec checks always rerun before a new object is committed.
+
+        Defaults and factories do not rerun. Unchanged mutable values are shared
+        by reference, matching ordinary immutable-record replacement; no deep
+        copy is implied.
+
+        Raises:
+            TypeError: If a keyword is not a canonical field name.
+            ValidationError: If changed or mutable current values, field checks,
+                or whole-Spec invariants fail.
+        """
+
+        from talea.spec.replacement import replacement_for
+
+        spec_type = type(self)
+        artifacts = _ensure_finalized(spec_type)
+        replace = replacement_for(spec_type, artifacts)
+        return replace(self, changes)  # ty: ignore[invalid-return-type]
+
     def __reduce_ex__(self, protocol: SupportsIndex, /) -> tuple[object, tuple[object, ...]]:
         """Describe an acyclic instance for trusted Python pickle reconstruction."""
 

@@ -1,5 +1,6 @@
 """Positive static-typing contract for Talea Spec declarations."""
 
+from copy import replace
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
@@ -43,6 +44,7 @@ assert_type(User.from_json('{"id": 1, "name": "Tiago"}'), User)
 assert_type(user.to_dict(), dict[str, object])
 assert_type(user.to_dict(include={"id"}, exclude_none=True), dict[str, object])
 assert_type(user.to_json(), str)
+assert_type(replace(user, name="Grace"), User)
 assert (identifier, name, tags) == (1, "Tiago", [])
 
 assert_type(Contract(int).validate(1), int)
