@@ -3,12 +3,53 @@
 import base64
 import binascii
 import re
-from datetime import timedelta
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal
+from ipaddress import (
+    IPv4Address,
+    IPv4Interface,
+    IPv4Network,
+    IPv6Address,
+    IPv6Interface,
+    IPv6Network,
+)
+from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
+from typing import Literal
+from uuid import UUID
+
+type StandardJsonRepresentation = Literal["decimal", "duration", "iso", "string"]
+
+_STANDARD_JSON_REPRESENTATIONS: dict[type[object], StandardJsonRepresentation] = {
+    Decimal: "decimal",
+    timedelta: "duration",
+    date: "iso",
+    datetime: "iso",
+    time: "iso",
+    UUID: "string",
+    PurePath: "string",
+    Path: "string",
+    PurePosixPath: "string",
+    PureWindowsPath: "string",
+    PosixPath: "string",
+    WindowsPath: "string",
+    IPv4Address: "string",
+    IPv6Address: "string",
+    IPv4Network: "string",
+    IPv6Network: "string",
+    IPv4Interface: "string",
+    IPv6Interface: "string",
+}
 
 _DURATION = re.compile(
     r"^(?P<sign>-)?P(?:(?P<days>\d+)D)?(?:T(?:(?P<hours>\d+)H)?"
     r"(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)(?:\.(?P<fraction>\d{1,6}))?S)?)?$"
 )
+
+
+def standard_json_representation(python_type: type[object]) -> StandardJsonRepresentation | None:
+    """Return the canonical JSON representation family for a standard type."""
+
+    return _STANDARD_JSON_REPRESENTATIONS.get(python_type)
 
 
 def encode_bytes(value: bytes) -> str:

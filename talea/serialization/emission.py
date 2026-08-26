@@ -13,14 +13,14 @@ from ipaddress import (
     IPv6Network,
 )
 from math import isfinite
-from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
+from pathlib import PurePath
 from types import FunctionType
 from typing import assert_never, cast
 from uuid import UUID
 
 from talea.codegen import _GeneratedNames
 from talea.errors.safety import REDACTED
-from talea.json.representations import encode_bytes, format_timedelta
+from talea.json.representations import encode_bytes, format_timedelta, standard_json_representation
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
@@ -49,25 +49,6 @@ from talea.serialization.references import (
 from talea.tagged.dispatch import nominal_dispatch
 from talea.validation import ValidationError, compile_validator
 from talea.validation.failure_contracts import schema_order_key
-
-_JSON_STRING_TYPES = (
-    UUID,
-    datetime,
-    date,
-    time,
-    PurePath,
-    Path,
-    PurePosixPath,
-    PureWindowsPath,
-    PosixPath,
-    WindowsPath,
-    IPv4Address,
-    IPv6Address,
-    IPv4Network,
-    IPv6Network,
-    IPv4Interface,
-    IPv6Interface,
-)
 
 
 class _UnionProjector:
@@ -290,14 +271,15 @@ class _ValueProjectionCompiler:
         if isinstance(schema, TypeSchema):
             if self.mode == "python":
                 return value
-            if schema.python_type is Decimal:
+            representation = standard_json_representation(schema.python_type)
+            if representation == "decimal":
                 decimal = self._bind(names, namespace, "decimal_json", _decimal_json)
                 return f"{decimal}({value}, {location}{self._sensitive_argument()})"
-            if schema.python_type is timedelta:
+            if representation == "duration":
                 formatter = self._bind(names, namespace, "format_timedelta", format_timedelta)
                 return f"{formatter}({value})"
-            if schema.python_type in _JSON_STRING_TYPES:
-                if schema.python_type in (datetime, date, time):
+            if representation is not None:
+                if representation == "iso":
                     return f"{value}.isoformat()"
                 string = self._bind(names, namespace, "str", str)
                 return f"{string}({value})"

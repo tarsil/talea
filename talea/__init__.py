@@ -4,6 +4,7 @@ from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, 
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
 from talea.errors import ErrorCode, ErrorData, ValidationError
+from talea.json_schema import SchemaProjectionError
 from talea.metadata import Deprecated, Description, Examples, ReadOnly, Sensitive, Title, WriteOnly
 from talea.serialization import SerializationError, serialize
 from talea.spec import Spec, apply_patch, check, derive_spec, field, transform
@@ -28,6 +29,7 @@ __all__ = [
     "MultipleOf",
     "Pattern",
     "ReadOnly",
+    "SchemaProjectionError",
     "Sensitive",
     "Spec",
     "apply_patch",

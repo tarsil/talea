@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import replace
-from typing import Generic, TypeVar, cast, overload
+from typing import Generic, Literal, TypeVar, cast, overload
 
 from talea.contract.artifacts import _ContractArtifacts
 from talea.declaration.policies import schema_contains_sensitive_metadata
@@ -182,3 +182,26 @@ class Contract(Generic[T]):
             compiled = self._artifacts.output_for("json")
         projected = compiled(validated, ())
         return encode_json(projected, dumps, sensitive=self._artifacts.contains_sensitive)
+
+    def json_schema(self, *, mode: Literal["input", "output"] = "input") -> dict[str, object]:
+        """Return a fresh Draft 2020-12 schema for this retained Contract.
+
+        Projection consumes the already-resolved canonical schema. Input and
+        output modes remain distinct where JSON boundary representations can
+        differ; arbitrary callback domains fail with ``SchemaProjectionError``.
+        """
+
+        from talea.json_schema.api import json_schema
+
+        return json_schema(self._artifacts.schema, self._artifacts.metadata, mode=mode)
+
+    def openapi_schema(self, *, mode: Literal["input", "output"] = "input") -> dict[str, object]:
+        """Return an OpenAPI 3.1-compatible schema/components fragment.
+
+        Canonical aliases, requiredness, definitions, and tagged-union tags are
+        reused directly. The result contains no route or operation objects.
+        """
+
+        from talea.json_schema.api import openapi_schema
+
+        return openapi_schema(self._artifacts.schema, self._artifacts.metadata, mode=mode)

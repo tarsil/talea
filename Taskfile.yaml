@@ -173,3 +173,8 @@ tasks:
     desc: Benchmarks derived declarations, presence-aware execution, patching, and memory
     cmds:
       - hatch run test:benchmark_presence
+
+  benchmark_json_schema:
+    desc: Benchmarks JSON Schema/OpenAPI projection, size, scaling, and memory
+    cmds:
+      - hatch run test:benchmark_json_schema

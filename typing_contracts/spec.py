@@ -20,6 +20,7 @@ from talea import (
     MaxLength,
     MinLength,
     ReadOnly,
+    SchemaProjectionError,
     Sensitive,
     Spec,
     Title,
@@ -52,6 +53,9 @@ assert_type(User(id=1, name="Tiago"), User)
 assert_type(User(id=1, name="Tiago", active=False, tags=["maintainer"]), User)
 assert_type(User.from_mapping({"id": 1, "name": "Tiago"}), User)
 assert_type(User.from_json('{"id": 1, "name": "Tiago"}'), User)
+assert_type(User.json_schema(), dict[str, object])
+assert_type(User.json_schema(mode="output"), dict[str, object])
+assert_type(User.openapi_schema(), dict[str, object])
 assert_type(user.to_dict(), dict[str, object])
 assert_type(user.to_dict(include={"id"}, exclude_none=True), dict[str, object])
 assert_type(user.to_json(), str)
@@ -66,6 +70,10 @@ assert_type(Contract[list[int]](list[int]).from_python([1]), list[int])
 assert_type(Contract[list[int]](list[int]).from_json("[1]"), list[int])
 assert_type(Contract[list[int]](list[int]).to_python([1]), object)
 assert_type(Contract[list[int]](list[int]).to_json([1]), str)
+assert_type(Contract[list[int]](list[int]).json_schema(), dict[str, object])
+assert_type(Contract[list[int]](list[int]).openapi_schema(mode="output"), dict[str, object])
+
+schema_projection_error: type[TypeError] = SchemaProjectionError
 
 
 class ContractPayload(TypedDict):

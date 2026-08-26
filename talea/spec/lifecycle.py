@@ -1,7 +1,7 @@
 """Define Talea's immutable ``Spec`` instance protocol."""
 
 from collections.abc import Mapping
-from typing import ClassVar, Protocol, Self, SupportsIndex, cast
+from typing import ClassVar, Literal, Protocol, Self, SupportsIndex, cast
 
 from talea.errors.safety import REDACTED
 from talea.input.json import JsonInput, JsonLoads, decode_json
@@ -254,6 +254,46 @@ class Spec(metaclass=_SpecMeta):
         if construct is None:
             construct = artifacts.inputs.input_for(artifacts.schema, cls, "json")
         return construct(decoded)  # ty: ignore[invalid-return-type]
+
+    @classmethod
+    def json_schema(cls, *, mode: Literal["input", "output"] = "input") -> dict[str, object]:
+        """Return a fresh Draft 2020-12 schema for this concrete Spec.
+
+        Property aliases, field metadata, defaults, recursive references, and
+        input/output requiredness are projected from the finalized declaration.
+        Open generic Specs and unknowable callback domains fail explicitly.
+        """
+
+        from talea.json_schema.api import json_schema
+        from talea.schema.nodes import SpecReferenceSchema
+
+        try:
+            artifacts = _ensure_finalized(cls)
+        except TypeError as error:
+            from talea.json_schema import SchemaProjectionError
+
+            raise SchemaProjectionError(str(error)) from error
+        return json_schema(SpecReferenceSchema(cls), artifacts.schema.metadata, mode=mode)
+
+    @classmethod
+    def openapi_schema(cls, *, mode: Literal["input", "output"] = "input") -> dict[str, object]:
+        """Return an OpenAPI 3.1 schema/components fragment for this Spec.
+
+        Tagged unions include an OpenAPI discriminator derived from Talea's
+        canonical dispatch truth. No route, operation, or framework state is
+        generated.
+        """
+
+        from talea.json_schema.api import openapi_schema
+        from talea.schema.nodes import SpecReferenceSchema
+
+        try:
+            artifacts = _ensure_finalized(cls)
+        except TypeError as error:
+            from talea.json_schema import SchemaProjectionError
+
+            raise SchemaProjectionError(str(error)) from error
+        return openapi_schema(SpecReferenceSchema(cls), artifacts.schema.metadata, mode=mode)
 
     def __delattr__(self, name: str) -> None:
         """Reject deletion so a validated Spec cannot lose a required value."""

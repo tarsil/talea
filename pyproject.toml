@@ -68,6 +68,8 @@ testing = [
     "pytest>=7.2.2,<9.0.0",
     "pytest-cov>=4.0.0,<5.0.0",
     "hypothesis>=6.0,<7.0",
+    "jsonschema>=4.26.0,<5.0.0",
+    "openapi-spec-validator>=0.9.0,<1.0.0",
     "zensical>=0.0.23,<0.1.0",
 ]
 benchmarking = [
@@ -103,7 +105,11 @@ dev = "scripts/docs.py serve"
 features = ["testing", "benchmarking"]
 
 [tool.hatch.envs.hatch-test]
-extra-dependencies = ["hypothesis>=6.0,<7.0"]
+extra-dependencies = [
+    "hypothesis>=6.0,<7.0",
+    "jsonschema>=4.26.0,<5.0.0",
+    "openapi-spec-validator>=0.9.0,<1.0.0",
+]
 
 [tool.hatch.envs.test.scripts]
 test = "hatch test -- {args}"
@@ -126,6 +132,7 @@ benchmark_metadata = "python benchmarks/metadata_security.py"
 benchmark_tagged = "python benchmarks/tagged_unions.py"
 benchmark_recursive_named = "python benchmarks/recursive_named_graphs.py"
 benchmark_presence = "python benchmarks/presence_derivation.py"
+benchmark_json_schema = "python benchmarks/json_schema.py"
 
 [tool.isort]
 profile = "black"

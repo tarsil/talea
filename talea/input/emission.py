@@ -4,23 +4,18 @@ from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-from ipaddress import (
-    IPv4Address,
-    IPv4Interface,
-    IPv4Network,
-    IPv6Address,
-    IPv6Interface,
-    IPv6Network,
-)
 from math import isfinite
-from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
 from typing import assert_never
-from uuid import UUID
 
 from talea.codegen import _GeneratedNames
 from talea.errors import ErrorCode
 from talea.input.references import InputMode, _NamedInputReference
-from talea.json.representations import decode_bytes, encode_bytes, parse_timedelta
+from talea.json.representations import (
+    decode_bytes,
+    encode_bytes,
+    parse_timedelta,
+    standard_json_representation,
+)
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
@@ -44,28 +39,6 @@ from talea.tagged.validation import _TaggedValidationEmission
 from talea.validation.emission import _ValidationEmitter
 from talea.validation.failure_contracts import describe_schema, schema_order_key
 
-_JSON_STRING_TYPES = frozenset(
-    {
-        UUID,
-        date,
-        datetime,
-        time,
-        timedelta,
-        PurePath,
-        Path,
-        PurePosixPath,
-        PureWindowsPath,
-        PosixPath,
-        WindowsPath,
-        IPv4Address,
-        IPv6Address,
-        IPv4Network,
-        IPv6Network,
-        IPv4Interface,
-        IPv6Interface,
-    }
-)
-
 
 def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
     """Return whether one boundary must prepare values for ``schema``."""
@@ -81,7 +54,7 @@ def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
     if isinstance(schema, PrimitiveSchema):
         return mode == "json" and schema.kind in ("float", "bytes")
     if isinstance(schema, TypeSchema):
-        return mode == "json" and (schema.python_type in _JSON_STRING_TYPES or schema.python_type is Decimal)
+        return mode == "json" and standard_json_representation(schema.python_type) is not None
     if isinstance(schema, EnumSchema):
         return mode == "json" and bool(_json_enum_members(schema))
     if isinstance(schema, LiteralSchema):
@@ -675,7 +648,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             self.emit(indentation, f"if {type_name}({value}) is {decimal_type} and not {value}.is_finite():")
             self.emit_json_invalid(value, location, indentation + 1, "non_finite_number")
             return
-        if python_type not in _JSON_STRING_TYPES:
+        if standard_json_representation(python_type) is None:
             return
         if python_type is timedelta:
             parser = parse_timedelta
@@ -802,7 +775,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             existing = self.top_level_condition(schema, value)
             if schema.python_type is Decimal:
                 return f"({existing}) or {type_name}({value}) is {self.runtime('int', int)}"
-            if schema.python_type in _JSON_STRING_TYPES:
+            if standard_json_representation(schema.python_type) is not None:
                 return f"({existing}) or {type_name}({value}) is {self.runtime('str', str)}"
             return existing
         if isinstance(schema, (EnumSchema, LiteralSchema)):
