@@ -168,3 +168,8 @@ tasks:
     desc: Benchmarks recursive alias and TypedDict graph resolution and execution
     cmds:
       - hatch run test:benchmark_recursive_named
+
+  benchmark_presence:
+    desc: Benchmarks derived declarations, presence-aware execution, patching, and memory
+    cmds:
+      - hatch run test:benchmark_presence
