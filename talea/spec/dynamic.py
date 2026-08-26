@@ -1,7 +1,7 @@
 """Create normal Talea Spec classes from trusted runtime declarations."""
 
 import keyword
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from sys import _getframe
 from typing import TypeVar, cast, overload
 from unicodedata import normalize
@@ -26,6 +26,7 @@ def create_spec(
     qualname: str | None = None,
     doc: str | None = None,
     namespace: Mapping[str, object] | None = None,
+    metadata: Iterable[object] = (),
 ) -> type[BaseSpec]: ...
 
 
@@ -41,6 +42,7 @@ def create_spec(
     qualname: str | None = None,
     doc: str | None = None,
     namespace: Mapping[str, object] | None = None,
+    metadata: Iterable[object] = (),
 ) -> type[Spec]: ...
 
 
@@ -55,6 +57,7 @@ def create_spec(
     qualname: str | None = None,
     doc: str | None = None,
     namespace: Mapping[str, object] | None = None,
+    metadata: Iterable[object] = (),
 ) -> type[Spec]:
     """Create a normal Spec subclass through Talea's canonical metaclass.
 
@@ -62,7 +65,8 @@ def create_spec(
     annotations. ``defaults`` and ``factories`` name subsets of those fields and
     are mutually exclusive. Constraints and aliases remain part of annotations;
     decorated hooks, serializers, descriptors, and ordinary methods may be
-    supplied through the trusted ``namespace`` mapping.
+    supplied through the trusted ``namespace`` mapping. ``metadata`` uses the
+    same marker sequence accepted by class syntax.
 
     Args:
         name: Exact Python class name for the returned Spec.
@@ -75,6 +79,8 @@ def create_spec(
         doc: Class docstring, or ``None``.
         namespace: Trusted ordinary class-body entries such as methods and
             decorated Talea hooks.
+        metadata: Spec-level title, description, examples, and deprecation
+            markers.
 
     Returns:
         A normal Spec subclass using the same schema, constructor, input,
@@ -103,6 +109,7 @@ def create_spec(
         and qualname is None
         and doc is None
         and namespace is None
+        and not metadata
     ):
         caller_module = str(_getframe(1).f_globals.get("__name__", "__main__"))
         _validate_module(caller_module)
@@ -116,6 +123,7 @@ def create_spec(
                     "__module__": caller_module,
                     "__qualname__": name,
                 },
+                metadata=metadata,
             ),
         )
     default_values = _normalize_field_values(defaults, "defaults")
@@ -155,7 +163,7 @@ def create_spec(
         class_body[field_name] = value
     for field_name, factory in factory_values.items():
         class_body[field_name] = field(default_factory=cast(Callable[[], object], factory))
-    return cast(type[Spec], type(base)(name, (base,), class_body))
+    return cast(type[Spec], type(base)(name, (base,), class_body, metadata=metadata))
 
 
 def _normalize_field_values(values: Mapping[str, object] | None, parameter: str) -> dict[str, object]:

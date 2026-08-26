@@ -23,6 +23,7 @@ _REPR.maxlong = 96
 _REPR.maxother = 96
 
 type JsonScalar = None | bool | int | float | str
+REDACTED = "<redacted>"
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,3 +92,9 @@ def snapshot_input(value: object) -> _InputSnapshot:
         rendered = f"<unrepresentable {safe_type_name(value)}: {error_name}>"
     rendered = safe_text(_truncate(rendered))
     return _InputSnapshot(rendered, rendered)
+
+
+def redacted_input() -> _InputSnapshot:
+    """Return the shared public representation for sensitive input."""
+
+    return _InputSnapshot(REDACTED, REDACTED)

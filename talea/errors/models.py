@@ -5,8 +5,10 @@ from typing import Literal, NotRequired, TypedDict, cast
 
 from talea.errors.codes import ErrorCode
 from talea.errors.safety import (
+    REDACTED,
     JsonScalar,
     _InputSnapshot,
+    redacted_input,
     safe_text,
     safe_type_name,
     snapshot_input,
@@ -67,6 +69,7 @@ class _ErrorDetail:
     stage: CustomStage | None = None
     related_locations: tuple[ErrorLocation, ...] = ()
     branches: tuple[_UnionBranch, ...] = ()
+    sensitive: bool = False
     projected_location: tuple[JsonScalar, ...] = field(init=False, repr=False)
     projected_related_locations: tuple[tuple[JsonScalar, ...], ...] = field(init=False, repr=False)
 
@@ -178,9 +181,10 @@ class ValidationError(TypeError):
     the failure is created. Successful validation allocates none of this state.
 
     ``location`` is a tuple of field names, sequence indexes, mapping keys, or
-    set members. Custom callback and factory exceptions remain available as
-    ``__cause__``; message strings are presentation and should never be parsed
-    as machine contracts.
+    set members. Sensitive failures retain only ``"<redacted>"`` as ``value``
+    and drop callback causes; ordinary callback and factory exceptions remain
+    available as ``__cause__``. Message strings are presentation and should
+    never be parsed as machine contracts.
     """
 
     def __init__(
@@ -195,6 +199,7 @@ class ValidationError(TypeError):
         hook: str | None = None,
         stage: CustomStage | None = None,
         related_locations: tuple[ErrorLocation, ...] = (),
+        sensitive: bool = False,
     ) -> None:
         normalized_code = ErrorCode(code)
         detail = _ErrorDetail(
@@ -202,23 +207,26 @@ class ValidationError(TypeError):
             location,
             expected,
             safe_type_name(value),
-            snapshot_input(value),
+            redacted_input() if sensitive else snapshot_input(value),
             _normalize_context(context),
             safe_text(hook, 96) if hook is not None else None,
             stage,
             related_locations,
+            sensitive=sensitive,
         )
-        self._initialize((detail,), (value,), title)
+        self._initialize((detail,), (REDACTED if sensitive else value,), title, (type(value),))
 
     def _initialize(
         self,
         details: tuple[_ErrorDetail, ...],
         values: tuple[object, ...],
         title: str | None,
+        received_types: tuple[type[object], ...] | None = None,
     ) -> None:
         TypeError.__init__(self)
         self._details = details
         self._values = values
+        self._received_types = tuple(type(value) for value in values) if received_types is None else received_types
         self.title = safe_text(title) if title is not None else None
 
     @classmethod
@@ -230,6 +238,7 @@ class ValidationError(TypeError):
             (_ErrorDetail(ErrorCode.MISSING, location, None, None, None),),
             (None,),
             title,
+            (type(None),),
         )
         return error
 
@@ -249,6 +258,7 @@ class ValidationError(TypeError):
             tuple(detail for failure in failures for detail in failure._details),
             tuple(value for failure in failures for value in failure._values),
             title,
+            tuple(received for failure in failures for received in failure._received_types),
         )
         causes = tuple(failure.__cause__ for failure in failures)
         if causes and causes[0] is not None and all(cause is causes[0] for cause in causes):
@@ -265,11 +275,18 @@ class ValidationError(TypeError):
         failures: tuple[tuple[str, "ValidationError"], ...] = (),
         *,
         title: str | None = None,
+        sensitive: bool = False,
     ) -> "ValidationError":
         """Build one compact union failure from branch-local failures."""
 
         if failures:
-            branches = tuple(_UnionBranch(safe_text(label), failure._details) for label, failure in failures)
+            branches = tuple(
+                _UnionBranch(
+                    safe_text(label),
+                    tuple(_redact_detail(detail) for detail in failure._details) if sensitive else failure._details,
+                )
+                for label, failure in failures
+            )
         else:
             branches = tuple(
                 _UnionBranch(
@@ -280,7 +297,8 @@ class ValidationError(TypeError):
                             location,
                             safe_text(label),
                             safe_type_name(value),
-                            snapshot_input(value),
+                            redacted_input() if sensitive else snapshot_input(value),
+                            sensitive=sensitive,
                         ),
                     ),
                 )
@@ -291,31 +309,45 @@ class ValidationError(TypeError):
             location,
             safe_text(expected),
             safe_type_name(value),
-            snapshot_input(value),
+            redacted_input() if sensitive else snapshot_input(value),
             branches=branches,
+            sensitive=sensitive,
         )
         error = cls.__new__(cls)
-        error._initialize((detail,), (value,), title)
+        error._initialize(
+            (detail,),
+            (REDACTED if sensitive else value,),
+            title,
+            (type(value),),
+        )
         causes = tuple(failure.__cause__ for _, failure in failures if failure.__cause__ is not None)
-        if causes and all(cause is causes[0] for cause in causes):
+        if not sensitive and causes and all(cause is causes[0] for cause in causes):
             error.__cause__ = causes[0]
         return error
 
-    def prefixed(self, prefix: ErrorLocation, *, title: str | None = None) -> "ValidationError":
+    def prefixed(
+        self,
+        prefix: ErrorLocation,
+        *,
+        title: str | None = None,
+        sensitive: bool = False,
+    ) -> "ValidationError":
         """Return the same failure truth beneath a longer root location."""
 
         error = type(self).__new__(type(self))
         error._initialize(
-            tuple(_prefix_detail(detail, prefix) for detail in self._details),
-            self._values,
+            tuple(_prefix_detail(_redact_detail(detail) if sensitive else detail, prefix) for detail in self._details),
+            tuple(REDACTED for _ in self._values) if sensitive else self._values,
             title if title is not None else self.title,
+            self._received_types,
         )
         if isinstance(self, CustomValidationError):
             custom_error = cast(CustomValidationError, error)
             custom_error.stage = self.stage
             custom_error.hook = self.hook
             custom_error.locations = tuple((*prefix, *location) for location in self.locations)
-        error.__cause__ = self.__cause__
+        if not sensitive:
+            error.__cause__ = self.__cause__
         return error
 
     @property
@@ -332,7 +364,7 @@ class ValidationError(TypeError):
 
     @property
     def value(self) -> object:
-        """Return the exact first rejected object for Python debugging."""
+        """Return the rejected object, or ``"<redacted>"`` when sensitive."""
 
         return self._values[0]
 
@@ -340,7 +372,7 @@ class ValidationError(TypeError):
     def received_type(self) -> type[object]:
         """Return the concrete type of the first rejected object."""
 
-        return type(self.value)
+        return self._received_types[0]
 
     @property
     def location(self) -> ErrorLocation:
@@ -388,6 +420,7 @@ class CustomValidationError(ValidationError):
         locations: tuple[ErrorLocation, ...],
         *,
         title: str | None = None,
+        sensitive: bool = False,
     ) -> None:
         self.stage = stage
         self.hook = hook
@@ -402,6 +435,7 @@ class CustomValidationError(ValidationError):
             hook=hook,
             stage=stage,
             related_locations=locations if len(locations) > 1 else (),
+            sensitive=sensitive,
         )
 
 
@@ -441,7 +475,35 @@ def _prefix_detail(detail: _ErrorDetail, prefix: ErrorLocation) -> _ErrorDetail:
             )
             for branch in detail.branches
         ),
+        detail.sensitive,
     )
+
+
+def _redact_detail(detail: _ErrorDetail) -> _ErrorDetail:
+    if detail.sensitive:
+        return detail
+    return _ErrorDetail(
+        detail.code,
+        _redacted_location(detail.location),
+        detail.expected,
+        detail.received,
+        None if detail.input is None else redacted_input(),
+        detail.context,
+        detail.hook,
+        detail.stage,
+        tuple(_redacted_location(location) for location in detail.related_locations),
+        tuple(
+            _UnionBranch(branch.label, tuple(_redact_detail(child) for child in branch.details))
+            for branch in detail.branches
+        ),
+        True,
+    )
+
+
+def _redacted_location(location: ErrorLocation) -> ErrorLocation:
+    if len(location) < 2:
+        return location
+    return (location[0], *(segment if type(segment) is int else REDACTED for segment in location[1:]))
 
 
 def _format_location(location: tuple[JsonScalar, ...]) -> str:

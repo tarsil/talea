@@ -4,6 +4,7 @@ from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, 
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
 from talea.errors import ErrorCode, ErrorData, ValidationError
+from talea.metadata import Deprecated, Description, Examples, ReadOnly, Sensitive, Title, WriteOnly
 from talea.serialization import SerializationError, serialize
 from talea.spec import Spec, check, field, transform
 from talea.spec.dynamic import create_spec
@@ -11,19 +12,26 @@ from talea.spec.dynamic import create_spec
 __all__ = [
     "Alias",
     "Contract",
+    "Deprecated",
+    "Description",
     "Ge",
     "Gt",
     "ErrorCode",
     "ErrorData",
+    "Examples",
     "Le",
     "Lt",
     "MaxLength",
     "MinLength",
     "MultipleOf",
     "Pattern",
+    "ReadOnly",
+    "Sensitive",
     "Spec",
     "SerializationError",
     "ValidationError",
+    "Title",
+    "WriteOnly",
     "check",
     "create_spec",
     "field",

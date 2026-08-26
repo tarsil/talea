@@ -12,7 +12,12 @@ def _default_dumps(value: object) -> str:
     return json.dumps(value, allow_nan=False, separators=(",", ":"))
 
 
-def encode_json(value: object, dumps: JsonDumps | None) -> str:
+def encode_json(
+    value: object,
+    dumps: JsonDumps | None,
+    *,
+    sensitive: bool = False,
+) -> str:
     """Encode a JSON-native tree and normalize the selected codec to ``str``.
 
     The default standard-library path emits compact strict JSON. A custom
@@ -26,14 +31,19 @@ def encode_json(value: object, dumps: JsonDumps | None) -> str:
     try:
         encoded = encoder(value)
     except (ValueError, TypeError) as error:
-        if dumps is not None and isinstance(error, TypeError):
+        if dumps is not None and isinstance(error, TypeError) and not sensitive:
             raise
-        raise SerializationError(f"JSON encoder {type(encoder).__qualname__} rejected the projected value") from error
+        failure = SerializationError(
+            f"JSON encoder {type(encoder).__qualname__} rejected the projected value",
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
     if isinstance(encoded, str):
         return encoded
     if type(encoded) in (bytes, bytearray):
         try:
             return bytes(encoded).decode("utf-8")
         except UnicodeDecodeError as error:
-            raise SerializationError("JSON encoder returned non-UTF-8 bytes") from error
-    raise SerializationError("JSON encoder must return str, bytes, or bytearray")
+            failure = SerializationError("JSON encoder returned non-UTF-8 bytes", sensitive=sensitive)
+            raise failure from (None if sensitive else error)
+    raise SerializationError("JSON encoder must return str, bytes, or bytearray", sensitive=sensitive)

@@ -16,6 +16,9 @@ class _SpecOutputOwner(Protocol):
     @property
     def outputs(self) -> _OutputArtifacts: ...
 
+    @property
+    def contains_sensitive(self) -> bool: ...
+
 
 class _SpecInstance(Protocol):
     @property
@@ -167,7 +170,7 @@ def to_json(
                 SpecSerializer,
                 artifacts.outputs.output_for(artifacts.schema, "json", by_alias, False),
             )
-        return encode_json(plain(self), dumps)
+        return encode_json(plain(self), dumps, sensitive=artifacts.contains_sensitive)
     if type(by_alias) is not bool or type(exclude_none) is not bool:
         raise TypeError("by_alias and exclude_none must be bool values")
     normalized_include = _normalize_field_selection(include, artifacts.schema, "include")
@@ -177,4 +180,4 @@ def to_json(
         artifacts.outputs.output_for(artifacts.schema, "json", by_alias, True),
     )
     projected = serializer(self, normalized_include, normalized_exclude, exclude_none)
-    return encode_json(projected, dumps)
+    return encode_json(projected, dumps, sensitive=artifacts.contains_sensitive)

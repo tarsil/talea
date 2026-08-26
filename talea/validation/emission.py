@@ -17,6 +17,7 @@ from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, 
 from talea.declaration.models import SpecSchema, ValidationHook
 from talea.errors import ErrorCode
 from talea.errors.models import CustomValidationError, ValidationError
+from talea.errors.safety import REDACTED
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
@@ -110,6 +111,7 @@ class _ValidationEmitter:
         self.validation_error_name = self.runtime("validation_error", ValidationError)
         self.title_name = self.bind("error_title", title) if title is not None else None
         self.trusted_instances = trusted_instances
+        self.sensitive = False
 
     def emit_schema(
         self,
@@ -117,8 +119,28 @@ class _ValidationEmitter:
         value: str,
         location: tuple[str, ...],
         indentation: int,
+        *,
+        sensitive: bool | None = None,
     ) -> None:
         """Emit the specialized statements for one schema node."""
+
+        if not sensitive or self.sensitive:
+            self._emit_schema(schema, value, location, indentation)
+            return
+        self.sensitive = True
+        try:
+            self._emit_schema(schema, value, location, indentation)
+        finally:
+            self.sensitive = False
+
+    def _emit_schema(
+        self,
+        schema: Schema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Dispatch one schema while inheriting compile-time sensitivity."""
 
         if isinstance(schema, ConstrainedSchema):
             base = schema.schema
@@ -139,7 +161,13 @@ class _ValidationEmitter:
             self.emit_literal(base, value, location, indentation)
             return
         if isinstance(base, AliasSchema):
-            self.emit_schema(base.schema, value, location, indentation)
+            self.emit_schema(
+                base.schema,
+                value,
+                location,
+                indentation,
+                sensitive=bool(base.metadata.sensitive),
+            )
             self.emit_constraints(base, constraints, value, location, indentation)
             return
         if isinstance(base, SpecReferenceSchema):
@@ -194,7 +222,8 @@ class _ValidationEmitter:
             self.emit(indentation, f"except {self.validation_error_name} as {error}:")
             self.emit(
                 indentation + 1,
-                f"{prefixed} = {error}.prefixed({self.location_expression(location)}{self.title_argument()})",
+                f"{prefixed} = {error}.prefixed({self.location_expression(location)}"
+                f"{self.title_argument()}{self.sensitive_argument()})",
             )
             self.emit(indentation + 1, f"raise {prefixed} from {prefixed}.__cause__")
             return
@@ -216,6 +245,7 @@ class _ValidationEmitter:
                 nested_value,
                 (*location, f"{field_names}[{index}]"),
                 indentation,
+                sensitive=bool(field.metadata.sensitive),
             )
             for hook in declaration.hooks:
                 if hook.kind == "check" and hook.fields == (field.name,):
@@ -224,6 +254,7 @@ class _ValidationEmitter:
                         (nested_value,),
                         ((*location, f"{field_names}[{index}]"),),
                         indentation,
+                        sensitive=bool(field.metadata.sensitive),
                     )
         for hook in declaration.hooks:
             if hook.kind == "check" and len(hook.fields) > 1:
@@ -236,6 +267,7 @@ class _ValidationEmitter:
                     tuple(f"{value}.{name}" for name in hook.fields),
                     tuple((*location, f"{field_names}[{index}]") for index in indices),
                     indentation,
+                    sensitive=any(bool(declaration.fields[index].metadata.sensitive) for index in indices),
                 )
 
     def emit_transform(
@@ -244,6 +276,8 @@ class _ValidationEmitter:
         value: str,
         location: tuple[str, ...],
         indentation: int,
+        *,
+        sensitive: bool = False,
     ) -> None:
         """Emit one direct inbound callback and narrow failure translation."""
 
@@ -253,7 +287,7 @@ class _ValidationEmitter:
         self.emit(indentation, "try:")
         self.emit(indentation + 1, f"{value} = {callback}({value})")
         self.emit(indentation, f"except {value_error} as {error}:")
-        self.emit_hook_failure("transform", hook, value, (location,), error, indentation + 1)
+        self.emit_hook_failure("transform", hook, value, (location,), error, indentation + 1, sensitive)
 
     def emit_check(
         self,
@@ -261,6 +295,8 @@ class _ValidationEmitter:
         values: tuple[str, ...],
         locations: tuple[tuple[str, ...], ...],
         indentation: int,
+        *,
+        sensitive: bool = False,
     ) -> None:
         """Emit one direct assertion callback without retaining its result."""
 
@@ -276,7 +312,7 @@ class _ValidationEmitter:
         self.emit(indentation, "try:")
         self.emit(indentation + 1, f"{result} = {callback}({arguments})")
         self.emit(indentation, f"except {value_error} as {error}:")
-        self.emit_hook_failure(stage, hook, rejected, locations, error, indentation + 1)
+        self.emit_hook_failure(stage, hook, rejected, locations, error, indentation + 1, sensitive)
         self.emit(indentation, f"if {result} is not None:")
         self.emit(indentation + 1, f'raise {type_error}(f"validation check {{{hook_name}!r}} must return None")')
 
@@ -288,6 +324,7 @@ class _ValidationEmitter:
         locations: tuple[tuple[str, ...], ...],
         error: str,
         indentation: int,
+        sensitive: bool,
     ) -> None:
         """Emit custom failure transport only inside a callback failure path."""
 
@@ -298,7 +335,8 @@ class _ValidationEmitter:
         self.emit(
             indentation,
             f"raise {custom_error}({stage!r}, {hook_name}, {value}, {locations_expression}"
-            f"{self.title_argument()}) from {error}",
+            f"{self.title_argument()}{', sensitive=True' if sensitive else ''}) "
+            f"from {'None' if sensitive else error}",
         )
 
     def emit_primitive(
@@ -389,7 +427,7 @@ class _ValidationEmitter:
         if schema.kind == "list":
             segment = f"{self.identity_index()}({value}, {item})"
         else:
-            segment = item
+            segment = self.sensitive_location_segment(item)
         self.emit_schema(schema.item, item, (*location, segment), indentation + 1)
 
     def emit_mapping(
@@ -410,7 +448,7 @@ class _ValidationEmitter:
         key = self.variable("key")
         item = self.variable("item")
         self.emit(indentation, f"for {key}, {item} in {value}.items():")
-        member_location = (*location, key)
+        member_location = (*location, self.sensitive_location_segment(key))
         self.emit_schema(schema.key, key, member_location, indentation + 1)
         self.emit_schema(schema.value, item, member_location, indentation + 1)
 
@@ -447,16 +485,19 @@ class _ValidationEmitter:
                 f"{value}[{names}[{index}]]",
                 member_location,
                 indentation + 1,
+                sensitive=bool(field.metadata.sensitive),
             )
         key = self.variable("typed_dict_key")
         item = self.variable("typed_dict_item")
         code = self.runtime("error_code_unexpected", ErrorCode.UNEXPECTED)
         self.emit(indentation, f"for {key}, {item} in {value}.items():")
         self.emit(indentation + 1, f"if {key} not in {known}:")
+        unexpected_segment = self.sensitive_location_segment(key)
         self.emit(
             indentation + 2,
             f"raise {self.validation_error_name}(None, {item}, "
-            f"{self.location_expression((*location, key))}, {code}, title={title}) from None",
+            f"{self.location_expression((*location, unexpected_segment))}, {code}, title={title}"
+            f"{self.sensitive_argument()}) from None",
         )
 
     def emit_variadic_tuple(
@@ -574,7 +615,8 @@ class _ValidationEmitter:
         self.emit(
             indentation,
             f"{union_error} = {self.validation_error_name}.union("
-            f"{expected}, {value}, {location_expression}, {alternatives}, {failures}{self.title_argument()})",
+            f"{expected}, {value}, {location_expression}, {alternatives}, {failures}{self.title_argument()}"
+            f"{self.sensitive_argument()})",
         )
         self.emit(indentation, f"raise {union_error} from {union_error}.__cause__")
 
@@ -601,7 +643,7 @@ class _ValidationEmitter:
         self.emit(
             indentation,
             f"raise {self.validation_error_name}({expected!r}, {value}, {location_expression}, {code_name}"
-            f"{self.title_argument()}{context_argument}) from None",
+            f"{self.title_argument()}{context_argument}{self.sensitive_argument()}) from None",
         )
 
     @staticmethod
@@ -800,6 +842,16 @@ class _ValidationEmitter:
         """Return a generated keyword argument only for Spec-bound errors."""
 
         return f", title={self.title_name}" if self.title_name is not None else ""
+
+    def sensitive_argument(self) -> str:
+        """Return a failure-only keyword for sensitive compiled paths."""
+
+        return ", sensitive=True" if self.sensitive else ""
+
+    def sensitive_location_segment(self, expression: str) -> str:
+        """Replace value-derived location members on sensitive failure paths."""
+
+        return self.bind("redacted_location", REDACTED) if self.sensitive else expression
 
     def emit(self, indentation: int, statement: str) -> None:
         """Append one generated statement at the requested indentation."""

@@ -3,9 +3,10 @@
 import keyword
 from annotationlib import Format, call_annotate_function
 from collections import ChainMap
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from inspect import (
     Parameter,
+    cleandoc,
     isasyncgenfunction,
     iscoroutinefunction,
     isgeneratorfunction,
@@ -26,6 +27,7 @@ from weakref import WeakValueDictionary
 
 from talea.declaration.models import SpecSchema, ValidationHook
 from talea.input.artifacts import _InputArtifacts
+from talea.metadata import EMPTY_METADATA, normalize_metadata
 from talea.serialization.artifacts import _OutputArtifacts
 from talea.serialization.declaration import (
     inspect_serializers,
@@ -70,6 +72,7 @@ class _SpecMeta(type):
         namespace: dict[str, object],
         **kwargs: object,
     ) -> "_SpecMeta":
+        metadata_items = kwargs.pop("metadata", ())
         specialization = namespace.pop("__talea_specialization__", None)
         if specialization is not None:
             origin, arguments, substitutions, free_parameters = cast(
@@ -113,6 +116,7 @@ class _SpecMeta(type):
                 origin_declaration.shadowed_hook_names,
                 origin_declaration.shadowed_serializer_names,
                 False,
+                declared_metadata=origin_declaration.declared_metadata,
                 type_params=free_parameters,
                 generic_origin=origin,
                 generic_arguments=arguments,
@@ -135,7 +139,18 @@ class _SpecMeta(type):
             namespace["__talea_spec__"] = True
             cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
             schema = SpecSchema(())
-            declaration = _SpecDeclaration(cls, {}, {}, (), (), (), frozenset(), frozenset(), False, ())
+            declaration = _SpecDeclaration(
+                cls,
+                {},
+                {},
+                (),
+                (),
+                (),
+                frozenset(),
+                frozenset(),
+                False,
+                prepared_fields=(),
+            )
             type.__setattr__(cls, "__talea_declaration__", declaration)
             type.__setattr__(
                 cls,
@@ -167,6 +182,15 @@ class _SpecMeta(type):
             raise TypeError("a concrete Spec cannot inherit an unspecialized generic base")
         metaclass._validate_bases(bases, spec_bases)
         annotations = metaclass._inspect_annotations(namespace)
+        raw_doc = namespace.get("__doc__")
+        doc = cleandoc(raw_doc) if isinstance(raw_doc, str) and raw_doc.strip() else None
+        if not isinstance(metadata_items, Iterable) or isinstance(metadata_items, (str, bytes)):
+            raise TypeError("Spec metadata must be an iterable of Talea marker values")
+        declared_metadata = (
+            EMPTY_METADATA
+            if metadata_items == () and doc is None
+            else normalize_metadata(metadata_items, spec=True, doc=doc)
+        )
         field_names = tuple(annotations)
         local_attribute_names = frozenset(namespace)
         validate_callback_markers(namespace, _HOOK_MARKER)
@@ -224,6 +248,7 @@ class _SpecMeta(type):
             (local_attribute_names - declared_hook_names) | mro_shadowed_hooks,
             (local_attribute_names - declared_serializer_names) | mro_shadowed,
             declares_to_dict,
+            declared_metadata=declared_metadata,
             type_params=tuple(getattr(cls, "__type_params__", ())),
             generic_bases=generic_bases,
             local_namespace=local_namespace,

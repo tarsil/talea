@@ -66,16 +66,46 @@ class _ReplacementCompiler:
             lines.append(f"    if {field.name!r} in changes:")
             lines.append(f"        {value} = changes[{field.name!r}]")
             for hook in transforms_by_field[field.name]:
-                emitter.emit_transform(hook, value, location, 2)
-            emitter.emit_schema(field.schema, value, location, 2)
+                emitter.emit_transform(
+                    hook,
+                    value,
+                    location,
+                    2,
+                    sensitive=bool(field.metadata.sensitive),
+                )
+            emitter.emit_schema(
+                field.schema,
+                value,
+                location,
+                2,
+                sensitive=bool(field.metadata.sensitive),
+            )
             for hook in checks_by_field[field.name]:
-                emitter.emit_check(hook, (value,), (location,), 2)
+                emitter.emit_check(
+                    hook,
+                    (value,),
+                    (location,),
+                    2,
+                    sensitive=bool(field.metadata.sensitive),
+                )
             lines.append("    else:")
             lines.append(f"        {value} = instance.{field.name}")
             if not schema_values_are_immutable(field.schema):
-                emitter.emit_schema(field.schema, value, location, 2)
+                emitter.emit_schema(
+                    field.schema,
+                    value,
+                    location,
+                    2,
+                    sensitive=bool(field.metadata.sensitive),
+                )
                 for hook in checks_by_field[field.name]:
-                    emitter.emit_check(hook, (value,), (location,), 2)
+                    emitter.emit_check(
+                        hook,
+                        (value,),
+                        (location,),
+                        2,
+                        sensitive=bool(field.metadata.sensitive),
+                    )
 
         field_indices = {field.name: index for index, field in enumerate(fields)}
         for hook in schema.hooks:
@@ -85,6 +115,7 @@ class _ReplacementCompiler:
                     tuple(values[field_indices[name]] for name in hook.fields),
                     tuple((f"{field_names_name}[{field_indices[name]}]",) for name in hook.fields),
                     1,
+                    sensitive=any(bool(fields[field_indices[name]].metadata.sensitive) for name in hook.fields),
                 )
         spec_type_name = emitter.bind("spec_type", spec_type)
         object_new = emitter.bind("object_new", object.__new__)

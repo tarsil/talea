@@ -12,6 +12,7 @@ from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, 
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
 from talea.declaration.models import MISSING_DEFAULT, SerializationHook
+from talea.metadata import EMPTY_METADATA, DeclarationMetadata, ExampleValue, annotation_metadata
 from talea.schema.nodes import AliasSchema, ConstrainedSchema, Schema
 from talea.spec.declaration import _SpecDeclaration
 from talea.spec.fields import _FactoryDeclaration
@@ -51,6 +52,13 @@ class FieldInfo:
     default_factory: Callable[[], object] | None
     alias: str | None
     constraints: tuple[Constraint, ...]
+    title: str | None
+    description: str | None
+    examples: tuple[ExampleValue, ...]
+    deprecated: bool
+    read_only: bool
+    write_only: bool
+    sensitive: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +74,10 @@ class SpecInfo:
     permanently_trusted: bool
     hook_names: tuple[str, ...]
     serializer_names: tuple[str, ...]
+    title: str | None
+    description: str | None
+    examples: tuple[ExampleValue, ...]
+    deprecated: bool
     operations: tuple[Operation, ...] = _OPERATIONS
 
 
@@ -75,6 +87,13 @@ class ContractInfo:
 
     annotation: object
     schema: Schema
+    title: str | None
+    description: str | None
+    examples: tuple[ExampleValue, ...]
+    deprecated: bool
+    read_only: bool
+    write_only: bool
+    sensitive: bool
     operations: tuple[Operation, ...] = _OPERATIONS
 
 
@@ -107,7 +126,7 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                 return cached
             artifacts = declaration.artifacts()
             fields = tuple(
-                FieldInfo(
+                _field_info(
                     field.name,
                     _field_annotation(spec, field.name),
                     field.schema,
@@ -116,7 +135,7 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                     None if field.default is MISSING_DEFAULT else field.default,
                     field.default_factory,
                     field.alias,
-                    _constraints(field.schema),
+                    field.metadata,
                 )
                 for field in artifacts.schema.fields
             )
@@ -130,6 +149,10 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                 artifacts.schema.instances_are_permanently_trusted,
                 tuple(hook.name for hook in artifacts.schema.hooks),
                 tuple(serializer.name for serializer in artifacts.schema.serializers),
+                artifacts.schema.metadata.title,
+                artifacts.schema.metadata.description,
+                artifacts.schema.metadata.examples or (),
+                bool(artifacts.schema.metadata.deprecated),
             )
             _SPEC_INFO_CACHE[spec] = cached
     return cached
@@ -147,7 +170,18 @@ def inspect_contract[T](contract: Contract[T]) -> ContractInfo:
 
     if not isinstance(contract, Contract):
         raise TypeError("inspect_contract requires a Contract instance")
-    return ContractInfo(contract.annotation, contract._artifacts.schema)
+    metadata = contract._artifacts.metadata
+    return ContractInfo(
+        contract.annotation,
+        contract._artifacts.schema,
+        metadata.title,
+        metadata.description,
+        metadata.examples or (),
+        bool(metadata.deprecated),
+        bool(metadata.read_only),
+        bool(metadata.write_only),
+        bool(metadata.sensitive),
+    )
 
 
 def _constraints(schema: Schema) -> tuple[Constraint, ...]:
@@ -163,7 +197,7 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
 
     inherited_fields = tuple(field for schema in declaration.inherited_schemas for field in schema.fields)
     projected: dict[str, FieldInfo] = {
-        field.name: FieldInfo(
+        field.name: _field_info(
             field.name,
             _field_annotation(spec, field.name),
             field.schema,
@@ -172,7 +206,7 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
             None if field.default is MISSING_DEFAULT else field.default,
             field.default_factory,
             field.alias,
-            _constraints(field.schema),
+            field.metadata,
         )
         for field in inherited_fields
     }
@@ -185,7 +219,22 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
         constraints = cast(
             tuple[Constraint, ...], tuple(item for item in metadata if isinstance(item, _CONSTRAINT_TYPES))
         )
-        projected[name] = FieldInfo(
+        inherited_metadata = projected.get(name)
+        local_metadata = annotation_metadata(annotation)
+        effective_metadata = (
+            EMPTY_METADATA
+            if inherited_metadata is None
+            else DeclarationMetadata(
+                inherited_metadata.title,
+                inherited_metadata.description,
+                inherited_metadata.examples or None,
+                inherited_metadata.deprecated,
+                inherited_metadata.read_only,
+                inherited_metadata.write_only,
+                inherited_metadata.sensitive,
+            )
+        ).merged(local_metadata)
+        projected[name] = _field_info(
             name,
             annotation,
             None,
@@ -194,10 +243,15 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
             None if default is MISSING_DEFAULT else default,
             default_factory,
             alias,
+            effective_metadata,
             constraints,
         )
     hooks = tuple(hook for schema in declaration.inherited_schemas for hook in schema.hooks)
     serializers = tuple(serializer for schema in declaration.inherited_schemas for serializer in schema.serializers)
+    spec_metadata = EMPTY_METADATA
+    for schema in reversed(declaration.inherited_schemas):
+        spec_metadata = spec_metadata.merged(schema.metadata)
+    spec_metadata = spec_metadata.merged(declaration.declared_metadata)
     return SpecInfo(
         spec,
         tuple(projected.values()),
@@ -211,6 +265,42 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
             serializer.name
             for serializer in (*serializers, *cast(tuple[SerializationHook, ...], declaration.declared_serializers))
         ),
+        spec_metadata.title,
+        spec_metadata.description,
+        spec_metadata.examples or (),
+        bool(spec_metadata.deprecated),
+    )
+
+
+def _field_info(
+    name: str,
+    annotation: object,
+    schema: Schema | None,
+    required: bool,
+    has_static_default: bool,
+    default: object | None,
+    default_factory: Callable[[], object] | None,
+    alias: str | None,
+    metadata: DeclarationMetadata,
+    constraints: tuple[Constraint, ...] | None = None,
+) -> FieldInfo:
+    return FieldInfo(
+        name,
+        annotation,
+        schema,
+        required,
+        has_static_default,
+        default,
+        default_factory,
+        alias,
+        _constraints(schema) if constraints is None and schema is not None else constraints or (),
+        metadata.title,
+        metadata.description,
+        metadata.examples or (),
+        bool(metadata.deprecated),
+        bool(metadata.read_only),
+        bool(metadata.write_only),
+        bool(metadata.sensitive),
     )
 
 

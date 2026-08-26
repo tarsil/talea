@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Literal
 
 from talea.constraints import Constraint
+from talea.metadata import EMPTY_METADATA, DeclarationMetadata
 
 __all__ = [
     "AliasSchema",
@@ -51,6 +52,7 @@ class AliasSchema:
     name: str
     module: str
     schema: "Schema"
+    metadata: DeclarationMetadata = EMPTY_METADATA
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,6 +179,7 @@ class TypedDictField:
     schema: "Schema"
     required: bool
     read_only: bool = False
+    metadata: DeclarationMetadata = EMPTY_METADATA
 
 
 @dataclass(frozen=True, slots=True)

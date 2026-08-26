@@ -52,11 +52,21 @@ class _SerializationCompiler:
                 location = self._bind(names, namespace, "location", (key,))
                 hook = hook_by_field.get(field.name)
                 if hook is None:
-                    expression = compiler.expression(field.schema, value, location, names, namespace)
+                    expression = compiler.expression(
+                        field.schema,
+                        value,
+                        location,
+                        names,
+                        namespace,
+                        sensitive=bool(field.metadata.sensitive),
+                    )
                 else:
                     projector = self._bind(names, namespace, "project_hook", project_hook_value)
                     function = self._bind(names, namespace, "serialization_hook", hook.function)
-                    expression = f"{projector}({function}, {value}, {self.mode!r}, {self.by_alias!r}, {location})"
+                    sensitive = ", True" if field.metadata.sensitive else ""
+                    expression = (
+                        f"{projector}({function}, {value}, {self.mode!r}, {self.by_alias!r}, {location}{sensitive})"
+                    )
                 entries.append(f"{key!r}: {expression}")
             lines.append(f"    return {{{', '.join(entries)}}}")
         else:
@@ -73,11 +83,21 @@ class _SerializationCompiler:
                 location = self._bind(names, namespace, "location", (key,))
                 hook = hook_by_field.get(field.name)
                 if hook is None:
-                    expression = compiler.expression(field.schema, value, location, names, namespace)
+                    expression = compiler.expression(
+                        field.schema,
+                        value,
+                        location,
+                        names,
+                        namespace,
+                        sensitive=bool(field.metadata.sensitive),
+                    )
                 else:
                     projector = self._bind(names, namespace, "project_hook", project_hook_value)
                     function = self._bind(names, namespace, "serialization_hook", hook.function)
-                    expression = f"{projector}({function}, {value}, {self.mode!r}, {self.by_alias!r}, {location})"
+                    sensitive = ", True" if field.metadata.sensitive else ""
+                    expression = (
+                        f"{projector}({function}, {value}, {self.mode!r}, {self.by_alias!r}, {location}{sensitive})"
+                    )
                 lines.append(f"        result[{key!r}] = {expression}")
             lines.append("    return result")
         exec(compile("\n".join(lines), f"<talea {self.mode} Spec serialization>", "exec"), namespace)

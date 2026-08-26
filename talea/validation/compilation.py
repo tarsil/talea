@@ -14,13 +14,13 @@ type Validator = Callable[[object], object]
 class _ValidatorCompiler:
     """Wrap shared validation emission in a standalone one-argument function."""
 
-    def compile(self, schema: Schema) -> Validator:
+    def compile(self, schema: Schema, *, sensitive: bool = False) -> Validator:
         """Compile ``schema`` and return its single-argument validation function."""
 
         lines = ["def validate(value):"]
         namespace: dict[str, object] = {"__name__": __name__}
         emitter = _ValidationEmitter(lines, _GeneratedNames(("value",)), namespace)
-        emitter.emit_schema(schema, "value", (), 1)
+        emitter.emit_schema(schema, "value", (), 1, sensitive=sensitive)
         emitter.emit(1, "return value")
         source = "\n".join(lines)
         exec(compile(source, "<talea validator>", "exec"), namespace)
@@ -29,7 +29,7 @@ class _ValidatorCompiler:
         return validator
 
 
-def compile_validator(schema: Schema) -> Validator:
+def compile_validator(schema: Schema, *, sensitive: bool = False) -> Validator:
     """Compile canonical schema into a strict reusable validator.
 
     The returned callable preserves the input object on success. Compilation
@@ -38,7 +38,7 @@ def compile_validator(schema: Schema) -> Validator:
     belongs to declaration lifecycle owners.
     """
 
-    return _ValidatorCompiler().compile(schema)
+    return _ValidatorCompiler().compile(schema, sensitive=sensitive)
 
 
 def compile_current_state_validator(schema: SpecSchema) -> Validator:
@@ -51,10 +51,22 @@ def compile_current_state_validator(schema: SpecSchema) -> Validator:
     names = emitter.bind("field_names", field_names)
     for index, field in enumerate(schema.fields):
         nested = f"value.{field.name}"
-        emitter.emit_schema(field.schema, nested, (f"{names}[{index}]",), 1)
+        emitter.emit_schema(
+            field.schema,
+            nested,
+            (f"{names}[{index}]",),
+            1,
+            sensitive=bool(field.metadata.sensitive),
+        )
         for hook in schema.hooks:
             if hook.kind == "check" and hook.fields == (field.name,):
-                emitter.emit_check(hook, (nested,), ((f"{names}[{index}]",),), 1)
+                emitter.emit_check(
+                    hook,
+                    (nested,),
+                    ((f"{names}[{index}]",),),
+                    1,
+                    sensitive=bool(field.metadata.sensitive),
+                )
     indices = {field.name: index for index, field in enumerate(schema.fields)}
     for hook in schema.hooks:
         if hook.kind == "check" and len(hook.fields) > 1:
@@ -63,6 +75,7 @@ def compile_current_state_validator(schema: SpecSchema) -> Validator:
                 tuple(f"value.{name}" for name in hook.fields),
                 tuple((f"{names}[{indices[name]}]",) for name in hook.fields),
                 1,
+                sensitive=any(bool(schema.fields[indices[name]].metadata.sensitive) for name in hook.fields),
             )
     emitter.emit(1, "return value")
     namespace["__name__"] = __name__

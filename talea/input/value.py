@@ -10,7 +10,13 @@ from talea.schema.nodes import Schema
 type ValueInput = Callable[[object], object]
 
 
-def compile_value_input(schema: Schema, mode: InputMode, title: str) -> ValueInput:
+def compile_value_input(
+    schema: Schema,
+    mode: InputMode,
+    title: str,
+    *,
+    sensitive: bool = False,
+) -> ValueInput:
     """Compile one arbitrary root boundary without a wrapper Spec.
 
     The generated callable shares the exact conversion and validation emitter
@@ -32,7 +38,7 @@ def compile_value_input(schema: Schema, mode: InputMode, title: str) -> ValueInp
         title=title,
         trusted_instances=trusted,
     )
-    emitter.emit_schema(schema, "value", (), 1)
+    emitter.emit_schema(schema, "value", (), 1, sensitive=sensitive)
     emitter.emit(1, "return value")
     exec(compile("\n".join(lines), f"<talea {mode} value input>", "exec"), namespace)
     return cast(ValueInput, namespace["convert"])

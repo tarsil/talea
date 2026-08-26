@@ -173,8 +173,27 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         value: str,
         location: tuple[str, ...],
         indentation: int,
+        *,
+        sensitive: bool | None = None,
     ) -> None:
         """Prepare one external value, then emit its canonical validation once."""
+
+        previous = self.sensitive
+        if sensitive is not None:
+            self.sensitive = previous or sensitive
+        try:
+            self._emit_boundary_schema(schema, value, location, indentation)
+        finally:
+            self.sensitive = previous
+
+    def _emit_boundary_schema(
+        self,
+        schema: Schema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Dispatch conversion while inheriting compile-time sensitivity."""
 
         if self._validating:
             super().emit_schema(schema, value, location, indentation)
@@ -203,13 +222,38 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         value: str,
         location: tuple[str, ...],
         indentation: int,
+        *,
+        sensitive: bool | None = None,
     ) -> None:
         """Emit only representation conversion, never structural approval."""
+
+        previous = self.sensitive
+        if sensitive is not None:
+            self.sensitive = previous or sensitive
+        try:
+            self._emit_conversion(schema, value, location, indentation)
+        finally:
+            self.sensitive = previous
+
+    def _emit_conversion(
+        self,
+        schema: Schema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Dispatch conversion while inheriting compile-time sensitivity."""
 
         if isinstance(schema, ConstrainedSchema):
             self.emit_conversion(schema.schema, value, location, indentation)
         elif isinstance(schema, AliasSchema):
-            self.emit_conversion(schema.schema, value, location, indentation)
+            self.emit_conversion(
+                schema.schema,
+                value,
+                location,
+                indentation,
+                sensitive=bool(schema.metadata.sensitive),
+            )
         elif isinstance(schema, SpecReferenceSchema):
             self.emit_spec_conversion(schema, value, location, indentation)
         elif isinstance(schema, PrimitiveSchema):
@@ -272,7 +316,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         self.emit(indentation + 1, f"except {self.validation_error_name} as {error}:")
         self.emit(
             indentation + 2,
-            f"{prefixed} = {error}.prefixed({self.location_expression(location)}{self.title_argument()})",
+            f"{prefixed} = {error}.prefixed({self.location_expression(location)}"
+            f"{self.title_argument()}{self.sensitive_argument()})",
         )
         self.emit(indentation + 2, f"raise {prefixed} from {prefixed}.__cause__")
         if self.trusted_instances is not None:
@@ -337,7 +382,12 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         self.emit(indentation, f"if {condition}:")
         self.emit(indentation + 1, f"{converted} = {{}}")
         self.emit(indentation + 1, f"for {key}, {item} in {value}.items():")
-        self.emit_conversion(schema.value, item, (*location, key), indentation + 2)
+        self.emit_conversion(
+            schema.value,
+            item,
+            (*location, self.sensitive_location_segment(key)),
+            indentation + 2,
+        )
         self.emit(indentation + 2, f"{converted}[{key}] = {item}")
         self.emit(indentation + 1, f"{value} = {converted}")
 
@@ -365,7 +415,13 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             self.emit(indentation + 1, f"if {names}[{index}] in {converted}:")
             item = self.variable("typed_dict_item")
             self.emit(indentation + 2, f"{item} = {converted}[{names}[{index}]]")
-            self.emit_conversion(field.schema, item, (*location, f"{names}[{index}]"), indentation + 2)
+            self.emit_conversion(
+                field.schema,
+                item,
+                (*location, f"{names}[{index}]"),
+                indentation + 2,
+                sensitive=bool(field.metadata.sensitive),
+            )
             self.emit(indentation + 2, f"{converted}[{names}[{index}]] = {item}")
         self.emit(indentation + 1, f"{value} = {converted}")
 
@@ -645,7 +701,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         self.emit(
             indentation,
             f"{error} = {self.validation_error_name}(None, {value}, {self.location_expression(location)}, {code}"
-            f"{self.title_argument()}, context={context})",
+            f"{self.title_argument()}, context={context}{self.sensitive_argument()})",
         )
         self.emit(indentation, f"raise {error} from None")
 

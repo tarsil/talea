@@ -18,16 +18,30 @@ class SerializationError(TypeError):
     remain available as ``__cause__``.
     """
 
-    def __init__(self, reason: str, location: tuple[object, ...] = ()) -> None:
+    def __init__(
+        self,
+        reason: str,
+        location: tuple[object, ...] = (),
+        *,
+        sensitive: bool = False,
+    ) -> None:
         self.reason = reason
         self.location = location
+        self.sensitive = sensitive
         super().__init__(reason)
 
-    def prefixed(self, prefix: tuple[object, ...]) -> "SerializationError":
+    def prefixed(
+        self,
+        prefix: tuple[object, ...],
+        *,
+        sensitive: bool = False,
+    ) -> "SerializationError":
         """Return the same failure beneath a longer output location."""
 
-        error = type(self)(self.reason, (*prefix, *self.location))
-        error.__cause__ = self.__cause__
+        effective_sensitive = self.sensitive or sensitive
+        error = type(self)(self.reason, (*prefix, *self.location), sensitive=effective_sensitive)
+        if not effective_sensitive:
+            error.__cause__ = self.__cause__
         return error
 
     def __str__(self) -> str:

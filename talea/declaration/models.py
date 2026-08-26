@@ -7,10 +7,11 @@ validation execution, or instance state.
 """
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Final, Literal
 
 from talea.declaration.policies import schema_is_covariant_override, schema_values_are_immutable
+from talea.metadata import EMPTY_METADATA, DeclarationMetadata
 from talea.schema.nodes import Schema
 
 
@@ -83,6 +84,7 @@ class SpecField:
             omitted, or ``None``.
         alias: The optional canonical external field name consumed by input,
             output, and future schema projection.
+        metadata: Normalized documentation, boundary, and security truth.
 
     The value is immutable and contains no validator or original annotation.
     Exactly one instance owns the complete declaration truth for a field;
@@ -97,6 +99,7 @@ class SpecField:
     default: object = MISSING_DEFAULT
     default_factory: Callable[[], object] | None = None
     alias: str | None = None
+    metadata: DeclarationMetadata = EMPTY_METADATA
 
     def __post_init__(self) -> None:
         if self.default is not MISSING_DEFAULT and self.default_factory is not None:
@@ -146,6 +149,7 @@ class SpecSchema:
     fields: tuple[SpecField, ...]
     hooks: tuple[ValidationHook, ...] = ()
     serializers: tuple[SerializationHook, ...] = ()
+    metadata: DeclarationMetadata = EMPTY_METADATA
     instances_are_permanently_trusted: bool = field(init=False)
 
     def __post_init__(self) -> None:
@@ -191,6 +195,7 @@ class SpecSchema:
         shadowed_hook_names: frozenset[str] = frozenset(),
         declared_serializers: tuple[SerializationHook, ...] = (),
         shadowed_serializer_names: frozenset[str] = frozenset(),
+        declared_metadata: DeclarationMetadata = EMPTY_METADATA,
     ) -> "SpecSchema":
         """Create one effective declaration from bases and local contributions.
 
@@ -209,6 +214,9 @@ class SpecSchema:
         fields: dict[str, SpecField] = {}
         hooks: dict[str, ValidationHook] = {}
         serializers: dict[str, SerializationHook] = {}
+        metadata = EMPTY_METADATA
+        for schema in reversed(inherited):
+            metadata = metadata.merged(schema.metadata)
         for schema in inherited:
             for inherited_field in schema.fields:
                 fields.setdefault(inherited_field.name, inherited_field)
@@ -222,6 +230,11 @@ class SpecSchema:
                 declared_field.schema, inherited_field.schema
             ):
                 raise TypeError(f"Spec field {declared_field.name!r} override is not type-compatible")
+            if inherited_field is not None:
+                declared_field = replace(
+                    declared_field,
+                    metadata=inherited_field.metadata.merged(declared_field.metadata),
+                )
             fields[declared_field.name] = declared_field
         for hook_name in shadowed_hook_names:
             hooks.pop(hook_name, None)
@@ -231,4 +244,9 @@ class SpecSchema:
             serializers.pop(serializer_name, None)
         for declared_serializer in declared_serializers:
             serializers[declared_serializer.name] = declared_serializer
-        return cls(tuple(fields.values()), tuple(hooks.values()), tuple(serializers.values()))
+        return cls(
+            tuple(fields.values()),
+            tuple(hooks.values()),
+            tuple(serializers.values()),
+            metadata.merged(declared_metadata),
+        )

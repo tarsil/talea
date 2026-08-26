@@ -3,6 +3,7 @@
 from collections.abc import Mapping
 from typing import ClassVar, Protocol, Self, SupportsIndex, cast
 
+from talea.errors.safety import REDACTED
 from talea.input.json import JsonInput, JsonLoads, decode_json
 from talea.serialization.api import to_dict as _to_dict, to_json as _to_json
 from talea.spec.declaration import _ensure_finalized, _SpecArtifacts, _SpecDeclaration
@@ -196,8 +197,13 @@ class Spec(metaclass=_SpecMeta):
             ValidationError: If decoding, conversion, or validation fails.
         """
 
-        decoded = decode_json(data, loads, title=cls.__name__)
         artifacts = _ensure_finalized(cls)
+        decoded = decode_json(
+            data,
+            loads,
+            title=cls.__name__,
+            sensitive=artifacts.contains_sensitive,
+        )
         construct = artifacts.inputs.json_input
         if construct is None:
             construct = artifacts.inputs.input_for(artifacts.schema, cls, "json")
@@ -212,5 +218,8 @@ class Spec(metaclass=_SpecMeta):
         """Return the declaration name and current field values in order."""
 
         artifacts = _ensure_finalized(type(self))
-        values = ", ".join(f"{field.name}={getattr(self, field.name)!r}" for field in artifacts.schema.fields)
+        values = ", ".join(
+            f"{field.name}={REDACTED if field.metadata.sensitive else getattr(self, field.name)!r}"
+            for field in artifacts.schema.fields
+        )
         return f"{type(self).__name__}({values})"

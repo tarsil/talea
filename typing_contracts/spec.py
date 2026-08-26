@@ -10,13 +10,20 @@ from uuid import UUID
 from talea import (
     Alias,
     Contract,
+    Deprecated,
+    Description,
     ErrorCode,
     ErrorData,
+    Examples,
     Ge,
     MaxLength,
     MinLength,
+    ReadOnly,
+    Sensitive,
     Spec,
+    Title,
     ValidationError,
+    WriteOnly,
     check,
     create_spec,
     field,
@@ -65,6 +72,27 @@ class ContractPayload(TypedDict):
 assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), ContractPayload)
 assert_type(Contract[User](User).validate(user), User)
 assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
+assert_type(
+    create_spec("DocumentedDynamic", {"value": int}, metadata=(Title("Dynamic"), Deprecated())),
+    type[Spec],
+)
+
+
+class MetadataPayload(Spec):
+    secret: Annotated[
+        str,
+        Title("Secret"),
+        Description("Sensitive text."),
+        Examples("example"),
+        Deprecated(),
+        ReadOnly(),
+        WriteOnly(),
+        Sensitive(),
+    ]
+
+
+assert_type(MetadataPayload(secret="value").secret, str)
+assert_type(Contract[int](Annotated[int, Sensitive()]).validate(1), int)
 
 
 class DynamicBase(Spec):

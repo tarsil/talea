@@ -151,6 +151,7 @@ class _InputCompiler:
             factory_error = names.allocate(f"factory_error_{index}")
             factory_failure = names.allocate(f"factory_failure_{index}")
             context = emitter.bind("factory_error_context", (("field", field.external_name),))
+            sensitive_argument = ", sensitive=True" if field.metadata.sensitive else ""
             lines.extend(
                 (
                     f"    if {value} is {missing}:",
@@ -160,7 +161,7 @@ class _InputCompiler:
                     f"            {factory_failure} = {emitter.validation_error_name}("
                     f"None, {factory_error}, ({field_names_name}[{index}],), "
                     f"{emitter.runtime('error_code_factory', ErrorCode.FACTORY)}, "
-                    f"title={emitter.title_name}, context={context})",
+                    f"title={emitter.title_name}, context={context}{sensitive_argument})",
                 )
             )
             self._emit_collect(lines, errors, factory_failure, 3)
@@ -264,6 +265,7 @@ class _InputCompiler:
                     tuple(values[field_indices[name]] for name in hook.fields),
                     tuple((f"{field_names_name}[{field_indices[name]}]",) for name in hook.fields),
                     indentation,
+                    sensitive=any(bool(schema.fields[field_indices[name]].metadata.sensitive) for name in hook.fields),
                 )
         instance = emitter.variable("instance")
         allocator = emitter.bind("instance_allocator", object.__new__)
@@ -308,11 +310,29 @@ class _InputCompiler:
         field_name = emitter.bind("field_name", field.external_name)
         for hook in schema.hooks:
             if hook.kind == "transform" and hook.fields == (field.name,):
-                emitter.emit_transform(hook, value, (field_name,), indentation)
-        emitter.emit_schema(field.schema, value, (field_name,), indentation)
+                emitter.emit_transform(
+                    hook,
+                    value,
+                    (field_name,),
+                    indentation,
+                    sensitive=bool(field.metadata.sensitive),
+                )
+        emitter.emit_schema(
+            field.schema,
+            value,
+            (field_name,),
+            indentation,
+            sensitive=bool(field.metadata.sensitive),
+        )
         for hook in schema.hooks:
             if hook.kind == "check" and hook.fields == (field.name,):
-                emitter.emit_check(hook, (value,), ((field_name,),), indentation)
+                emitter.emit_check(
+                    hook,
+                    (value,),
+                    ((field_name,),),
+                    indentation,
+                    sensitive=bool(field.metadata.sensitive),
+                )
 
     @staticmethod
     def _emit_collect(lines: list[str], errors: str, error: str, indentation: int) -> None:

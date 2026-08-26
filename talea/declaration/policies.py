@@ -85,6 +85,52 @@ def schema_is_covariant_override(candidate: Schema, inherited: Schema) -> bool:
     return False
 
 
+def schema_contains_sensitive_metadata(
+    schema: Schema,
+    visiting: frozenset[type[object]] = frozenset(),
+) -> bool:
+    """Return whether reachable canonical declaration truth is sensitive."""
+
+    if isinstance(schema, (PrimitiveSchema, TypeSchema, LiteralSchema, EnumSchema)):
+        return False
+    if isinstance(schema, ConstrainedSchema):
+        return schema_contains_sensitive_metadata(schema.schema, visiting)
+    if isinstance(schema, AliasSchema):
+        return bool(schema.metadata.sensitive) or schema_contains_sensitive_metadata(schema.schema, visiting)
+    if isinstance(schema, SpecReferenceSchema):
+        if schema.spec_type in visiting:
+            return False
+        declaration = vars(schema.spec_type)["__talea_declaration__"]
+        artifacts = vars(schema.spec_type).get("__talea_artifacts__")
+        fields = artifacts.schema.fields if artifacts is not None else declaration.prepared_fields
+        if fields is None:
+            return False
+        return any(
+            bool(field.metadata.sensitive)
+            or schema_contains_sensitive_metadata(field.schema, visiting | {schema.spec_type})
+            for field in fields
+        )
+    if isinstance(schema, SequenceSchema):
+        return schema_contains_sensitive_metadata(schema.item, visiting)
+    if isinstance(schema, MappingSchema):
+        return schema_contains_sensitive_metadata(schema.key, visiting) or schema_contains_sensitive_metadata(
+            schema.value,
+            visiting,
+        )
+    if isinstance(schema, TypedDictSchema):
+        return any(
+            bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema, visiting)
+            for field in schema.fields
+        )
+    if isinstance(schema, VariadicTupleSchema):
+        return schema_contains_sensitive_metadata(schema.item, visiting)
+    if isinstance(schema, FixedTupleSchema):
+        return any(schema_contains_sensitive_metadata(item, visiting) for item in schema.items)
+    if isinstance(schema, UnionSchema):
+        return any(schema_contains_sensitive_metadata(option, visiting) for option in schema.options)
+    assert_never(schema)
+
+
 def _unwrap(schema: Schema) -> tuple[Schema, tuple[object, ...]]:
     if isinstance(schema, AliasSchema):
         return _unwrap(schema.schema)

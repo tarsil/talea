@@ -108,6 +108,8 @@ class _ConstructorCompiler:
                     factory_code_name = emitter.runtime("error_code_factory", ErrorCode.FACTORY)
                     factory_context_name = emitter.bind("factory_error_context", (("field", field_name),))
                     error_title = emitter.title_argument()
+                    sensitive_argument = ", sensitive=True" if field.metadata.sensitive else ""
+                    cause = "None" if field.metadata.sensitive else error_name
                     lines.extend(
                         (
                             f"    if {field_name} is {factory_sentinel_name}:",
@@ -116,7 +118,7 @@ class _ConstructorCompiler:
                             f"        except {exception_type_name} as {error_name}:",
                             f"            raise {validation_error_name}(None, {error_name}, "
                             f"({field_names_name}[{index}],), {factory_code_name}{error_title}, "
-                            f"context={factory_context_name}) from {error_name}",
+                            f"context={factory_context_name}{sensitive_argument}) from {cause}",
                         )
                     )
                 elif field.has_static_default:
@@ -137,12 +139,14 @@ class _ConstructorCompiler:
                         field_name,
                         (f"{field_names_name}[{index}]",),
                         indentation,
+                        sensitive=bool(field.metadata.sensitive),
                     )
                 emitter.emit_schema(
                     field.schema,
                     field_name,
                     (f"{field_names_name}[{index}]",),
                     indentation,
+                    sensitive=bool(field.metadata.sensitive),
                 )
                 for hook in checks:
                     emitter.emit_check(
@@ -150,6 +154,7 @@ class _ConstructorCompiler:
                         (field_name,),
                         (((f"{field_names_name}[{index}]"),),),
                         indentation,
+                        sensitive=bool(field.metadata.sensitive),
                     )
             field_indices = {field.name: index for index, field in enumerate(fields)}
             for hook in spec_checks:
@@ -158,6 +163,7 @@ class _ConstructorCompiler:
                     hook.fields,
                     tuple((f"{field_names_name}[{field_indices[name]}]",) for name in hook.fields),
                     1,
+                    sensitive=any(bool(fields[field_indices[name]].metadata.sensitive) for name in hook.fields),
                 )
             for field_name, slot_setter_name in zip(field_names, slot_setter_names, strict=True):
                 lines.append(f"    {slot_setter_name}({instance_name}, {field_name})")

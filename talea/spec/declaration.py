@@ -9,7 +9,9 @@ from weakref import WeakValueDictionary
 
 from talea.declaration.metadata import Alias
 from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema, ValidationHook
+from talea.declaration.policies import schema_contains_sensitive_metadata
 from talea.input.artifacts import _InputArtifacts
+from talea.metadata import EMPTY_METADATA, DeclarationMetadata, normalize_metadata
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
@@ -64,6 +66,7 @@ class _SpecArtifacts:
     current_validator: Validator | None
     inputs: _InputArtifacts
     outputs: _OutputArtifacts
+    contains_sensitive: bool = False
 
 
 @dataclass(slots=True)
@@ -79,6 +82,7 @@ class _SpecDeclaration:
     shadowed_hook_names: frozenset[str]
     shadowed_serializer_names: frozenset[str]
     declares_to_dict: bool
+    declared_metadata: DeclarationMetadata = EMPTY_METADATA
     prepared_fields: tuple[SpecField, ...] | None = None
     finalizing: bool = False
     type_params: tuple[TypeVar, ...] = ()
@@ -158,15 +162,16 @@ def _reaches_spec(
     )
 
 
-def _field_alias(annotation: object) -> str | None:
-    """Extract one top-level Alias while leaving resolution canonical."""
+def _field_declaration_metadata(annotation: object) -> tuple[str | None, DeclarationMetadata]:
+    """Extract one top-level Alias and normalize Talea-owned metadata."""
 
     if get_origin(annotation) is not Annotated:
-        return None
-    aliases = tuple(item for item in get_args(annotation)[1:] if isinstance(item, Alias))
+        return None, EMPTY_METADATA
+    extras = get_args(annotation)[1:]
+    aliases = tuple(item for item in extras if isinstance(item, Alias))
     if len(aliases) > 1:
         raise TypeError("a Spec field can declare only one Alias")
-    return aliases[0].name if aliases else None
+    return aliases[0].name if aliases else None, normalize_metadata(extras)
 
 
 def _prepare_declaration(cls: type[object]) -> None:
@@ -208,7 +213,7 @@ def _prepare_declaration(cls: type[object]) -> None:
             )
             annotation = substitute_annotation(annotation, substitutions)
         resolved = resolve_annotation(annotation)
-        alias = _field_alias(annotation)
+        alias, metadata = _field_declaration_metadata(annotation)
         if isinstance(field_declaration, _FactoryDeclaration):
             fields.append(
                 SpecField(
@@ -216,10 +221,19 @@ def _prepare_declaration(cls: type[object]) -> None:
                     resolved,
                     default_factory=field_declaration.default_factory,
                     alias=alias,
+                    metadata=metadata,
                 )
             )
         else:
-            fields.append(SpecField(field_name, resolved, default=field_declaration, alias=alias))
+            fields.append(
+                SpecField(
+                    field_name,
+                    resolved,
+                    default=field_declaration,
+                    alias=alias,
+                    metadata=metadata,
+                )
+            )
     declaration.prepared_fields = tuple(fields)
 
 
@@ -279,13 +293,15 @@ def _validate_static_defaults(
             try:
                 result = hook.function(spec_field.default)
             except ValueError as error:
-                raise CustomValidationError(
+                failure = CustomValidationError(
                     "field_check",
                     hook.name,
                     spec_field.default,
                     ((spec_field.name,),),
                     title=title,
-                ) from error
+                    sensitive=bool(spec_field.metadata.sensitive),
+                )
+                raise failure from (None if spec_field.metadata.sensitive else error)
             if result is not None:
                 raise TypeError(f"validation check {hook.name!r} must return None")
         if _contains_mutable_value(spec_field.default):
@@ -323,8 +339,12 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
         declaration.shadowed_hook_names,
         cast(tuple, declaration.declared_serializers),
         declaration.shadowed_serializer_names,
+        declaration.declared_metadata,
     )
-    validators = tuple(compile_validator(field.schema) for field in schema.fields)
+    validators = tuple(
+        compile_validator(field.schema, sensitive=True) if field.metadata.sensitive else compile_validator(field.schema)
+        for field in schema.fields
+    )
     affected_defaults = set(declaration.annotations)
     affected_defaults.update(
         hook.fields[0] for hook in declaration.declared_hooks if hook.kind == "check" and len(hook.fields) == 1
@@ -342,6 +362,10 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
         compile_current_state_validator(schema) if recursive else None,
         _InputArtifacts(slot_setters, recursive),
         _OutputArtifacts(recursive),
+        any(
+            bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema)
+            for field in schema.fields
+        ),
     )
     type.__setattr__(cls, "__init__", initializer)
     type.__setattr__(cls, "__talea_artifacts__", artifacts)

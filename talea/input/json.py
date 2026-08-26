@@ -7,6 +7,7 @@ from typing import NoReturn
 
 from talea.errors import ErrorCode
 from talea.errors.models import ValidationError
+from talea.errors.safety import REDACTED
 
 type JsonInput = str | bytes | bytearray
 type JsonLoads = Callable[[JsonInput], object]
@@ -56,13 +57,20 @@ def _raise_decoder_failure(
     failure: ValidationError,
     cause: BaseException,
     data: JsonInput,
+    sensitive: bool,
 ) -> NoReturn:
-    if len(data) <= _MAX_CAUSE_INPUT:
+    if not sensitive and len(data) <= _MAX_CAUSE_INPUT:
         raise failure from cause
     raise failure from None
 
 
-def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> object:
+def decode_json(
+    data: JsonInput,
+    loads: JsonLoads | None,
+    *,
+    title: str,
+    sensitive: bool = False,
+) -> object:
     """Decode JSON syntax with strict stdlib defaults or one explicit callable.
 
     The default preserves fractional number tokens as :class:`Decimal`, rejects
@@ -81,9 +89,10 @@ def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> obje
             (),
             ErrorCode.JSON_DUPLICATE,
             title=title,
-            context=(("key", error.key),),
+            context=(("key", REDACTED if sensitive else error.key),),
+            sensitive=sensitive,
         )
-        _raise_decoder_failure(failure, error, data)
+        _raise_decoder_failure(failure, error, data, sensitive)
     except _NonFiniteNumberError as error:
         failure = ValidationError(
             None,
@@ -92,8 +101,9 @@ def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> obje
             ErrorCode.JSON_INVALID,
             title=title,
             context=(("reason", "non_finite_number"),),
+            sensitive=sensitive,
         )
-        _raise_decoder_failure(failure, error, data)
+        _raise_decoder_failure(failure, error, data, sensitive)
     except json.JSONDecodeError as error:
         failure = ValidationError(
             None,
@@ -102,8 +112,9 @@ def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> obje
             ErrorCode.JSON_INVALID,
             title=title,
             context=(("line", error.lineno), ("column", error.colno), ("position", error.pos)),
+            sensitive=sensitive,
         )
-        _raise_decoder_failure(failure, error, data)
+        _raise_decoder_failure(failure, error, data, sensitive)
     except UnicodeDecodeError as error:
         failure = ValidationError(
             None,
@@ -112,8 +123,9 @@ def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> obje
             ErrorCode.JSON_INVALID,
             title=title,
             context=(("start", error.start), ("end", error.end), ("reason", error.reason)),
+            sensitive=sensitive,
         )
-        _raise_decoder_failure(failure, error, data)
+        _raise_decoder_failure(failure, error, data, sensitive)
     except ValueError as error:
         failure = ValidationError(
             None,
@@ -122,5 +134,6 @@ def decode_json(data: JsonInput, loads: JsonLoads | None, *, title: str) -> obje
             ErrorCode.JSON_INVALID,
             title=title,
             context=(("decoder", type(decoder).__qualname__),),
+            sensitive=sensitive,
         )
-        _raise_decoder_failure(failure, error, data)
+        _raise_decoder_failure(failure, error, data, sensitive)

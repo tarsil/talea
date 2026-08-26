@@ -32,6 +32,7 @@ from typing import (
 from uuid import UUID
 
 from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
+from talea.metadata import annotation_metadata
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
@@ -219,12 +220,13 @@ def _resolve_alias(
         raise AnnotationResolutionError(alias)
     substitutions = dict(zip(parameters, arguments, strict=True))
     value = _substitute_alias(alias.__value__, substitutions)
+    metadata = annotation_metadata(value)
     resolving.add(alias)
     try:
         schema = _resolve_annotation(value, resolving)
     finally:
         resolving.remove(alias)
-    return AliasSchema(alias.__name__, alias.__module__ or "__main__", schema)
+    return AliasSchema(alias.__name__, alias.__module__ or "__main__", schema, metadata)
 
 
 def _resolve_typed_dict(
@@ -258,6 +260,7 @@ def _resolve_typed_dict(
                     _resolve_annotation(annotation, resolving),
                     required,
                     read_only,
+                    annotation_metadata(annotation),
                 )
             )
     finally:
