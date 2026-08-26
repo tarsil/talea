@@ -37,6 +37,17 @@ Title(1)  # ty: ignore[invalid-argument-type]
 Sensitive("yes")  # ty: ignore[invalid-argument-type]
 
 
+type RecursiveValue = int | list[RecursiveValue]
+
+
+class RecursivePayload(Spec):
+    root: RecursiveValue
+
+
+Contract[RecursiveValue](RecursiveValue).to_json(["wrong"])  # ty: ignore[invalid-argument-type]
+RecursivePayload(root=["wrong"])  # ty: ignore[invalid-argument-type]
+
+
 class Box[T](Spec):
     value: T
 

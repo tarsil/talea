@@ -6,12 +6,13 @@ validation, serialization, field metadata, and runtime execution do not belong
 to this domain.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
 from talea.constraints import Constraint
 from talea.metadata import EMPTY_METADATA, DeclarationMetadata
+from talea.schema.references import NamedReferenceSchema, NamedSchemaIdentity
 
 __all__ = [
     "AliasSchema",
@@ -21,6 +22,8 @@ __all__ = [
     "LiteralSchema",
     "LiteralValue",
     "MappingSchema",
+    "NamedReferenceSchema",
+    "NamedSchemaIdentity",
     "PrimitiveKind",
     "PrimitiveSchema",
     "Schema",
@@ -55,6 +58,7 @@ class AliasSchema:
     module: str
     schema: "Schema"
     metadata: DeclarationMetadata = EMPTY_METADATA
+    identity: NamedSchemaIdentity | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,6 +206,7 @@ class TypedDictSchema:
     name: str
     module: str
     fields: tuple[TypedDictField, ...]
+    identity: NamedSchemaIdentity | None = field(default=None, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         names = tuple(field.name for field in self.fields)
@@ -309,6 +314,7 @@ type Schema = (
     AliasSchema
     | PrimitiveSchema
     | SpecReferenceSchema
+    | NamedReferenceSchema
     | TypeSchema
     | LiteralSchema
     | EnumSchema

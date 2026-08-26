@@ -8,7 +8,6 @@ successful validation creates no error metadata.
 """
 
 from collections.abc import Callable
-from contextvars import ContextVar
 from decimal import Decimal
 from math import isclose, isfinite, remainder
 from typing import assert_never, cast
@@ -27,6 +26,7 @@ from talea.schema.nodes import (
     LiteralSchema,
     LiteralValue,
     MappingSchema,
+    NamedReferenceSchema,
     PrimitiveSchema,
     Schema,
     SequenceSchema,
@@ -46,6 +46,7 @@ from talea.validation.failure_contracts import (
     literal_key,
     schema_order_key,
 )
+from talea.validation.references import _NamedValidationReference, _RecursiveSpecValidator
 
 
 def _identity_index(sequence: list[object] | tuple[object, ...], item: object) -> int:
@@ -55,41 +56,6 @@ def _identity_index(sequence: list[object] | tuple[object, ...], item: object) -
         if candidate is item:
             return index
     raise RuntimeError("validated sequence changed during validation")
-
-
-_RECURSIVE_VALIDATION: ContextVar[set[int] | None] = ContextVar(
-    "talea_recursive_validation",
-    default=None,
-)
-
-
-class _RecursiveSpecValidator:
-    """Call a finalized current-state artifact across one recursive graph edge."""
-
-    __slots__ = ("spec_type",)
-
-    def __init__(self, spec_type: type[object]) -> None:
-        self.spec_type = spec_type
-
-    def __call__(self, value: object) -> object:
-        active = _RECURSIVE_VALIDATION.get()
-        token = None
-        if active is None:
-            active = set()
-            token = _RECURSIVE_VALIDATION.set(active)
-        identity = id(value)
-        if identity in active:
-            return value
-        active.add(identity)
-        try:
-            artifacts = vars(self.spec_type)["__talea_artifacts__"]
-            validator = artifacts.current_validator
-            assert validator is not None
-            return validator(value)
-        finally:
-            active.remove(identity)
-            if token is not None:
-                _RECURSIVE_VALIDATION.reset(token)
 
 
 class _ValidationEmitter:
@@ -173,6 +139,9 @@ class _ValidationEmitter:
             )
             self.emit_constraints(base, constraints, value, location, indentation)
             return
+        if isinstance(base, NamedReferenceSchema):
+            self.emit_named_reference(base, value, location, indentation)
+            return
         if isinstance(base, SpecReferenceSchema):
             self.emit_spec_reference(base, value, location, indentation)
             return
@@ -198,6 +167,31 @@ class _ValidationEmitter:
             self.emit_union(base, value, location, indentation)
             return
         raise AssertionError("nested constrained schema reached validation emission")
+
+    def emit_named_reference(
+        self,
+        schema: NamedReferenceSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Call a schema-specialized validator through one canonical back-edge."""
+
+        operation = self.bind(
+            "named_validator",
+            _NamedValidationReference(schema, self.sensitive),
+        )
+        error = self.variable("named_error")
+        prefixed = self.variable("prefixed_error")
+        self.emit(indentation, "try:")
+        self.emit(indentation + 1, f"{operation}({value})")
+        self.emit(indentation, f"except {self.validation_error_name} as {error}:")
+        self.emit(
+            indentation + 1,
+            f"{prefixed} = {error}.prefixed({self.location_expression(location)}"
+            f"{self.title_argument()}{self.sensitive_argument()})",
+        )
+        self.emit(indentation + 1, f"raise {prefixed} from {prefixed}.__cause__")
 
     def emit_spec_reference(
         self,
@@ -780,6 +774,8 @@ class _ValidationEmitter:
             return self.top_level_condition(schema.schema, value)
         if isinstance(schema, AliasSchema):
             return self.top_level_condition(schema.schema, value)
+        if isinstance(schema, NamedReferenceSchema):
+            return "True"
         if isinstance(schema, PrimitiveSchema):
             if schema.kind == "none":
                 return f"{value} is None"

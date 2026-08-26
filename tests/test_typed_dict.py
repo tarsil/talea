@@ -239,13 +239,14 @@ def test_typed_dict_union_uses_the_json_boundary_shape() -> None:
     assert value == {"id": 1, "score": 0}
 
 
-def test_recursive_alias_and_typed_dict_cycles_fail_explicitly() -> None:
+def test_recursive_alias_and_typed_dict_resolve_to_finite_graphs() -> None:
     type RecursiveAlias = int | list[RecursiveAlias]
 
-    with pytest.raises(AnnotationResolutionError, match="RecursiveAlias"):
-        resolve_annotation(RecursiveAlias)
-    with pytest.raises(AnnotationResolutionError, match="RecursivePayload"):
-        resolve_annotation(RecursivePayload)
+    alias = resolve_annotation(RecursiveAlias)
+    typed_dict = resolve_annotation(RecursivePayload)
+
+    assert compile_validator(alias)([1, [2]]) == [1, [2]]
+    assert compile_validator(typed_dict)({"child": {}}) == {"child": {}}
 
 
 def test_typed_dict_schema_rejects_duplicate_canonical_keys() -> None:

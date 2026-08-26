@@ -11,6 +11,7 @@ from talea.schema.nodes import (
     FixedTupleSchema,
     LiteralSchema,
     MappingSchema,
+    NamedReferenceSchema,
     PrimitiveSchema,
     Schema,
     SequenceSchema,
@@ -23,7 +24,7 @@ from talea.schema.nodes import (
 )
 
 
-def schema_values_are_immutable(schema: Schema, visiting: frozenset[type[object]] = frozenset()) -> bool:
+def schema_values_are_immutable(schema: Schema, visiting: frozenset[object] = frozenset()) -> bool:
     """Project whether valid values can change without field reassignment."""
 
     if isinstance(schema, (PrimitiveSchema, TypeSchema, LiteralSchema, EnumSchema)):
@@ -32,6 +33,12 @@ def schema_values_are_immutable(schema: Schema, visiting: frozenset[type[object]
         return schema_values_are_immutable(schema.schema, visiting)
     if isinstance(schema, AliasSchema):
         return schema_values_are_immutable(schema.schema, visiting)
+    if isinstance(schema, NamedReferenceSchema):
+        if schema.identity.kind == "typed_dict":
+            return False
+        if schema.identity in visiting:
+            return True
+        return schema_values_are_immutable(schema.target, visiting | {schema.identity})
     if isinstance(schema, SpecReferenceSchema):
         declaration = vars(schema.spec_type)["__talea_declaration__"]
         if schema.spec_type in visiting:
@@ -92,7 +99,7 @@ def schema_is_covariant_override(candidate: Schema, inherited: Schema) -> bool:
 
 def schema_contains_sensitive_metadata(
     schema: Schema,
-    visiting: frozenset[type[object]] = frozenset(),
+    visiting: frozenset[object] = frozenset(),
 ) -> bool:
     """Return whether reachable canonical declaration truth is sensitive."""
 
@@ -102,6 +109,10 @@ def schema_contains_sensitive_metadata(
         return schema_contains_sensitive_metadata(schema.schema, visiting)
     if isinstance(schema, AliasSchema):
         return bool(schema.metadata.sensitive) or schema_contains_sensitive_metadata(schema.schema, visiting)
+    if isinstance(schema, NamedReferenceSchema):
+        if schema.identity in visiting:
+            return False
+        return schema_contains_sensitive_metadata(schema.target, visiting | {schema.identity})
     if isinstance(schema, SpecReferenceSchema):
         if schema.spec_type in visiting:
             return False
@@ -142,7 +153,7 @@ def schema_contains_sensitive_metadata(
 
 def schema_contains_tagged_union(
     schema: Schema,
-    visiting: frozenset[type[object]] = frozenset(),
+    visiting: frozenset[object] = frozenset(),
 ) -> bool:
     """Return whether a serializer replacement could bypass tagged truth."""
 
@@ -159,6 +170,10 @@ def schema_contains_tagged_union(
         if fields is None:
             return False
         return any(schema_contains_tagged_union(field.schema, visiting | {schema.spec_type}) for field in fields)
+    if isinstance(schema, NamedReferenceSchema):
+        if schema.identity in visiting:
+            return False
+        return schema_contains_tagged_union(schema.target, visiting | {schema.identity})
     if isinstance(schema, (ConstrainedSchema, AliasSchema)):
         return schema_contains_tagged_union(schema.schema, visiting)
     if isinstance(schema, SequenceSchema):
@@ -176,6 +191,31 @@ def schema_contains_tagged_union(
         return any(schema_contains_tagged_union(item, visiting) for item in schema.items)
     assert isinstance(schema, UnionSchema)
     return any(schema_contains_tagged_union(option, visiting) for option in schema.options)
+
+
+def schema_contains_named_reference(schema: Schema) -> bool:
+    """Return whether one finite schema graph contains a named back-edge."""
+
+    if isinstance(schema, NamedReferenceSchema):
+        return True
+    if isinstance(schema, (PrimitiveSchema, TypeSchema, LiteralSchema, EnumSchema, SpecReferenceSchema)):
+        return False
+    if isinstance(schema, (ConstrainedSchema, AliasSchema)):
+        return schema_contains_named_reference(schema.schema)
+    if isinstance(schema, SequenceSchema):
+        return schema_contains_named_reference(schema.item)
+    if isinstance(schema, MappingSchema):
+        return schema_contains_named_reference(schema.key) or schema_contains_named_reference(schema.value)
+    if isinstance(schema, TypedDictSchema):
+        return any(schema_contains_named_reference(field.schema) for field in schema.fields)
+    if isinstance(schema, TaggedUnionSchema):
+        return any(schema_contains_named_reference(branch.schema) for branch in schema.branches)
+    if isinstance(schema, VariadicTupleSchema):
+        return schema_contains_named_reference(schema.item)
+    if isinstance(schema, FixedTupleSchema):
+        return any(schema_contains_named_reference(item) for item in schema.items)
+    assert isinstance(schema, UnionSchema)
+    return any(schema_contains_named_reference(option) for option in schema.options)
 
 
 def _unwrap(schema: Schema) -> tuple[Schema, tuple[object, ...]]:

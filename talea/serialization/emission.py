@@ -15,7 +15,7 @@ from ipaddress import (
 from math import isfinite
 from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
 from types import FunctionType
-from typing import Literal, assert_never, cast
+from typing import assert_never, cast
 from uuid import UUID
 
 from talea.codegen import _GeneratedNames
@@ -28,6 +28,7 @@ from talea.schema.nodes import (
     FixedTupleSchema,
     LiteralSchema,
     MappingSchema,
+    NamedReferenceSchema,
     PrimitiveSchema,
     Schema,
     SequenceSchema,
@@ -39,12 +40,10 @@ from talea.schema.nodes import (
     VariadicTupleSchema,
 )
 from talea.serialization.errors import SerializationError
+from talea.serialization.references import OutputMode, ValueProjector, _NamedOutputReference, _NamedOutputRoot
 from talea.tagged.dispatch import nominal_dispatch
 from talea.validation import ValidationError, compile_validator
 from talea.validation.failure_contracts import schema_order_key
-
-type OutputMode = Literal["python", "json"]
-type ValueProjector = Callable[[object, tuple[object, ...]], object]
 
 _JSON_STRING_TYPES = (
     UUID,
@@ -267,6 +266,14 @@ class _ValueProjectionCompiler:
                 namespace,
                 sensitive=bool(schema.metadata.sensitive),
             )
+        if isinstance(schema, NamedReferenceSchema):
+            projector = self._bind(
+                names,
+                namespace,
+                "named_projector",
+                _NamedOutputReference(schema, self.mode, self.by_alias, self.sensitive),
+            )
+            return f"{projector}({value}, {location})"
         if isinstance(schema, PrimitiveSchema):
             if self.mode == "json" and schema.kind == "bytes":
                 encoder = self._bind(names, namespace, "encode_bytes", encode_bytes)
@@ -485,6 +492,8 @@ class _ValueProjectionCompiler:
             return self._python_key_supported(schema.schema)
         if isinstance(schema, AliasSchema):
             return self._python_key_supported(schema.schema)
+        if isinstance(schema, NamedReferenceSchema):
+            return False
         if isinstance(schema, (PrimitiveSchema, TypeSchema, EnumSchema, LiteralSchema)):
             return True
         if isinstance(schema, SequenceSchema):
@@ -523,7 +532,12 @@ def compile_value_projector(
 ) -> ValueProjector:
     """Compile one direct projector for a canonical field schema."""
 
-    return _ValueProjectionCompiler(mode, by_alias).compile(schema, sensitive=sensitive)
+    compiled = _ValueProjectionCompiler(mode, by_alias).compile(schema, sensitive=sensitive)
+    from talea.declaration.policies import schema_contains_named_reference
+
+    if schema_contains_named_reference(schema):
+        return _NamedOutputRoot(compiled, sensitive)
+    return compiled
 
 
 def project_hook_value(

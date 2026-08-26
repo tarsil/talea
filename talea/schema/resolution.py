@@ -42,6 +42,7 @@ from talea.schema.nodes import (
     LiteralSchema,
     LiteralValue,
     MappingSchema,
+    NamedReferenceSchema,
     PrimitiveSchema,
     Schema,
     SequenceSchema,
@@ -54,6 +55,7 @@ from talea.schema.nodes import (
     UnionSchema,
     VariadicTupleSchema,
 )
+from talea.schema.references import NamedSchemaIdentity, _NamedSchemaTarget
 from talea.tagged import Discriminator
 
 __all__ = [
@@ -135,11 +137,14 @@ def resolve_annotation(annotation: object) -> Schema:
             form an obvious contradiction.
     """
 
-    return _resolve_annotation(annotation, set())
+    return _resolve_annotation(annotation, {})
 
 
-def _resolve_annotation(annotation: object, resolving: set[object]) -> Schema:
-    """Resolve one annotation while rejecting unsupported recursive expansion."""
+def _resolve_annotation(
+    annotation: object,
+    targets: dict[NamedSchemaIdentity, _NamedSchemaTarget],
+) -> Schema:
+    """Resolve one annotation through a finite declaration-identity graph."""
 
     if annotation is int:
         return PrimitiveSchema("int")
@@ -170,28 +175,28 @@ def _resolve_annotation(annotation: object, resolving: set[object]) -> Schema:
     arguments = get_args(annotation)
 
     if isinstance(annotation, TypeAliasType):
-        return _resolve_alias(annotation, (), resolving)
+        return _resolve_alias(annotation, (), targets)
     if isinstance(origin, TypeAliasType):
-        return _resolve_alias(origin, arguments, resolving)
+        return _resolve_alias(origin, arguments, targets)
     if isinstance(annotation, NewType):
         return AliasSchema(
             annotation.__name__,
             annotation.__module__,
-            _resolve_annotation(annotation.__supertype__, resolving),
+            _resolve_annotation(annotation.__supertype__, targets),
         )
     typed_dict = annotation if is_typeddict(annotation) else origin
     if typed_dict is not None and is_typeddict(typed_dict):
-        return _resolve_typed_dict(cast(type[object], typed_dict), arguments, resolving)
+        return _resolve_typed_dict(cast(type[object], typed_dict), arguments, targets)
 
     if origin is Annotated:
         discriminators = tuple(item for item in arguments[1:] if isinstance(item, Discriminator))
         if len(discriminators) > 1:
             raise TaggedUnionDeclarationError("an annotation can declare only one Discriminator")
         if discriminators:
-            schema = _resolve_tagged_union(arguments[0], discriminators[0], resolving)
+            schema = _resolve_tagged_union(arguments[0], discriminators[0], targets)
             constraints = tuple(item for item in arguments[1:] if isinstance(item, _CONSTRAINT_TYPES))
             return _apply_constraints(schema, constraints)
-        schema = _resolve_annotation(arguments[0], resolving)
+        schema = _resolve_annotation(arguments[0], targets)
         constraints = tuple(item for item in arguments[1:] if isinstance(item, _CONSTRAINT_TYPES))
         return _apply_constraints(schema, constraints)
     if origin is Literal:
@@ -200,7 +205,7 @@ def _resolve_annotation(annotation: object, resolving: set[object]) -> Schema:
         return _resolve_literal(arguments)
 
     if origin in (UnionType, Union):
-        options = frozenset(_resolve_annotation(argument, resolving) for argument in arguments)
+        options = frozenset(_resolve_annotation(argument, targets) for argument in arguments)
         if len(options) == 1:
             return next(iter(options))
         if any(_is_tagged_option(option) for option in options) and any(
@@ -216,21 +221,21 @@ def _resolve_annotation(annotation: object, resolving: set[object]) -> Schema:
         raise AnnotationResolutionError(annotation)
 
     if origin is list and len(arguments) == 1:
-        return SequenceSchema("list", _resolve_annotation(arguments[0], resolving))
+        return SequenceSchema("list", _resolve_annotation(arguments[0], targets))
     if origin is set and len(arguments) == 1:
-        return SequenceSchema("set", _resolve_annotation(arguments[0], resolving))
+        return SequenceSchema("set", _resolve_annotation(arguments[0], targets))
     if origin is frozenset and len(arguments) == 1:
-        return SequenceSchema("frozenset", _resolve_annotation(arguments[0], resolving))
+        return SequenceSchema("frozenset", _resolve_annotation(arguments[0], targets))
     if origin is dict and len(arguments) == 2:
         return MappingSchema(
-            _resolve_annotation(arguments[0], resolving),
-            _resolve_annotation(arguments[1], resolving),
+            _resolve_annotation(arguments[0], targets),
+            _resolve_annotation(arguments[1], targets),
         )
     if origin is tuple:
         if len(arguments) == 2 and arguments[1] is Ellipsis:
-            return VariadicTupleSchema(_resolve_annotation(arguments[0], resolving))
+            return VariadicTupleSchema(_resolve_annotation(arguments[0], targets))
         if arguments and Ellipsis not in arguments:
-            return FixedTupleSchema(tuple(_resolve_annotation(item, resolving) for item in arguments))
+            return FixedTupleSchema(tuple(_resolve_annotation(item, targets) for item in arguments))
 
     raise AnnotationResolutionError(annotation)
 
@@ -238,39 +243,60 @@ def _resolve_annotation(annotation: object, resolving: set[object]) -> Schema:
 def _resolve_alias(
     alias: TypeAliasType,
     arguments: tuple[object, ...],
-    resolving: set[object],
+    targets: dict[NamedSchemaIdentity, _NamedSchemaTarget],
 ) -> Schema:
-    if alias in resolving:
-        raise AnnotationResolutionError(alias)
     parameters = cast(tuple[TypeVar, ...], alias.__type_params__)
     if len(parameters) != len(arguments):
         raise AnnotationResolutionError(alias)
+    identity = NamedSchemaIdentity(
+        "alias",
+        alias.__name__,
+        alias.__module__ or "__main__",
+        alias,
+        arguments,
+    )
+    target = targets.get(identity)
+    if target is not None:
+        return target.schema if target.finalized else NamedReferenceSchema(target.identity, target)
+    target = _NamedSchemaTarget(identity)
+    targets[identity] = target
     substitutions = dict(zip(parameters, arguments, strict=True))
     value = _substitute_alias(alias.__value__, substitutions)
     metadata = annotation_metadata(value)
-    resolving.add(alias)
     try:
-        schema = _resolve_annotation(value, resolving)
-    finally:
-        resolving.remove(alias)
-    return AliasSchema(alias.__name__, alias.__module__ or "__main__", schema, metadata)
+        schema = _resolve_annotation(value, targets)
+        resolved = AliasSchema(alias.__name__, alias.__module__ or "__main__", schema, metadata, identity)
+        target.finalize(resolved)
+        return resolved
+    except BaseException:
+        targets.pop(identity, None)
+        raise
 
 
 def _resolve_typed_dict(
     typed_dict: type[object],
     arguments: tuple[object, ...],
-    resolving: set[object],
-) -> TypedDictSchema:
-    if typed_dict in resolving:
-        raise AnnotationResolutionError(typed_dict)
+    targets: dict[NamedSchemaIdentity, _NamedSchemaTarget],
+) -> Schema:
     parameters = tuple(getattr(typed_dict, "__type_params__", ()))
     if parameters and len(parameters) != len(arguments):
         raise AnnotationResolutionError(typed_dict)
+    identity = NamedSchemaIdentity(
+        "typed_dict",
+        typed_dict.__name__,
+        typed_dict.__module__,
+        typed_dict,
+        arguments,
+    )
+    target = targets.get(identity)
+    if target is not None:
+        return target.schema if target.finalized else NamedReferenceSchema(target.identity, target)
+    target = _NamedSchemaTarget(identity)
+    targets[identity] = target
     substitutions = dict(zip(parameters, arguments, strict=True))
     annotations = get_type_hints(typed_dict, include_extras=True)
     required_keys = cast(frozenset[str], vars(typed_dict)["__required_keys__"])
     readonly_keys = cast(frozenset[str], getattr(typed_dict, "__readonly_keys__", frozenset()))
-    resolving.add(typed_dict)
     try:
         fields = []
         for name, annotation in annotations.items():
@@ -284,15 +310,18 @@ def _resolve_typed_dict(
             fields.append(
                 TypedDictField(
                     name,
-                    _resolve_annotation(annotation, resolving),
+                    _resolve_annotation(annotation, targets),
                     required,
                     read_only,
                     annotation_metadata(annotation),
                 )
             )
-    finally:
-        resolving.remove(typed_dict)
-    return TypedDictSchema(typed_dict.__name__, typed_dict.__module__, tuple(fields))
+        resolved = TypedDictSchema(typed_dict.__name__, typed_dict.__module__, tuple(fields), identity)
+        target.finalize(resolved)
+        return resolved
+    except BaseException:
+        targets.pop(identity, None)
+        raise
 
 
 def _unwrap_typed_dict_qualifiers(
@@ -349,14 +378,14 @@ def _is_tagged_option(schema: Schema) -> bool:
 def _resolve_tagged_union(
     annotation: object,
     declaration: Discriminator,
-    resolving: set[object],
+    targets: dict[NamedSchemaIdentity, _NamedSchemaTarget],
 ) -> Schema:
     """Normalize one explicit union from existing branch field truth."""
 
     origin = get_origin(annotation)
     if origin not in (UnionType, Union):
         raise TaggedUnionDeclarationError("Discriminator requires a union annotation")
-    options = tuple(_resolve_annotation(argument, resolving) for argument in get_args(annotation))
+    options = tuple(_resolve_annotation(argument, targets) for argument in get_args(annotation))
     nullable = tuple(option for option in options if isinstance(option, PrimitiveSchema) and option.kind == "none")
     branch_options = cast(
         tuple[SpecReferenceSchema | TypedDictSchema, ...],

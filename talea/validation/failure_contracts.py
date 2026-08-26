@@ -19,6 +19,7 @@ from talea.schema.nodes import (
     LiteralSchema,
     LiteralValue,
     MappingSchema,
+    NamedReferenceSchema,
     PrimitiveSchema,
     Schema,
     SequenceSchema,
@@ -47,6 +48,8 @@ def describe_schema(schema: Schema) -> str:
         return f"Literal[{', '.join(literal_description(item) for item in values)}]"
     if isinstance(schema, AliasSchema):
         return schema.name
+    if isinstance(schema, NamedReferenceSchema):
+        return schema.identity.name
     if isinstance(schema, ConstrainedSchema):
         descriptions = ", ".join(constraint_label(item) for item in schema.constraints)
         return f"Annotated[{describe_schema(schema.schema)}, {descriptions}]"
@@ -150,6 +153,8 @@ def schema_order_key(schema: Schema) -> tuple[int, str]:
     if isinstance(schema, AliasSchema):
         base_order, _ = schema_order_key(schema.schema)
         return base_order, f"{schema.module}.{schema.name}"
+    if isinstance(schema, NamedReferenceSchema):
+        return 7, f"{schema.identity.module}.{schema.identity.name}"
     if isinstance(schema, (TypeSchema, EnumSchema, LiteralSchema)):
         return 6, describe_schema(schema)
     if isinstance(schema, SpecReferenceSchema):

@@ -79,6 +79,30 @@ assert_type(
 )
 
 
+type RecursiveValue = int | list[RecursiveValue]
+
+
+class RecursivePayload(TypedDict):
+    value: int
+    children: list[RecursivePayload]
+
+
+class RecursiveDocument(Spec):
+    root: RecursiveValue
+
+
+type RecursiveTree[T] = T | list[RecursiveTree[T]]
+
+recursive_value: Contract[RecursiveValue] = Contract(RecursiveValue)
+recursive_payload: Contract[RecursivePayload] = Contract(RecursivePayload)
+recursive_tree: Contract[RecursiveTree[int]] = Contract(RecursiveTree[int])
+
+assert_type(recursive_value.validate([1, [2]]), int | list[RecursiveValue])
+assert_type(recursive_payload.validate({"value": 1, "children": []}), RecursivePayload)
+assert_type(recursive_tree.validate([1, [2]]), int | list[RecursiveTree[int]])
+assert_type(RecursiveDocument(root=[1, [2]]).root, int | list[RecursiveValue])
+
+
 class MetadataPayload(Spec):
     secret: Annotated[
         str,

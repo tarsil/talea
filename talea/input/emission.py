@@ -14,11 +14,12 @@ from ipaddress import (
 )
 from math import isfinite
 from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
-from typing import Literal, assert_never
+from typing import assert_never
 from uuid import UUID
 
 from talea.codegen import _GeneratedNames
 from talea.errors import ErrorCode
+from talea.input.references import InputMode, _NamedInputReference
 from talea.json.representations import decode_bytes, encode_bytes, parse_timedelta
 from talea.schema.nodes import (
     AliasSchema,
@@ -27,6 +28,7 @@ from talea.schema.nodes import (
     FixedTupleSchema,
     LiteralSchema,
     MappingSchema,
+    NamedReferenceSchema,
     PrimitiveSchema,
     Schema,
     SequenceSchema,
@@ -41,8 +43,6 @@ from talea.tagged.dispatch import nominal_member
 from talea.tagged.validation import _TaggedValidationEmission
 from talea.validation.emission import _ValidationEmitter
 from talea.validation.failure_contracts import describe_schema, schema_order_key
-
-type InputMode = Literal["mapping", "json"]
 
 _JSON_STRING_TYPES = frozenset(
     {
@@ -74,6 +74,8 @@ def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
         return schema_needs_conversion(schema.schema, mode)
     if isinstance(schema, AliasSchema):
         return schema_needs_conversion(schema.schema, mode)
+    if isinstance(schema, NamedReferenceSchema):
+        return True
     if isinstance(schema, SpecReferenceSchema):
         return True
     if isinstance(schema, PrimitiveSchema):
@@ -110,6 +112,8 @@ def schema_may_construct_spec(schema: Schema) -> bool:
         return schema_may_construct_spec(schema.schema)
     if isinstance(schema, AliasSchema):
         return schema_may_construct_spec(schema.schema)
+    if isinstance(schema, NamedReferenceSchema):
+        return True
     if isinstance(schema, SpecReferenceSchema):
         artifacts = vars(schema.spec_type)["__talea_artifacts__"]
         return not artifacts.schema.instances_are_permanently_trusted
@@ -208,6 +212,36 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             sensitive=self.sensitive,
         )
 
+    def emit_named_reference(
+        self,
+        schema: NamedReferenceSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Call a finalized schema-specialized boundary across one back-edge."""
+
+        operation = self.bind(
+            "named_input",
+            _NamedInputReference(
+                schema,
+                self.mode,
+                schema.identity.name,
+                self.sensitive,
+            ),
+        )
+        error = self.variable("named_input_error")
+        prefixed = self.variable("prefixed_error")
+        self.emit(indentation, "try:")
+        self.emit(indentation + 1, f"{value} = {operation}({value})")
+        self.emit(indentation, f"except {self.validation_error_name} as {error}:")
+        self.emit(
+            indentation + 1,
+            f"{prefixed} = {error}.prefixed({self.location_expression(location)}"
+            f"{self.title_argument()}{self.sensitive_argument()})",
+        )
+        self.emit(indentation + 1, f"raise {prefixed} from {prefixed}.__cause__")
+
     def _emit_boundary_schema(
         self,
         schema: Schema,
@@ -220,19 +254,34 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         if self._validating:
             super().emit_schema(schema, value, location, indentation)
             return
-        base = schema.schema if isinstance(schema, ConstrainedSchema) else schema
+        base = schema
+        named_sensitive = False
+        while isinstance(base, (ConstrainedSchema, AliasSchema)):
+            if isinstance(base, AliasSchema):
+                named_sensitive = named_sensitive or bool(base.metadata.sensitive)
+            base = base.schema
         if isinstance(base, TaggedUnionSchema):
-            self.emit_boundary_tagged_union(base, value, location, indentation)
+            previous = self.sensitive
+            self.sensitive = previous or named_sensitive
+            try:
+                self.emit_boundary_tagged_union(base, value, location, indentation)
+            finally:
+                self.sensitive = previous
             return
         if isinstance(base, UnionSchema):
-            if schema_needs_conversion(base, self.mode):
-                self.emit_boundary_union(base, value, location, indentation)
-                return
-            self._validating = True
+            previous = self.sensitive
+            self.sensitive = previous or named_sensitive
             try:
-                super().emit_schema(schema, value, location, indentation)
+                if schema_needs_conversion(base, self.mode):
+                    self.emit_boundary_union(base, value, location, indentation)
+                    return
+                self._validating = True
+                try:
+                    super().emit_schema(schema, value, location, indentation)
+                finally:
+                    self._validating = False
             finally:
-                self._validating = False
+                self.sensitive = previous
             return
         self.emit_conversion(base, value, location, indentation)
         self._validating = True
@@ -279,6 +328,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                 indentation,
                 sensitive=bool(schema.metadata.sensitive),
             )
+        elif isinstance(schema, NamedReferenceSchema):
+            return
         elif isinstance(schema, SpecReferenceSchema):
             self.emit_spec_conversion(schema, value, location, indentation)
         elif isinstance(schema, PrimitiveSchema):
@@ -702,6 +753,9 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             self.emit(indentation + 1, "try:")
             self.emit_schema(option, candidate, location, indentation + 2)
             self.emit(indentation + 1, f"except {self.validation_error_name} as {error}:")
+            cycle = self.runtime("error_code_cycle", ErrorCode.CYCLE)
+            self.emit(indentation + 2, f"if {error}.code == {cycle}:")
+            self.emit(indentation + 3, f"raise {error}")
             self.emit(indentation + 2, f"if {best} is None:")
             self.emit(indentation + 3, f"{best} = {error}")
             self.emit(indentation + 3, f"{best_label} = {label}")
@@ -722,6 +776,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             return self.boundary_condition(schema.schema, value)
         if isinstance(schema, AliasSchema):
             return self.boundary_condition(schema.schema, value)
+        if isinstance(schema, NamedReferenceSchema):
+            return "True"
         if self.mode == "mapping":
             if isinstance(schema, SpecReferenceSchema):
                 return (

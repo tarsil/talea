@@ -19,6 +19,7 @@ from talea.schema.nodes import (
     FixedTupleSchema,
     LiteralSchema,
     MappingSchema,
+    NamedReferenceSchema,
     PrimitiveSchema,
     Schema,
     SequenceSchema,
@@ -118,31 +119,38 @@ class _SpecDeclaration:
         return _reaches_spec(self.owner, self.owner, set(), root=True)
 
 
-def _referenced_specs(schema: Schema) -> tuple[type[object], ...]:
+def _referenced_specs(
+    schema: Schema,
+    visiting: frozenset[object] = frozenset(),
+) -> tuple[type[object], ...]:
     """Return canonical Spec targets reachable from one field schema."""
 
     if isinstance(schema, (PrimitiveSchema, TypeSchema, EnumSchema, LiteralSchema)):
         return ()
     if isinstance(schema, ConstrainedSchema):
-        return _referenced_specs(schema.schema)
+        return _referenced_specs(schema.schema, visiting)
     if isinstance(schema, AliasSchema):
-        return _referenced_specs(schema.schema)
+        return _referenced_specs(schema.schema, visiting)
+    if isinstance(schema, NamedReferenceSchema):
+        if schema.identity in visiting:
+            return ()
+        return _referenced_specs(schema.target, visiting | {schema.identity})
     if isinstance(schema, SpecReferenceSchema):
         return (schema.spec_type,)
     if isinstance(schema, SequenceSchema):
-        return _referenced_specs(schema.item)
+        return _referenced_specs(schema.item, visiting)
     if isinstance(schema, MappingSchema):
-        return (*_referenced_specs(schema.key), *_referenced_specs(schema.value))
+        return (*_referenced_specs(schema.key, visiting), *_referenced_specs(schema.value, visiting))
     if isinstance(schema, TypedDictSchema):
-        return tuple(target for field in schema.fields for target in _referenced_specs(field.schema))
+        return tuple(target for field in schema.fields for target in _referenced_specs(field.schema, visiting))
     if isinstance(schema, TaggedUnionSchema):
-        return tuple(target for branch in schema.branches for target in _referenced_specs(branch.schema))
+        return tuple(target for branch in schema.branches for target in _referenced_specs(branch.schema, visiting))
     if isinstance(schema, VariadicTupleSchema):
-        return _referenced_specs(schema.item)
+        return _referenced_specs(schema.item, visiting)
     if isinstance(schema, FixedTupleSchema):
-        return tuple(target for item in schema.items for target in _referenced_specs(item))
+        return tuple(target for item in schema.items for target in _referenced_specs(item, visiting))
     assert isinstance(schema, UnionSchema)
-    return tuple(target for option in schema.options for target in _referenced_specs(option))
+    return tuple(target for option in schema.options for target in _referenced_specs(option, visiting))
 
 
 def _reaches_spec(

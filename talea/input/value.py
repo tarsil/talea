@@ -4,7 +4,13 @@ from collections.abc import Callable
 from typing import cast
 
 from talea.codegen import _GeneratedNames
-from talea.input.emission import InputMode, _BoundaryValidationEmitter, schema_may_construct_spec
+from talea.declaration.policies import schema_contains_named_reference
+from talea.input.emission import (
+    InputMode,
+    _BoundaryValidationEmitter,
+    schema_may_construct_spec,
+)
+from talea.input.references import wrap_named_input_root
 from talea.schema.nodes import Schema
 
 type ValueInput = Callable[[object], object]
@@ -41,4 +47,7 @@ def compile_value_input(
     emitter.emit_schema(schema, "value", (), 1, sensitive=sensitive)
     emitter.emit(1, "return value")
     exec(compile("\n".join(lines), f"<talea {mode} value input>", "exec"), namespace)
-    return cast(ValueInput, namespace["convert"])
+    compiled = cast(ValueInput, namespace["convert"])
+    if schema_contains_named_reference(schema):
+        return wrap_named_input_root(compiled, title, sensitive)
+    return compiled
