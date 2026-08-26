@@ -17,6 +17,7 @@ from functools import partial
 from statistics import median
 from time import perf_counter_ns
 from timeit import Timer
+from types import MethodType
 from typing import Annotated, cast
 from uuid import UUID
 
@@ -190,9 +191,21 @@ def benchmark_python_projection() -> None:
         spec = make_spec(count)
         instance = spec(**values(count))
         hand = make_hand_serializer(count)
+        instance.to_dict()
+        projector = cast(
+            Callable[[object], dict[str, object]],
+            instance.__talea_artifacts__.outputs.python_alias,
+        )
         print_measurement(f"to_dict {count} fields", "talea", measure(instance.to_dict))
-        print_measurement(f"to_dict {count} fields", "handwritten", measure(partial(hand, instance)))
+        print_measurement(
+            f"to_dict {count} fields",
+            "direct projector",
+            measure(MethodType(projector, instance)),
+        )
+        print_measurement(f"to_dict {count} fields", "handwritten", measure(MethodType(hand, instance)))
 
+    for instance in (NESTED, CONTAINER, STANDARD, INHERITED, HOOKED, ALIASED):
+        instance.to_dict()
     cases: tuple[tuple[str, Operation], ...] = (
         ("nested Spec", NESTED.to_dict),
         ("list/container", CONTAINER.to_dict),
@@ -200,7 +213,8 @@ def benchmark_python_projection() -> None:
         ("inherited Spec", INHERITED.to_dict),
         ("serialization hook", HOOKED.to_dict),
         ("alias", ALIASED.to_dict),
-        ("include/exclude", partial(INHERITED.to_dict, include={"identifier", "active"})),
+        ("include", partial(INHERITED.to_dict, include={"identifier", "active"})),
+        ("exclude", partial(INHERITED.to_dict, exclude={"name"})),
         ("exclude_none", partial(INHERITED.to_dict, exclude_none=True)),
     )
     for name, operation in cases:
@@ -252,12 +266,23 @@ def benchmark_costs() -> None:
     print(f"Output first use ({_FIRST_USE_SAMPLES:,} fresh five-field declarations)")
     print_measurement("first to_dict", "compile + execute", measure_first_use("python"))
     print_measurement("first to_json", "compile + execute", measure_first_use("json"))
+    warm_type = make_spec(5)
+    warm = warm_type(**values(5))
+    warm.to_dict()
+    warm.to_json()
+    print_measurement("warm to_dict", "retained", measure(warm.to_dict))
+    print_measurement("warm to_json", "retained", measure(warm.to_json))
 
     print(f"Output allocations ({_ALLOCATION_SAMPLES:,} warmed operations)")
+    allocation_python = make_spec(5)(**values(5))
+    allocation_json = make_spec(5)(**values(5))
+    allocation_python.to_dict()
+    NESTED.to_dict()
+    allocation_json.to_json()
     for name, operation in (
-        ("five-field to_dict", make_spec(5)(**values(5)).to_dict),
+        ("five-field to_dict", allocation_python.to_dict),
         ("nested to_dict", NESTED.to_dict),
-        ("five-field to_json", make_spec(5)(**values(5)).to_json),
+        ("five-field to_json", allocation_json.to_json),
     ):
         result = measure_allocations(operation)
         print(f"{name:34} retained={result.retained:5} B peak={result.peak:5} B")

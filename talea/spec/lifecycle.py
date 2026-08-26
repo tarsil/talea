@@ -133,6 +133,7 @@ class _SpecMeta(type):
         validate_callback_markers(namespace, _HOOK_MARKER)
         declared_hooks = metaclass._inspect_hooks(namespace, field_names)
         declared_serializers = inspect_serializers(namespace, field_names)
+        declares_to_dict = "to_dict" in namespace
         declared_hook_names = frozenset(hook.name for hook in declared_hooks)
         declared_serializer_names = frozenset(serializer.name for serializer in declared_serializers)
         inherited_schemas = tuple(cast(_SpecArtifacts, vars(base)["__talea_artifacts__"]).schema for base in spec_bases)
@@ -203,6 +204,10 @@ class _SpecMeta(type):
             "__talea_artifacts__",
             _SpecArtifacts(schema, validators, _InputArtifacts(slot_setters), _OutputArtifacts()),
         )
+        if not declares_to_dict:
+            to_dict_owner = next(base for base in cls.__mro__[1:] if "to_dict" in vars(base))
+            if isinstance(to_dict_owner, _SpecMeta):
+                type.__setattr__(cls, "to_dict", _to_dict)
         return cls
 
     @staticmethod

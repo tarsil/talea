@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
+from inspect import signature
 from ipaddress import IPv4Address, IPv4Interface, IPv4Network, IPv6Address
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from threading import Barrier, Lock
@@ -644,6 +645,7 @@ def test_lazy_serializers_compile_independently_once_under_concurrent_first_use(
     calls: list[tuple[str, bool, bool]] = []
     lock = Lock()
     original = output_module.compile_serialization
+    original_plain = output_module.compile_plain_to_dict
 
     def counted(
         schema: SpecSchema,
@@ -655,7 +657,13 @@ def test_lazy_serializers_compile_independently_once_under_concurrent_first_use(
             calls.append((mode, by_alias, filtered))
         return original(schema, mode, by_alias, filtered)  # type: ignore[arg-type]
 
+    def counted_plain(schema: SpecSchema, fallback: object) -> object:
+        with lock:
+            calls.append(("python", True, False))
+        return original_plain(schema, fallback)  # type: ignore[arg-type]
+
     monkeypatch.setattr(output_module, "compile_serialization", counted)
+    monkeypatch.setattr(output_module, "compile_plain_to_dict", counted_plain)
     workers = 8
     barrier = Barrier(workers)
 
@@ -671,6 +679,37 @@ def test_lazy_serializers_compile_independently_once_under_concurrent_first_use(
     assert artifacts.outputs.json_alias is None
     assert Payload(value=9).to_json() == '{"value":9}'
     assert calls == [("python", True, False), ("json", True, False)]
+
+
+def test_plain_serializer_publication_preserves_options_subclasses_and_overrides() -> None:
+    class Parent(Spec):
+        first: int
+
+    fallback = vars(Parent)["to_dict"]
+    parent = Parent(first=1)
+    assert parent.to_dict() == {"first": 1}
+
+    installed = vars(Parent)["to_dict"]
+    artifacts = vars(Parent)["__talea_artifacts__"]
+    assert installed is artifacts.outputs.python_alias
+    assert installed is not fallback
+    assert signature(installed) == signature(fallback)
+    assert parent.to_dict(include={"first"}) == {"first": 1}
+    assert parent.to_dict(by_alias=True) == {"first": 1}
+
+    class Child(Parent):
+        second: int
+
+    assert vars(Child)["to_dict"] is fallback
+    assert Child(first=1, second=2).to_dict() == {"first": 1, "second": 2}
+
+    class Custom(Spec):
+        value: int
+
+        def to_dict(self) -> dict[str, object]:
+            return {"custom": self.value}
+
+    assert Custom(value=3).to_dict() == {"custom": 3}
 
 
 def test_mapping_key_policies_reject_non_roundtrippable_projection_without_aliasing() -> None:

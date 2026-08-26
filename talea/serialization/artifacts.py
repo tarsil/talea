@@ -1,13 +1,16 @@
 """Own lazy class-level publication of compiled outbound functions."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from threading import RLock
+from types import FunctionType
 from typing import cast
 
 from talea.declaration.models import SpecSchema
 from talea.serialization.compilation import (
     FilteredSpecSerializer,
     SpecSerializer,
+    compile_plain_to_dict,
     compile_serialization,
 )
 from talea.serialization.emission import OutputMode
@@ -22,6 +25,23 @@ class _OutputArtifacts:
     python_alias: SpecSerializer | None = None
     json_alias: SpecSerializer | None = None
     variants: dict[tuple[OutputMode, bool, bool], SpecSerializer | FilteredSpecSerializer] | None = None
+
+    def public_python_for(
+        self,
+        schema: SpecSchema,
+        fallback: Callable[..., dict[str, object]],
+    ) -> FunctionType:
+        """Return the public plain serializer, compiling and publishing it once."""
+
+        compiled = self.python_alias
+        if compiled is not None and getattr(compiled, "__wrapped__", None) is fallback:
+            return cast(FunctionType, compiled)
+        with _OUTPUT_COMPILATION_LOCK:
+            compiled = self.python_alias
+            if compiled is None or getattr(compiled, "__wrapped__", None) is not fallback:
+                compiled = compile_plain_to_dict(schema, fallback)
+                self.python_alias = compiled
+        return cast(FunctionType, compiled)
 
     def output_for(
         self,

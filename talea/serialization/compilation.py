@@ -25,13 +25,23 @@ class _SerializationCompiler:
         self.by_alias = by_alias
         self.filtered = filtered
 
-    def compile(self, schema: SpecSchema) -> FunctionType:
+    def compile(
+        self,
+        schema: SpecSchema,
+        to_dict_fallback: Callable[..., dict[str, object]] | None = None,
+    ) -> FunctionType:
         """Return one direct field-reading serializer for ``schema``."""
 
         names = _GeneratedNames(("instance", "include", "exclude", "exclude_none"))
         namespace: dict[str, object] = {"__name__": __name__}
-        parameters = "instance, include, exclude, exclude_none" if self.filtered else "instance"
+        if to_dict_fallback is not None:
+            parameters = "instance, **options"
+        else:
+            parameters = "instance, include, exclude, exclude_none" if self.filtered else "instance"
         lines = [f"def serialize({parameters}):"]
+        if to_dict_fallback is not None:
+            fallback = self._bind(names, namespace, "to_dict_fallback", to_dict_fallback)
+            lines.extend(("    if options:", f"        return {fallback}(instance, **options)"))
         hook_by_field = {hook.field: hook for hook in schema.serializers}
         compiler = _ValueProjectionCompiler(self.mode, self.by_alias)
         if not self.filtered:
@@ -72,7 +82,12 @@ class _SerializationCompiler:
             lines.append("    return result")
         exec(compile("\n".join(lines), f"<talea {self.mode} Spec serialization>", "exec"), namespace)
         function = cast(FunctionType, namespace["serialize"])
-        function.__doc__ = f"Project one Spec to its compiled {self.mode} representation."
+        if to_dict_fallback is None:
+            function.__doc__ = f"Project one Spec to its compiled {self.mode} representation."
+        else:
+            function.__doc__ = to_dict_fallback.__doc__
+            function.__annotations__ = to_dict_fallback.__annotations__
+            function.__dict__["__wrapped__"] = to_dict_fallback
         return function
 
     @staticmethod
@@ -91,3 +106,12 @@ def compile_serialization(
     """Compile one lazy outbound artifact without altering input or construction."""
 
     return _SerializationCompiler(mode, by_alias, filtered).compile(schema)
+
+
+def compile_plain_to_dict(
+    schema: SpecSchema,
+    fallback: Callable[..., dict[str, object]],
+) -> FunctionType:
+    """Compile the public no-option Python path with generic option fallback."""
+
+    return _SerializationCompiler("python", True, False).compile(schema, fallback)

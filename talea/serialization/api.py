@@ -84,7 +84,14 @@ def to_dict(
     artifacts = self.__talea_artifacts__
     if include is None and exclude is None and exclude_none is False:
         if by_alias is True:
-            plain = artifacts.outputs.python_alias
+            plain = artifacts.outputs.public_python_for(artifacts.schema, to_dict)
+            owner = type(self)
+            if vars(owner).get("to_dict") is to_dict:
+                plain.__name__ = "to_dict"
+                plain.__qualname__ = f"{owner.__qualname__}.to_dict"
+                plain.__module__ = owner.__module__
+                type.__setattr__(owner, "to_dict", plain)
+            return plain(self)
         elif by_alias is False:
             plain = cast(
                 SpecSerializer,
@@ -92,11 +99,6 @@ def to_dict(
             )
         else:
             raise TypeError("by_alias and exclude_none must be bool values")
-        if plain is None:
-            plain = cast(
-                SpecSerializer,
-                artifacts.outputs.output_for(artifacts.schema, "python", by_alias, False),
-            )
         return plain(self)
     if type(by_alias) is not bool or type(exclude_none) is not bool:
         raise TypeError("by_alias and exclude_none must be bool values")
