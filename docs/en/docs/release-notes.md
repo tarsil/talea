@@ -4,6 +4,21 @@
 
 ### Added
 
+- Retained `Contract[T]` validation, external Python conversion, JSON input,
+  Python projection, and JSON output for arbitrary supported roots without
+  wrapper Specs.
+- First-class TypedDict, PEP 695 type-alias, generic alias, and `NewType`
+  canonical schema support with strict structural input/output semantics.
+- `create_spec()` for normal dynamically declared Spec subclasses with explicit
+  fields, defaults, factories, identity, inheritance, and trusted namespace
+  contributions.
+- Immutable public `FieldInfo`, `SpecInfo`, and `ContractInfo` views in
+  `talea.introspection`.
+- Python-native immutable reconstruction through `copy.replace`, including
+  changed-value validation, mutable current-state checks, and whole-Spec
+  invariants.
+- Dedicated Contract, dynamic Spec, replacement, introspection, cold/warm,
+  memory, and retained-owner benchmarks.
 - Python 3.14 generic Specs with concrete weakly cached specializations,
   bounds, constraints, parameter defaults, nested generic composition, generic
   inheritance, and recursive generic schemas.

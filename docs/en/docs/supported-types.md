@@ -48,6 +48,8 @@ contract for JSON strings. Talea provides no global coercion policy. See
 | `Decimal` | `Decimal` instances and subclasses | Integers, floats, and strings are rejected |
 | `PurePath` and `Path` families | Nominal Python path relationships | Strings are rejected; concrete availability remains platform-specific |
 | IPv4/IPv6 addresses, networks, and interfaces | Exact declared IP class | Versions and address/network/interface families never cross-match |
+| `TypedDict` | Exact `dict` for strict validation; `Mapping` at external input | Required/optional keys and unknown-key rejection follow structural declaration truth |
+| PEP 695 `type` aliases and `NewType` | Underlying supported contract | Named identity is retained without runtime alias dispatch |
 
 `date` is intentionally exact because Python defines `datetime` as a subclass
 of `date`. A field described as a calendar day should not silently accept a
@@ -117,3 +119,10 @@ These rows describe already-Python construction. JSON input and output have
 schema-specific representations, including exact Decimal strings, ISO duration
 strings, and base64 bytes. See [Input boundaries](input-boundaries.md) and
 [Serialization and JSON output](serialization.md).
+
+`TypedDict` supports `total=False`, `Required`, `NotRequired`, inheritance,
+nested declarations, containers, unions, constraints on child fields, and
+concrete generic specialization. `ReadOnly` metadata is retained but has no
+runtime mutation semantics. Recursive type aliases and recursive TypedDict
+graphs currently fail explicitly because Talea has not yet introduced a finite
+canonical alias-reference node. See [Arbitrary contracts](contracts.md).

@@ -42,3 +42,7 @@ conversion, and per-call decoder selection. [Serialization and JSON output](seri
 covers compiled Python projection and strict JSON encoding. [Forward references,
 recursion, and generics](recursive-generics.md) covers deferred graph finalization,
 cycle behavior, Python 3.14 type parameters, and concrete specialization.
+[Arbitrary contracts](contracts.md) covers retained validation and serialization
+for roots such as `list[User]`, aliases, and `TypedDict` without wrapper Specs.
+[Dynamic Specs, introspection, and replacement](dynamic-utilities.md) covers
+`create_spec`, stable framework metadata, and `copy.replace`.
