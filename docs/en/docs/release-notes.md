@@ -4,6 +4,12 @@
 
 ### Added
 
+- Canonical immutable field, Spec, Contract, TypedDict, and type-alias metadata
+  for title, description, examples, deprecation, read-only, write-only, and
+  sensitive classification.
+- Sensitive validation and serialization failure policy with default redaction,
+  raw-value discard, cause removal, nested path propagation, immutable public
+  introspection, adversarial tests, and dedicated benchmarks.
 - Retained `Contract[T]` validation, external Python conversion, JSON input,
   Python projection, and JSON output for arbitrary supported roots without
   wrapper Specs.

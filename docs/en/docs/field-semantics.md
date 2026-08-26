@@ -94,7 +94,9 @@ is intentionally not implemented now.
 ## Canonical ownership
 
 The immutable ordered `SpecSchema` owns each field's name, resolved schema,
-required, static-default, or factory state, effective custom-hook order, and the
-derived permanent-trust classification. Generated constructors and future
-projections consume that retained declaration truth. Instances contain only
-their field values and never reconstruct lifecycle semantics from annotations.
+required, static-default, or factory state, canonical declaration metadata,
+effective custom-hook order, and the derived permanent-trust classification.
+Generated constructors and future projections consume that retained truth.
+Instances contain only their field values and never reconstruct lifecycle or
+metadata semantics from annotations. See [Metadata and sensitive
+fields](metadata-security.md).

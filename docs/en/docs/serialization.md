@@ -1,5 +1,10 @@
 # Serialization and JSON output
 
+`Sensitive()` does not omit a field from successful output, and `WriteOnly()`
+is classification rather than core serialization policy. Sensitive
+serialization-hook and codec failures drop callback causes and retain only safe
+locations. See [Metadata and sensitive fields](metadata-security.md).
+
 Talea has two outbound operations with deliberately different representations:
 
 | API | Representation owner | Result |

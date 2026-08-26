@@ -162,6 +162,8 @@ Campaign 7's `CustomValidationError` remains a compatibility subtype in
 Callback exception text is not the machine-readable message contract. The
 original `ValueError` is retained as `exc.__cause__` for deliberate debugging;
 normal rendering does not incorporate its arbitrary message text.
+For a `Sensitive()` target, Talea drops the cause because the callback may have
+embedded the secret in its message or attributes.
 
 ## Default factories
 
@@ -181,15 +183,15 @@ the validation exception. Repeated `str(error)` and `errors()` calls use the
 captured failure detail and remain stable.
 
 Simple JSON scalars remain scalars in `errors()`. Other inputs become bounded
-text rather than recursive object projections. The exact rejected Python object
-remains available through `exc.value` for deliberate local debugging, but it is
-not inserted raw into the framework projection.
+text rather than recursive object projections. For ordinary fields the exact
+rejected Python object remains available through `exc.value` for deliberate
+local debugging, but it is not inserted raw into the framework projection.
 
-Talea does not yet have field sensitivity metadata. Current safe representation
-limits size and execution hazards; it is not a secret-redaction policy. Do not
-log validation errors for secret-bearing fields without an application-level
-redaction policy. The one centralized input-snapshot boundary is the future
-integration point for field-aware redaction.
+Fields and Contracts declared with `Sensitive()` use a stricter policy:
+rendering and projection contain `<redacted>`, `exc.value` is redacted, the raw
+object is not retained, value-derived location members are redacted, and
+callback causes are dropped. See [Metadata and sensitive
+fields](metadata-security.md).
 
 ## Fail-fast policy
 

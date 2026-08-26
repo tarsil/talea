@@ -11,7 +11,7 @@ mapping contains evaluated annotations; defaults and factories use separate
 unambiguous mappings.
 
 ```python
-from talea import create_spec
+from talea import Title, create_spec
 
 
 ConfiguredEvent = create_spec(
@@ -25,6 +25,7 @@ ConfiguredEvent = create_spec(
     factories={"labels": list},
     module="application.contracts",
     doc="Event contract generated from application-owned configuration.",
+    metadata=(Title("Configured event"),),
 )
 
 event = ConfiguredEvent(event_id="evt-1")
@@ -130,11 +131,12 @@ for field in info.fields:
 ```
 
 `FieldInfo` reports the effective name, annotation, canonical schema, required
-state, static default/factory, alias, and Talea constraints. `SpecInfo` reports
-fields, generic parameters/origin/arguments, recursion and permanent-trust
+state, static default/factory, alias, Talea constraints, and normalized field
+metadata. `SpecInfo` reports fields, Spec title/description/examples/deprecation,
+generic parameters/origin/arguments, recursion and permanent-trust
 classification, hook and serializer names, and supported operation names.
 `inspect_contract()` returns `ContractInfo` with the original annotation,
-canonical schema, and operations.
+canonical schema, metadata, and operations.
 
 Description dataclasses, tuples, and canonical schema nodes are frozen.
 Compiler source, validators, generated globals, locks, and mutable lifecycle
@@ -214,4 +216,3 @@ All-fields-optional/PATCH derivation and callable validation are intentionally
 not approximated by these APIs. Presence state, cross-field hook policy, and
 Python signature binding need dedicated owners; see the
 [release ledger](release-ledger.md).
-

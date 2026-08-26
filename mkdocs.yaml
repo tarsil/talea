@@ -47,6 +47,7 @@ nav:
   - Field semantics: "field-semantics.md"
   - Supported types: "supported-types.md"
   - Constraints: "constraints.md"
+  - Metadata and sensitive fields: "metadata-security.md"
   - Custom validation: "custom-validation.md"
   - Input boundaries: "input-boundaries.md"
   - Serialization and JSON output: "serialization.md"

@@ -10,7 +10,8 @@ future owner; it is not a claim that the feature exists.
 | Callable argument and return validation | Deferred | **Callable Signature Contracts**: own signature binding, defaults, positional/keyword rules, variadics, descriptors, async behavior, return validation, exception policy, typing preservation, and wrapper cost using Contract as a leaf consumer. |
 | Detached callable-contract objects | Rejected pending a distinct use case | The Callable Signature Contracts owner should expose one decorator vocabulary; a second overlapping object API has no demonstrated value. |
 | Tagged/discriminated unions | Different owner | **Tagged Union Schema and Emission**: add canonical discriminator metadata, specialized validation/input/output emission, and later JSON Schema projection. Do not dispatch outside Schema truth. |
-| Field title, description, examples, deprecated, read-only, and write-only metadata | Different owner | **Campaign 13 Canonical Metadata and JSON Schema Projection**. Runtime introspection must consume the same truth after it exists. |
+| JSON Schema and OpenAPI projection | Deferred | **Schema Projection** consumes Campaign 13 canonical metadata, aliases, constraints, recursive identity, and future discriminator truth without re-reading annotations. |
+| Read/write enforcement and derived contracts | Deferred | **Presence and Derived Spec Contracts** defines input rejection, output omission, defaults, aliases, hooks, and derived-contract behavior. Campaign 13 retains canonical read/write classification only. |
 | Recursive PEP 695 aliases and recursive TypedDict | Deferred | **Recursive Alias Graph**: introduce finite canonical named-reference nodes and cycle-aware input/output emission. Current resolution rejects cycles explicitly. |
 | Dataclass, NamedTuple, and ordinary-class conversion | Deferred | **Structured Class Interoperability**: define construction, trust, attribute access, defaults, inheritance, and serialization without becoming an object mapper. |
 | Settings and environment loading | Different product owner | **Talea Settings integration/package**, outside core validation. It must own source precedence, secrets, environment parsing, and application lifecycle. |
@@ -26,4 +27,3 @@ future owner; it is not a claim that the feature exists.
 | Capability `supports()` predicate | Rejected | Constructing `Contract(annotation)` is the authoritative capability check and returns precise declaration errors. |
 | ORM attribute extraction | Different owner/rejected for core | An ORM integration may explicitly own lazy access and error policy; core will not silently read arbitrary attributes. |
 | Settings registries and application-global Contract registries | Rejected for core | Ownership belongs to applications; core retains no global mutable registry. |
-
