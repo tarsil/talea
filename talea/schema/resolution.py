@@ -125,7 +125,7 @@ def resolve_annotation(annotation: object) -> Schema:
             return TypeSchema(cast(type[object], annotation), "exact")
         if annotation in _NOMINAL_STANDARD_TYPES:
             return TypeSchema(cast(type[object], annotation), "nominal")
-        if getattr(annotation, "__talea_spec__", False) is True and "__talea_artifacts__" in vars(annotation):
+        if getattr(annotation, "__talea_spec__", False) is True and "__talea_declaration__" in vars(annotation):
             return SpecReferenceSchema(annotation)
 
     origin = get_origin(annotation)

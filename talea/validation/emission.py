@@ -8,6 +8,7 @@ successful validation creates no error metadata.
 """
 
 from collections.abc import Iterable
+from contextvars import ContextVar
 from decimal import Decimal
 from math import isclose, isfinite, remainder
 from typing import assert_never, cast
@@ -48,6 +49,41 @@ def _identity_index(sequence: list[object] | tuple[object, ...], item: object) -
         if candidate is item:
             return index
     raise RuntimeError("validated sequence changed during validation")
+
+
+_RECURSIVE_VALIDATION: ContextVar[set[int] | None] = ContextVar(
+    "talea_recursive_validation",
+    default=None,
+)
+
+
+class _RecursiveSpecValidator:
+    """Call a finalized current-state artifact across one recursive graph edge."""
+
+    __slots__ = ("spec_type",)
+
+    def __init__(self, spec_type: type[object]) -> None:
+        self.spec_type = spec_type
+
+    def __call__(self, value: object) -> object:
+        active = _RECURSIVE_VALIDATION.get()
+        token = None
+        if active is None:
+            active = set()
+            token = _RECURSIVE_VALIDATION.set(active)
+        identity = id(value)
+        if identity in active:
+            return value
+        active.add(identity)
+        try:
+            artifacts = vars(self.spec_type)["__talea_artifacts__"]
+            validator = artifacts.current_validator
+            assert validator is not None
+            return validator(value)
+        finally:
+            active.remove(identity)
+            if token is not None:
+                _RECURSIVE_VALIDATION.reset(token)
 
 
 class _GeneratedNames:
@@ -155,7 +191,24 @@ class _ValidationEmitter:
         expected_type = self.bind("spec_type", schema.spec_type)
         self.emit(indentation, f"if not {instance_check}({value}, {expected_type}):")
         self.emit_failure(schema, value, location, indentation + 1)
-        artifacts = vars(schema.spec_type)["__talea_artifacts__"]
+        target_namespace = vars(schema.spec_type)
+        artifacts = target_namespace.get("__talea_artifacts__")
+        target_identity = target_namespace["__talea_declaration__"]
+        if artifacts is None or target_identity.is_recursive():
+            if target_identity.values_are_immutable(frozenset({schema.spec_type})):
+                return
+            validator = self.bind("recursive_validator", _RecursiveSpecValidator(schema.spec_type))
+            error = self.variable("recursive_error")
+            prefixed = self.variable("prefixed_error")
+            self.emit(indentation, "try:")
+            self.emit(indentation + 1, f"{validator}({value})")
+            self.emit(indentation, f"except {self.validation_error_name} as {error}:")
+            self.emit(
+                indentation + 1,
+                f"{prefixed} = {error}.prefixed({self.location_expression(location)}{self.title_argument()})",
+            )
+            self.emit(indentation + 1, f"raise {prefixed} from {prefixed}.__cause__")
+            return
         declaration = cast(SpecSchema, artifacts.schema)
         if declaration.instances_are_permanently_trusted:
             return

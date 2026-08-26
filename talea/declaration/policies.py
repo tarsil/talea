@@ -20,26 +20,28 @@ from talea.schema.nodes import (
 )
 
 
-def schema_values_are_immutable(schema: Schema) -> bool:
+def schema_values_are_immutable(schema: Schema, visiting: frozenset[type[object]] = frozenset()) -> bool:
     """Project whether valid values can change without field reassignment."""
 
     if isinstance(schema, (PrimitiveSchema, TypeSchema, LiteralSchema, EnumSchema)):
         return True
     if isinstance(schema, ConstrainedSchema):
-        return schema_values_are_immutable(schema.schema)
+        return schema_values_are_immutable(schema.schema, visiting)
     if isinstance(schema, SpecReferenceSchema):
-        artifacts = vars(schema.spec_type)["__talea_artifacts__"]
-        return artifacts.schema.instances_are_permanently_trusted
+        declaration = vars(schema.spec_type)["__talea_declaration__"]
+        if schema.spec_type in visiting:
+            return True
+        return declaration.values_are_immutable(visiting | {schema.spec_type})
     if isinstance(schema, SequenceSchema):
-        return schema.kind == "frozenset" and schema_values_are_immutable(schema.item)
+        return schema.kind == "frozenset" and schema_values_are_immutable(schema.item, visiting)
     if isinstance(schema, MappingSchema):
         return False
     if isinstance(schema, VariadicTupleSchema):
-        return schema_values_are_immutable(schema.item)
+        return schema_values_are_immutable(schema.item, visiting)
     if isinstance(schema, FixedTupleSchema):
-        return all(schema_values_are_immutable(item) for item in schema.items)
+        return all(schema_values_are_immutable(item, visiting) for item in schema.items)
     if isinstance(schema, UnionSchema):
-        return all(schema_values_are_immutable(option) for option in schema.options)
+        return all(schema_values_are_immutable(option, visiting) for option in schema.options)
     assert_never(schema)
 
 

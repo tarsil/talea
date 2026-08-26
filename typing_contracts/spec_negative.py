@@ -24,6 +24,13 @@ User.from_json("{}", loads=lambda: {})  # ty: ignore[invalid-argument-type]
 User(id=1).to_dict(include=["id"])  # ty: ignore[invalid-argument-type]
 User(id=1).to_json(dumps=lambda value: 1)  # ty: ignore[invalid-argument-type]
 
+
+class Box[T](Spec):
+    value: T
+
+
+Box[int](value="1")  # ty: ignore[invalid-argument-type]
+
 user = User(id=1)
 user.id = 2  # ty: ignore[invalid-assignment]
 

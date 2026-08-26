@@ -1,7 +1,8 @@
 """Define Talea's compile-once ``Spec`` declaration lifecycle."""
 
 import keyword
-from annotationlib import Format
+from annotationlib import Format, call_annotate_function
+from collections import ChainMap
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from inspect import (
@@ -11,12 +12,18 @@ from inspect import (
     isgeneratorfunction,
     signature,
 )
+from sys import _getframe
 from threading import RLock
 from types import FunctionType, MemberDescriptorType
 from typing import (
     Annotated,
     ClassVar,
+    ParamSpec,
+    Protocol,
     Self,
+    SupportsIndex,
+    TypeVar,
+    TypeVarTuple,
     cast,
     dataclass_transform,
     get_args,
@@ -24,6 +31,7 @@ from typing import (
     get_type_hints,
 )
 from unicodedata import normalize
+from weakref import WeakValueDictionary
 
 from talea.declaration.metadata import Alias
 from talea.declaration.models import (
@@ -32,10 +40,19 @@ from talea.declaration.models import (
     SpecSchema,
     ValidationHook,
 )
-from talea.input.compilation import InputCallable, compile_input
-from talea.input.emission import InputMode
+from talea.input.artifacts import _InputArtifacts
 from talea.input.json import JsonInput, JsonLoads, decode_json
-from talea.schema.resolution import resolve_annotation
+from talea.schema.nodes import (
+    ConstrainedSchema,
+    FixedTupleSchema,
+    MappingSchema,
+    Schema,
+    SequenceSchema,
+    SpecReferenceSchema,
+    UnionSchema,
+    VariadicTupleSchema,
+)
+from talea.schema.resolution import AnnotationResolutionError, resolve_annotation
 from talea.serialization.api import to_dict as _to_dict, to_json as _to_json
 from talea.serialization.artifacts import _OutputArtifacts
 from talea.serialization.declaration import (
@@ -45,44 +62,45 @@ from talea.serialization.declaration import (
 )
 from talea.spec.construction import _ConstructorCompiler
 from talea.spec.fields import _FactoryDeclaration, field
+from talea.spec.generics import (
+    needs_local_namespace,
+    normalize_specialization,
+    retain_referenced_namespace,
+    substitute_annotation,
+    type_argument_name,
+    validate_annotation_strings,
+)
 from talea.spec.hooks import _HOOK_MARKER, _HookMarker
-from talea.validation.compilation import Validator, compile_validator
+from talea.validation.compilation import (
+    Validator,
+    compile_current_state_validator,
+    compile_validator,
+)
 from talea.validation.errors import CustomValidationError, ValidationError
 
 __all__ = ["Spec", "field"]
 
 
-_INPUT_COMPILATION_LOCK = RLock()
+class _Subscriptable(Protocol):
+    """Describe runtime annotation and Spec objects that accept specialization."""
+
+    def __getitem__(self, argument: object, /) -> object: ...
 
 
-@dataclass(slots=True)
-class _InputArtifacts:
-    """Own lazily compiled input functions for one Spec declaration."""
+_DECLARATION_LOCK = RLock()
 
-    slot_setters: tuple[Callable[[object, object], None], ...]
-    mapping_input: InputCallable | None = None
-    json_input: InputCallable | None = None
 
-    def input_for(
-        self,
-        schema: SpecSchema,
-        spec_type: type[object],
-        mode: InputMode,
-    ) -> InputCallable:
-        """Return one boundary, compiling and publishing it atomically on first use."""
+class _UnresolvedReference(AnnotationResolutionError):
+    """Delay a declaration whose Python namespace is not complete yet."""
 
-        compiled = self.mapping_input if mode == "mapping" else self.json_input
-        if compiled is not None:
-            return compiled
-        with _INPUT_COMPILATION_LOCK:
-            compiled = self.mapping_input if mode == "mapping" else self.json_input
-            if compiled is None:
-                compiled = compile_input(schema, spec_type, self.slot_setters, mode)
-                if mode == "mapping":
-                    self.mapping_input = compiled
-                else:
-                    self.json_input = compiled
-        return compiled
+    def __init__(self, owner: type[object], field: str, name: str) -> None:
+        self.owner = owner
+        self.field = field
+        self.name = name
+        TypeError.__init__(
+            self,
+            f"cannot resolve {name!r} for Spec {owner.__module__}.{owner.__qualname__}.{field}",
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,8 +109,278 @@ class _SpecArtifacts:
 
     schema: SpecSchema
     validators: tuple[Validator, ...]
+    current_validator: Validator | None
     inputs: _InputArtifacts
     outputs: _OutputArtifacts
+
+
+@dataclass(slots=True)
+class _SpecDeclaration:
+    """Own one class's resolvable declaration identity before and after finalization."""
+
+    owner: type[object]
+    annotations: Mapping[str, object]
+    declarations: dict[str, object]
+    inherited_schemas: tuple[SpecSchema, ...]
+    declared_hooks: tuple[ValidationHook, ...]
+    declared_serializers: tuple[object, ...]
+    shadowed_hook_names: frozenset[str]
+    shadowed_serializer_names: frozenset[str]
+    declares_to_dict: bool
+    prepared_fields: tuple[SpecField, ...] | None = None
+    finalizing: bool = False
+    type_params: tuple[TypeVar, ...] = ()
+    generic_origin: type[object] | None = None
+    generic_arguments: tuple[object, ...] = ()
+    specializations: WeakValueDictionary[tuple[object, ...], type[object]] | None = None
+    generic_bases: tuple[type[object], ...] = ()
+    local_namespace: Mapping[str, object] | None = None
+    requires_local_namespace: bool = False
+
+    def artifacts(self) -> _SpecArtifacts:
+        """Return the finalized artifacts owned by this declaration."""
+
+        return _ensure_finalized(self.owner)
+
+    def values_are_immutable(self, visiting: frozenset[type[object]]) -> bool:
+        """Return graph-aware trust without requiring an already-published artifact."""
+
+        artifacts = vars(self.owner).get("__talea_artifacts__")
+        if artifacts is not None:
+            return cast(_SpecArtifacts, artifacts).schema.instances_are_permanently_trusted
+        fields = self.prepared_fields
+        assert fields is not None
+        from talea.declaration.policies import schema_values_are_immutable
+
+        return all(schema_values_are_immutable(field.schema, visiting) for field in fields)
+
+    def is_recursive(self) -> bool:
+        """Return whether this declaration participates in its reachable type graph."""
+
+        return _reaches_spec(self.owner, self.owner, set(), root=True)
+
+
+def _referenced_specs(schema: Schema) -> tuple[type[object], ...]:
+    """Return canonical Spec targets reachable from one field schema."""
+
+    if isinstance(schema, ConstrainedSchema):
+        return _referenced_specs(schema.schema)
+    if isinstance(schema, SpecReferenceSchema):
+        return (schema.spec_type,)
+    if isinstance(schema, SequenceSchema):
+        return _referenced_specs(schema.item)
+    if isinstance(schema, MappingSchema):
+        return (*_referenced_specs(schema.key), *_referenced_specs(schema.value))
+    if isinstance(schema, VariadicTupleSchema):
+        return _referenced_specs(schema.item)
+    if isinstance(schema, FixedTupleSchema):
+        return tuple(target for item in schema.items for target in _referenced_specs(item))
+    if isinstance(schema, UnionSchema):
+        return tuple(target for option in schema.options for target in _referenced_specs(option))
+    return ()
+
+
+def _reaches_spec(
+    current: type[object],
+    target: type[object],
+    visited: set[type[object]],
+    *,
+    root: bool = False,
+) -> bool:
+    if current is target and not root:
+        return True
+    if current in visited:
+        return False
+    visited.add(current)
+    declaration = cast(_SpecDeclaration, vars(current)["__talea_declaration__"])
+    assert declaration.prepared_fields is not None
+    return any(
+        _reaches_spec(reference, target, visited)
+        for field in declaration.prepared_fields
+        for reference in _referenced_specs(field.schema)
+    )
+
+
+def _prepare_declaration(cls: type[object]) -> None:
+    """Resolve one declaration's local annotations without compiling artifacts."""
+
+    declaration = cast(_SpecDeclaration, vars(cls)["__talea_declaration__"])
+    if declaration.prepared_fields is not None:
+        return
+    if declaration.requires_local_namespace:
+        for annotation in declaration.annotations.values():
+            validate_annotation_strings(annotation)
+        try:
+            resolved_annotations = get_type_hints(
+                cls,
+                localns=declaration.local_namespace,
+                include_extras=True,
+            )
+        except NameError as error:
+            unresolved = error.name or "unknown"
+            field_name = next(
+                (name for name, annotation in declaration.annotations.items() if unresolved in repr(annotation)),
+                next(iter(declaration.annotations), "<annotation>"),
+            )
+            raise _UnresolvedReference(cls, field_name, unresolved) from None
+    else:
+        resolved_annotations = declaration.annotations
+    fields = []
+    for field_name in declaration.annotations:
+        field_declaration = declaration.declarations.get(field_name, MISSING_DEFAULT)
+        annotation = resolved_annotations[field_name]
+        if declaration.generic_origin is not None:
+            origin_declaration = vars(declaration.generic_origin)["__talea_declaration__"]
+            substitutions = dict(
+                zip(
+                    origin_declaration.type_params,
+                    declaration.generic_arguments,
+                    strict=True,
+                )
+            )
+            annotation = substitute_annotation(annotation, substitutions)
+        resolved = resolve_annotation(annotation)
+        alias = _SpecMeta._field_alias(annotation)
+        if isinstance(field_declaration, _FactoryDeclaration):
+            fields.append(
+                SpecField(
+                    field_name,
+                    resolved,
+                    default_factory=field_declaration.default_factory,
+                    alias=alias,
+                )
+            )
+        else:
+            fields.append(SpecField(field_name, resolved, default=field_declaration, alias=alias))
+    declaration.prepared_fields = tuple(fields)
+
+
+def _prepare_graph(cls: type[object], visiting: set[type[object]]) -> None:
+    """Resolve every declaration in one reachable recursive component once."""
+
+    if cls in visiting or "__talea_artifacts__" in vars(cls):
+        return
+    visiting.add(cls)
+    _prepare_declaration(cls)
+    declaration = cast(_SpecDeclaration, vars(cls)["__talea_declaration__"])
+    assert declaration.prepared_fields is not None
+    for spec_field in declaration.prepared_fields:
+        for target in _referenced_specs(spec_field.schema):
+            _prepare_graph(target, visiting)
+
+
+def _finalize_graph(cls: type[object], recursive: bool | None = None) -> None:
+    """Publish a reachable prepared graph, using compiled indirection at back edges."""
+
+    if "__talea_artifacts__" in vars(cls):
+        return
+    declaration = cast(_SpecDeclaration, vars(cls)["__talea_declaration__"])
+    if declaration.finalizing:
+        return
+    declaration.finalizing = True
+    try:
+        assert declaration.prepared_fields is not None
+        for field in declaration.prepared_fields:
+            for target in _referenced_specs(field.schema):
+                _finalize_graph(target)
+        if recursive is None:
+            recursive = declaration.is_recursive()
+        _publish_declaration(cls, declaration, recursive)
+    finally:
+        declaration.finalizing = False
+
+
+def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recursive: bool) -> None:
+    """Compile and publish one already-prepared declaration."""
+
+    assert declaration.prepared_fields is not None
+    schema = SpecSchema.compose(
+        declaration.inherited_schemas,
+        declaration.prepared_fields,
+        declaration.declared_hooks,
+        declaration.shadowed_hook_names,
+        cast(tuple, declaration.declared_serializers),
+        declaration.shadowed_serializer_names,
+    )
+    validators = tuple(compile_validator(field.schema) for field in schema.fields)
+    affected_defaults = set(declaration.annotations)
+    affected_defaults.update(
+        hook.fields[0] for hook in declaration.declared_hooks if hook.kind == "check" and len(hook.fields) == 1
+    )
+    if affected_defaults:
+        _SpecMeta._validate_static_defaults(
+            schema,
+            validators,
+            frozenset(affected_defaults),
+            cls.__name__,
+        )
+    slot_setters = _SpecMeta._slot_setters(cls, schema)
+    initializer = _ConstructorCompiler(cls.__name__).compile(schema, slot_setters)
+    initializer.__module__ = cls.__module__
+    initializer.__qualname__ = f"{cls.__qualname__}.__init__"
+    initializer.__doc__ = "Validate and retain every declared field."
+    artifacts = _SpecArtifacts(
+        schema,
+        validators,
+        compile_current_state_validator(schema) if recursive else None,
+        _InputArtifacts(slot_setters, recursive),
+        _OutputArtifacts(recursive),
+    )
+    type.__setattr__(cls, "__init__", initializer)
+    type.__setattr__(cls, "__talea_artifacts__", artifacts)
+    declaration.local_namespace = None
+    if not declaration.declares_to_dict:
+        to_dict_owner = next(base for base in cls.__mro__[1:] if "to_dict" in vars(base))
+        if isinstance(to_dict_owner, _SpecMeta):
+            type.__setattr__(cls, "to_dict", _to_dict)
+
+
+def _ensure_finalized(cls: type[object]) -> _SpecArtifacts:
+    """Finalize one declaration graph exactly once before its first concrete use."""
+
+    artifacts = vars(cls).get("__talea_artifacts__")
+    if artifacts is not None:
+        return cast(_SpecArtifacts, artifacts)
+    declaration = cast(_SpecDeclaration, vars(cls)["__talea_declaration__"])
+    if declaration.type_params:
+        raise TypeError(f"generic Spec {cls.__qualname__} requires concrete specialization")
+    with _DECLARATION_LOCK:
+        artifacts = vars(cls).get("__talea_artifacts__")
+        if artifacts is None:
+            _prepare_graph(cls, set())
+            _finalize_graph(cls)
+            artifacts = vars(cls).get("__talea_artifacts__")
+    assert artifacts is not None
+    return cast(_SpecArtifacts, artifacts)
+
+
+def _deferred_init(instance: object, *args: object, **kwargs: object) -> None:
+    """Finalize an unresolved declaration and tail-call its concrete constructor."""
+
+    cls = type(instance)
+    _ensure_finalized(cls)
+    initializer = vars(cls)["__init__"]
+    assert initializer is not _deferred_init
+    initializer(instance, *args, **kwargs)
+
+
+def _restore_spec_instance(
+    origin: type[object],
+    generic_arguments: tuple[object, ...],
+    values: tuple[object, ...],
+) -> object:
+    """Restore one trusted pickle payload through canonical class artifacts."""
+
+    if generic_arguments:
+        argument = generic_arguments[0] if len(generic_arguments) == 1 else generic_arguments
+        spec_type = cast(type[object], cast(_Subscriptable, origin)[argument])
+    else:
+        spec_type = origin
+    artifacts = _ensure_finalized(spec_type)
+    restored = object.__new__(spec_type)
+    for value, setter in zip(values, artifacts.inputs.slot_setters, strict=True):
+        setter(restored, value)
+    return restored
 
 
 @dataclass_transform(kw_only_default=True, frozen_default=True, field_specifiers=(field,))
@@ -106,17 +394,80 @@ class _SpecMeta(type):
         namespace: dict[str, object],
         **kwargs: object,
     ) -> "_SpecMeta":
+        specialization = namespace.pop("__talea_specialization__", None)
+        if specialization is not None:
+            origin, arguments, substitutions, free_parameters = cast(
+                tuple[type[object], tuple[object, ...], Mapping[TypeVar, object], tuple[TypeVar, ...]],
+                specialization,
+            )
+            origin_declaration = cast(_SpecDeclaration, vars(origin)["__talea_declaration__"])
+            namespace["__slots__"] = ()
+            namespace["__type_params__"] = free_parameters
+            cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
+            if origin_declaration.specializations is not None:
+                origin_declaration.specializations[arguments] = cls
+            specialized_annotations = (
+                origin_declaration.annotations
+                if free_parameters
+                else {
+                    field_name: substitute_annotation(annotation, substitutions)
+                    for field_name, annotation in origin_declaration.annotations.items()
+                }
+            )
+            type.__setattr__(cls, "__annotations__", dict(specialized_annotations))
+            specialized_inherited = list(origin_declaration.inherited_schemas)
+            for generic_base in origin_declaration.generic_bases:
+                base_namespace = vars(generic_base)
+                base_origin = cast(type[object], base_namespace["__talea_generic_origin__"])
+                base_arguments = cast(tuple[object, ...], base_namespace["__talea_generic_arguments__"])
+                concrete_arguments = tuple(
+                    substitute_annotation(argument, substitutions) for argument in base_arguments
+                )
+                concrete_base = cast(_Subscriptable, base_origin)[
+                    concrete_arguments[0] if len(concrete_arguments) == 1 else concrete_arguments
+                ]
+                specialized_inherited.append(_ensure_finalized(cast(type[object], concrete_base)).schema)
+            declaration = _SpecDeclaration(
+                cls,
+                specialized_annotations,
+                origin_declaration.declarations.copy(),
+                tuple(specialized_inherited),
+                origin_declaration.declared_hooks,
+                origin_declaration.declared_serializers,
+                origin_declaration.shadowed_hook_names,
+                origin_declaration.shadowed_serializer_names,
+                False,
+                type_params=free_parameters,
+                generic_origin=origin,
+                generic_arguments=arguments,
+                local_namespace=origin_declaration.local_namespace,
+                requires_local_namespace=needs_local_namespace(specialized_annotations),
+            )
+            type.__setattr__(cls, "__talea_declaration__", declaration)
+            type.__setattr__(cls, "__talea_generic_origin__", origin)
+            type.__setattr__(cls, "__talea_generic_arguments__", arguments)
+            type.__setattr__(cls, "__init__", _deferred_init)
+            if not free_parameters:
+                _prepare_declaration(cls)
+                _finalize_graph(cls)
+                origin_declaration.local_namespace = retain_referenced_namespace(
+                    origin_declaration.annotations, origin_declaration.local_namespace
+                )
+            return cls
         if not bases:
             namespace["__slots__"] = ()
             namespace["__talea_spec__"] = True
             cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
             schema = SpecSchema(())
+            declaration = _SpecDeclaration(cls, {}, {}, (), (), (), frozenset(), frozenset(), False, ())
+            type.__setattr__(cls, "__talea_declaration__", declaration)
             type.__setattr__(
                 cls,
                 "__talea_artifacts__",
                 _SpecArtifacts(
                     schema,
                     (),
+                    lambda value: value,
                     _InputArtifacts(()),
                     _OutputArtifacts(),
                 ),
@@ -126,6 +477,18 @@ class _SpecMeta(type):
         spec_bases = tuple(base for base in bases if isinstance(base, _SpecMeta))
         if not spec_bases:
             raise TypeError("a Spec declaration requires at least one Spec base")
+        declared_type_params = tuple(cast(tuple[object, ...], namespace.get("__type_params__", ())))
+        generic_bases = tuple(
+            base
+            for base in spec_bases
+            if "__talea_artifacts__" not in vars(base)
+            and cast(_SpecDeclaration, vars(base)["__talea_declaration__"]).type_params
+        )
+        for base in spec_bases:
+            if "__talea_artifacts__" not in vars(base) and base not in generic_bases:
+                _ensure_finalized(base)
+        if generic_bases and not declared_type_params:
+            raise TypeError("a concrete Spec cannot inherit an unspecialized generic base")
         metaclass._validate_bases(bases, spec_bases)
         annotations = metaclass._inspect_annotations(namespace)
         field_names = tuple(annotations)
@@ -136,8 +499,20 @@ class _SpecMeta(type):
         declares_to_dict = "to_dict" in namespace
         declared_hook_names = frozenset(hook.name for hook in declared_hooks)
         declared_serializer_names = frozenset(serializer.name for serializer in declared_serializers)
-        inherited_schemas = tuple(cast(_SpecArtifacts, vars(base)["__talea_artifacts__"]).schema for base in spec_bases)
-        inherited_names = frozenset(field.name for schema in inherited_schemas for field in schema.fields)
+        inherited_schemas = tuple(
+            cast(_SpecArtifacts, vars(base)["__talea_artifacts__"]).schema
+            for base in spec_bases
+            if "__talea_artifacts__" in vars(base)
+        )
+        inherited_names = {field.name for schema in inherited_schemas for field in schema.fields}
+        for base in generic_bases:
+            base_origin = cast(type[object], vars(base)["__talea_generic_origin__"])
+            base_declaration = cast(_SpecDeclaration, vars(base_origin)["__talea_declaration__"])
+            inherited_names.update(base_declaration.annotations)
+            inherited_names.update(
+                field.name for schema in base_declaration.inherited_schemas for field in schema.fields
+            )
+        inherited_names = frozenset(inherited_names)
         metaclass._validate_declaration(namespace, bases, field_names, inherited_names)
 
         declarations: dict[str, object] = {}
@@ -147,68 +522,103 @@ class _SpecMeta(type):
 
         namespace["__slots__"] = tuple(name for name in field_names if name not in inherited_names)
         cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
-
-        resolved_annotations = (
-            get_type_hints(cls, include_extras=True)
-            if any(isinstance(annotation, str) for annotation in annotations.values())
-            else annotations
-        )
-        fields = []
-        for field_name in field_names:
-            declaration = declarations.get(field_name, MISSING_DEFAULT)
-            annotation = resolved_annotations[field_name]
-            resolved = resolve_annotation(annotation)
-            alias = metaclass._field_alias(annotation)
-            if isinstance(declaration, _FactoryDeclaration):
-                fields.append(
-                    SpecField(
-                        field_name,
-                        resolved,
-                        default_factory=declaration.default_factory,
-                        alias=alias,
-                    )
-                )
-            else:
-                fields.append(SpecField(field_name, resolved, default=declaration, alias=alias))
-        declared_fields = tuple(fields)
         mro_shadowed_hooks = metaclass._mro_shadowed_hooks(cls, inherited_schemas)
         mro_shadowed = mro_shadowed_serializers(cls, inherited_schemas, _SpecMeta)
-        schema = SpecSchema.compose(
-            inherited_schemas,
-            declared_fields,
-            declared_hooks,
-            (local_attribute_names - declared_hook_names) | mro_shadowed_hooks,
-            declared_serializers,
-            (local_attribute_names - declared_serializer_names) | mro_shadowed,
-        )
-        validators = tuple(compile_validator(field.schema) for field in schema.fields)
-        affected_defaults = set(field_names)
-        affected_defaults.update(
-            hook.fields[0] for hook in declared_hooks if hook.kind == "check" and len(hook.fields) == 1
-        )
-        if affected_defaults:
-            metaclass._validate_static_defaults(
-                schema,
-                validators,
-                frozenset(affected_defaults),
-                cls.__name__,
+        requires_local_namespace = needs_local_namespace(annotations)
+        if requires_local_namespace:
+            local_namespace = _getframe(1).f_locals
+            if declared_type_params:
+                local_namespace = ChainMap(local_namespace, _getframe(2).f_locals)
+        else:
+            local_namespace = next(
+                (
+                    cast(_SpecDeclaration, vars(base)["__talea_declaration__"]).local_namespace
+                    for base in spec_bases
+                    if cast(_SpecDeclaration, vars(base)["__talea_declaration__"]).local_namespace is not None
+                ),
+                None,
             )
-        slot_setters = metaclass._slot_setters(cls, schema)
-        initializer = _ConstructorCompiler(cls.__name__).compile(schema, slot_setters)
-        initializer.__module__ = cls.__module__
-        initializer.__qualname__ = f"{cls.__qualname__}.__init__"
-        initializer.__doc__ = "Validate and retain every declared field."
-        type.__setattr__(cls, "__init__", initializer)
-        type.__setattr__(
+        declaration = _SpecDeclaration(
             cls,
-            "__talea_artifacts__",
-            _SpecArtifacts(schema, validators, _InputArtifacts(slot_setters), _OutputArtifacts()),
+            annotations,
+            declarations,
+            inherited_schemas,
+            declared_hooks,
+            declared_serializers,
+            (local_attribute_names - declared_hook_names) | mro_shadowed_hooks,
+            (local_attribute_names - declared_serializer_names) | mro_shadowed,
+            declares_to_dict,
+            type_params=tuple(getattr(cls, "__type_params__", ())),
+            generic_bases=generic_bases,
+            local_namespace=local_namespace,
+            requires_local_namespace=requires_local_namespace,
         )
-        if not declares_to_dict:
-            to_dict_owner = next(base for base in cls.__mro__[1:] if "to_dict" in vars(base))
-            if isinstance(to_dict_owner, _SpecMeta):
-                type.__setattr__(cls, "to_dict", _to_dict)
+        type.__setattr__(cls, "__talea_declaration__", declaration)
+        type.__setattr__(cls, "__init__", _deferred_init)
+        if declaration.type_params:
+            if any(isinstance(parameter, (ParamSpec, TypeVarTuple)) for parameter in declaration.type_params):
+                raise TypeError("Spec generics support TypeVar parameters only")
+            declaration.specializations = WeakValueDictionary()
+            return cls
+        try:
+            _prepare_declaration(cls)
+        except _UnresolvedReference:
+            return cls
+        assert declaration.prepared_fields is not None
+        targets = {target for field in declaration.prepared_fields for target in _referenced_specs(field.schema)}
+        if all("__talea_artifacts__" in vars(target) for target in targets):
+            if targets:
+                _finalize_graph(cls)
+            else:
+                _publish_declaration(cls, declaration, False)
         return cls
+
+    def __getitem__(cls, supplied: object) -> type[object]:
+        """Return one class-owned concrete or partially bound Spec specialization."""
+
+        declaration = cast(_SpecDeclaration, vars(cls)["__talea_declaration__"])
+        origin = declaration.generic_origin or cls
+        origin_declaration = cast(_SpecDeclaration, vars(origin)["__talea_declaration__"])
+        if not origin_declaration.type_params or (
+            declaration.generic_origin is not None and not declaration.type_params
+        ):
+            raise TypeError(f"{cls.__qualname__} is not a generic Spec")
+        cache = origin_declaration.specializations
+        assert cache is not None
+        if declaration.generic_origin is None:
+            direct_arguments = supplied if isinstance(supplied, tuple) else (supplied,)
+            if len(direct_arguments) == len(origin_declaration.type_params):
+                with _DECLARATION_LOCK:
+                    specialized = cache.get(direct_arguments)
+                    if specialized is not None:
+                        return specialized
+        if declaration.generic_origin is not None:
+            supplied_arguments = supplied if isinstance(supplied, tuple) else (supplied,)
+            if len(supplied_arguments) != len(declaration.type_params):
+                raise TypeError(f"{cls.__qualname__} expects {len(declaration.type_params)} type arguments")
+            partial_substitutions = dict(zip(declaration.type_params, supplied_arguments, strict=True))
+            expanded = tuple(
+                substitute_annotation(argument, partial_substitutions) for argument in declaration.generic_arguments
+            )
+            arguments, free_parameters = normalize_specialization(origin, expanded)
+        else:
+            arguments, free_parameters = normalize_specialization(origin, supplied)
+        with _DECLARATION_LOCK:
+            specialized = cache.get(arguments)
+            if specialized is not None:
+                return specialized
+            substitutions = dict(zip(origin_declaration.type_params, arguments, strict=True))
+            label = ", ".join(type_argument_name(argument) for argument in arguments)
+            specialized_name = f"{origin.__name__}[{label}]"
+            specialized_qualname = f"{origin.__qualname__}[{label}]"
+            namespace: dict[str, object] = {
+                "__module__": origin.__module__,
+                "__qualname__": specialized_qualname,
+                "__talea_specialization__": (origin, arguments, substitutions, free_parameters),
+            }
+            specialized = _SpecMeta(specialized_name, (origin,), namespace)
+            cache[arguments] = specialized
+            return specialized
 
     @staticmethod
     def _validate_bases(bases: tuple[type, ...], spec_bases: tuple[type, ...]) -> None:
@@ -222,10 +632,16 @@ class _SpecMeta(type):
 
         storage_owners: set[type] = set()
         for base in spec_bases:
-            schema = cast(_SpecArtifacts, vars(base)["__talea_artifacts__"]).schema
-            for spec_field in schema.fields:
+            artifacts = vars(base).get("__talea_artifacts__")
+            if artifacts is not None:
+                field_names = tuple(field.name for field in cast(_SpecArtifacts, artifacts).schema.fields)
+            else:
+                base_origin = cast(type[object], vars(base)["__talea_generic_origin__"])
+                base_declaration = cast(_SpecDeclaration, vars(base_origin)["__talea_declaration__"])
+                field_names = tuple(base_declaration.annotations)
+            for field_name in field_names:
                 for owner in base.__mro__:
-                    if isinstance(vars(owner).get(spec_field.name), MemberDescriptorType):
+                    if isinstance(vars(owner).get(field_name), MemberDescriptorType):
                         storage_owners.add(owner)
                         break
         maximal_owners = {
@@ -251,7 +667,7 @@ class _SpecMeta(type):
             return {}
         if not callable(annotate):
             raise TypeError("a Spec declaration requires a callable annotation function")
-        evaluated = cast(Callable[[Format], object], annotate)(Format.VALUE)
+        evaluated = call_annotate_function(cast(Callable[[Format], dict[str, object]], annotate), Format.FORWARDREF)
         if not isinstance(evaluated, Mapping):
             raise TypeError("a Spec annotation function must return a mapping")
         return evaluated
@@ -481,6 +897,40 @@ class Spec(metaclass=_SpecMeta):
 
         raise AttributeError(f"{type(self).__name__} instances are immutable")
 
+    def __copy__(self) -> Self:
+        """Return a shallow copy without repeating validation or lifecycle hooks."""
+
+        spec_type = type(self)
+        artifacts = _ensure_finalized(spec_type)
+        copied = object.__new__(spec_type)
+        for spec_field, setter in zip(artifacts.schema.fields, artifacts.inputs.slot_setters, strict=True):
+            setter(copied, getattr(self, spec_field.name))
+        return copied
+
+    def __deepcopy__(self, memo: dict[int, object]) -> Self:
+        """Return a graph-preserving deep copy of this validated instance."""
+
+        from copy import deepcopy
+
+        spec_type = type(self)
+        artifacts = _ensure_finalized(spec_type)
+        copied = object.__new__(spec_type)
+        memo[id(self)] = copied
+        for spec_field, setter in zip(artifacts.schema.fields, artifacts.inputs.slot_setters, strict=True):
+            setter(copied, deepcopy(getattr(self, spec_field.name), memo))
+        return copied
+
+    def __reduce_ex__(self, protocol: SupportsIndex, /) -> tuple[object, tuple[object, ...]]:
+        """Describe an acyclic instance for trusted Python pickle reconstruction."""
+
+        del protocol
+        spec_type = type(self)
+        declaration = vars(spec_type)["__talea_declaration__"]
+        origin = declaration.generic_origin or spec_type
+        artifacts = _ensure_finalized(spec_type)
+        values = tuple(getattr(self, spec_field.name) for spec_field in artifacts.schema.fields)
+        return _restore_spec_instance, (origin, declaration.generic_arguments, values)
+
     to_dict = _to_dict
     to_json = _to_json
 
@@ -516,7 +966,7 @@ class Spec(metaclass=_SpecMeta):
         schema interpretation.
         """
 
-        artifacts = cls.__talea_artifacts__
+        artifacts = _ensure_finalized(cls)
         construct = artifacts.inputs.mapping_input
         if construct is None:
             construct = artifacts.inputs.input_for(artifacts.schema, cls, "mapping")
@@ -568,7 +1018,7 @@ class Spec(metaclass=_SpecMeta):
         """
 
         decoded = decode_json(data, loads, title=cls.__name__)
-        artifacts = cls.__talea_artifacts__
+        artifacts = _ensure_finalized(cls)
         construct = artifacts.inputs.json_input
         if construct is None:
             construct = artifacts.inputs.input_for(artifacts.schema, cls, "json")
@@ -583,6 +1033,6 @@ class Spec(metaclass=_SpecMeta):
     def __repr__(self) -> str:
         """Return the declaration name and current field values in order."""
 
-        artifacts = cast(_SpecArtifacts, vars(type(self))["__talea_artifacts__"])
+        artifacts = _ensure_finalized(type(self))
         values = ", ".join(f"{field.name}={getattr(self, field.name)!r}" for field in artifacts.schema.fields)
         return f"{type(self).__name__}({values})"

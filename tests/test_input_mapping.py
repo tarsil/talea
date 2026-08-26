@@ -12,7 +12,7 @@ from hypothesis import given, strategies as st
 
 import talea
 import talea.input
-import talea.spec.lifecycle as spec_module
+import talea.input.artifacts as input_artifact_module
 from talea import Ge, Spec, ValidationError, check, field, transform
 
 
@@ -384,14 +384,14 @@ def test_boundary_compilation_is_lazy_independent_and_thread_safe(
 
     compile_calls: list[str] = []
     calls_lock = Lock()
-    original_compile = spec_module.compile_input
+    original_compile = input_artifact_module.compile_input
 
     def counted_compile(*args: object, **kwargs: object) -> object:
         with calls_lock:
             compile_calls.append(args[3])  # type: ignore[arg-type]
         return original_compile(*args, **kwargs)  # type: ignore[invalid-argument-type]
 
-    monkeypatch.setattr(spec_module, "compile_input", counted_compile)
+    monkeypatch.setattr(input_artifact_module, "compile_input", counted_compile)
     workers = 8
     barrier = Barrier(workers)
 

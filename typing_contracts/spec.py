@@ -128,6 +128,29 @@ assert_type(department.deputy, Employee | None)
 assert_type(NarrowIdentity(value="staff", person=employee).value, str)
 
 
+class Box[T](Spec):
+    value: T
+
+
+class Page[T](Spec):
+    items: list[T]
+
+
+class Response[T](Spec):
+    page: Page[T]
+
+
+class Tree[T](Spec):
+    value: T
+    children: list[Tree[T]]
+
+
+assert_type(Box[int](value=1), Box[int])
+assert_type(Box[int](value=1).value, int)
+assert_type(Response[str](page=Page[str](items=["typed"])).page, Page[str])
+assert_type(Tree[int](value=1, children=[]).children, list[Tree[int]])
+
+
 class Status(StrEnum):
     ACTIVE = "active"
     DISABLED = "disabled"

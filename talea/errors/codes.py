@@ -32,3 +32,4 @@ class ErrorCode(StrEnum):
     FACTORY = "factory"
     JSON_INVALID = "json_invalid"
     JSON_DUPLICATE = "json_duplicate"
+    CYCLE = "cycle"

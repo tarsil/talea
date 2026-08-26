@@ -53,18 +53,19 @@ class SpecReferenceSchema:
     """Canonical schema for a nominal reference to one Talea Spec class.
 
     ``spec_type`` is the runtime class identity required for Python subclass
-    checks.  Its retained ``SpecSchema`` remains the sole owner of the target
-    declaration; this node neither copies fields nor retains the annotation
-    that named the class.
+    checks. Its class-owned declaration identity resolves to the target's one
+    canonical ``SpecSchema``; this node neither copies fields nor retains the
+    annotation that named the class. The identity may exist before a recursive
+    declaration graph has finalized its schema artifacts.
 
     Raises:
-        TypeError: If ``spec_type`` is not a completed Talea Spec declaration.
+        TypeError: If ``spec_type`` is not a Talea Spec declaration.
     """
 
     spec_type: type[object]
 
     def __post_init__(self) -> None:
-        if getattr(self.spec_type, "__talea_spec__", False) is not True or "__talea_artifacts__" not in vars(
+        if getattr(self.spec_type, "__talea_spec__", False) is not True or "__talea_declaration__" not in vars(
             self.spec_type
         ):
             raise TypeError("a Spec reference schema requires a declared Spec class")

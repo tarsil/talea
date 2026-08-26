@@ -81,9 +81,15 @@ def to_dict(
     per-instance input-provenance metadata.
     """
 
-    artifacts = self.__talea_artifacts__
+    artifacts = vars(type(self))["__talea_declaration__"].artifacts()
     if include is None and exclude is None and exclude_none is False:
         if by_alias is True:
+            if artifacts.outputs.recursive:
+                plain = cast(
+                    SpecSerializer,
+                    artifacts.outputs.output_for(artifacts.schema, "python", True, False),
+                )
+                return plain(self)
             plain = artifacts.outputs.public_python_for(artifacts.schema, to_dict)
             owner = type(self)
             if vars(owner).get("to_dict") is to_dict:
@@ -145,7 +151,7 @@ def to_json(
         Exception: Non-``ValueError`` custom-codec exceptions propagate.
     """
 
-    artifacts = self.__talea_artifacts__
+    artifacts = vars(type(self))["__talea_declaration__"].artifacts()
     if include is None and exclude is None and exclude_none is False:
         if by_alias is True:
             plain = artifacts.outputs.json_alias

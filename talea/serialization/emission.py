@@ -197,11 +197,10 @@ class _ValueProjectionCompiler:
             return f"{converter}({value}, {location})"
         if isinstance(schema, SpecReferenceSchema):
             artifacts = vars(schema.spec_type)["__talea_artifacts__"]
-            serializer = artifacts.outputs.output_for(
+            serializer = artifacts.outputs.reference_for(
                 artifacts.schema,
                 self.mode,
                 self.by_alias,
-                False,
             )
             nested = self._bind(names, namespace, "nested_serializer", serializer)
             project = self._bind(names, namespace, "project_nested", _project_nested)

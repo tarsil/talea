@@ -121,6 +121,8 @@ class _ErrorDetail:
             return "Invalid JSON input"
         if self.code is ErrorCode.JSON_DUPLICATE:
             return "Duplicate JSON object key"
+        if self.code is ErrorCode.CYCLE:
+            return "Cyclic input is not supported"
         raise AssertionError("unknown canonical Talea error code")
 
 

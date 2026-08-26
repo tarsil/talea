@@ -37,6 +37,7 @@ def test_error_code_vocabulary_is_public_stable_and_string_serializable() -> Non
         "factory",
         "json_invalid",
         "json_duplicate",
+        "cycle",
     }
     assert ErrorCode.TYPE == "type"
     assert json.dumps(ErrorCode.TYPE) == '"type"'

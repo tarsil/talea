@@ -242,12 +242,12 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             input_type = self.runtime("mapping", Mapping)
             shape = f"{instance_check}({value}, {input_type})"
             artifacts = vars(schema.spec_type)["__talea_artifacts__"]
-            nested_input = artifacts.inputs.input_for(artifacts.schema, schema.spec_type, "mapping")
+            nested_input = artifacts.inputs.reference_for(artifacts.schema, schema.spec_type, "mapping")
         else:
             input_type = self.runtime("dict", dict)
             shape = f"{self.runtime('type', type)}({value}) is {input_type}"
             artifacts = vars(schema.spec_type)["__talea_artifacts__"]
-            nested_input = artifacts.inputs.input_for(artifacts.schema, schema.spec_type, "json")
+            nested_input = artifacts.inputs.reference_for(artifacts.schema, schema.spec_type, "json")
         converter = self.bind("nested_input", nested_input)
         error = self.variable("nested_error")
         prefixed = self.variable("prefixed_error")
