@@ -153,3 +153,8 @@ tasks:
     desc: Benchmarks Contract, create_spec, introspection, and copy.replace
     cmds:
       - hatch run test:benchmark_utilities
+
+  benchmark_metadata:
+    desc: Benchmarks canonical metadata and sensitive failure redaction
+    cmds:
+      - hatch run test:benchmark_metadata
