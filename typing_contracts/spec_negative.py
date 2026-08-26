@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from talea import Alias, Contract, Ge, Spec, check, create_spec, field, serialize, transform
+from talea.introspection import inspect_contract, inspect_spec
 
 
 class User(Spec):
@@ -29,6 +30,8 @@ Contract[int](int).from_json(1)  # ty: ignore[invalid-argument-type]
 create_spec(1, {"value": int})  # ty: ignore[invalid-argument-type]
 create_spec("Invalid", [])  # ty: ignore[invalid-argument-type]
 create_spec("Invalid", {"value": int}, base=object)  # ty: ignore[no-matching-overload]
+inspect_spec(User(id=1))  # ty: ignore[invalid-argument-type]
+inspect_contract(int)  # ty: ignore[invalid-argument-type]
 
 
 class Box[T](Spec):

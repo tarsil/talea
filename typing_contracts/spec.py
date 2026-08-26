@@ -23,6 +23,7 @@ from talea import (
     serialize,
     transform,
 )
+from talea.introspection import ContractInfo, SpecInfo, inspect_contract, inspect_spec
 
 
 class User(Spec):
@@ -45,6 +46,8 @@ assert_type(user.to_dict(), dict[str, object])
 assert_type(user.to_dict(include={"id"}, exclude_none=True), dict[str, object])
 assert_type(user.to_json(), str)
 assert_type(replace(user, name="Grace"), User)
+assert_type(inspect_spec(User), SpecInfo)
+assert_type(inspect_contract(Contract(int)), ContractInfo)
 assert (identifier, name, tags) == (1, "Tiago", [])
 
 assert_type(Contract(int).validate(1), int)
@@ -60,6 +63,7 @@ class ContractPayload(TypedDict):
 
 
 assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), ContractPayload)
+assert_type(Contract[User](User).validate(user), User)
 assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
 
 
@@ -173,6 +177,7 @@ class Tree[T](Spec):
 
 assert_type(Box[int](value=1), Box[int])
 assert_type(Box[int](value=1).value, int)
+assert_type(Contract[Page[User]](Page[User]).validate(Page[User](items=[user])), Page[User])
 assert_type(Response[str](page=Page[str](items=["typed"])).page, Page[str])
 assert_type(Tree[int](value=1, children=[]).children, list[Tree[int]])
 
