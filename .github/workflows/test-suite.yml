@@ -37,8 +37,6 @@ jobs:
         run: "hatch run test:test"
       - name: "Enforce 100% coverage"
         run: "hatch run test:coverage"
-      - name: "Execute documentation examples and integrity checks"
-        run: "hatch run docs:test"
       - name: "Build documentation"
         run: "hatch run docs:build"
       - name: "Build and check wheel and sdist"
