@@ -240,11 +240,15 @@ class _ValidationEmitter:
         field_names = self.bind("spec_field_names", tuple(field.name for field in declaration.fields))
         for index, field in enumerate(declaration.fields):
             nested_value = f"{value}.{field.name}"
+            field_indentation = indentation
+            if declaration.presence_aware:
+                self.emit(indentation, f"if {value}.__talea_presence__ & {1 << index}:")
+                field_indentation += 1
             self.emit_schema(
                 field.schema,
                 nested_value,
                 (*location, f"{field_names}[{index}]"),
-                indentation,
+                field_indentation,
                 sensitive=bool(field.metadata.sensitive),
             )
             for hook in declaration.hooks:
@@ -253,7 +257,7 @@ class _ValidationEmitter:
                         hook,
                         (nested_value,),
                         ((*location, f"{field_names}[{index}]"),),
-                        indentation,
+                        field_indentation,
                         sensitive=bool(field.metadata.sensitive),
                     )
         for hook in declaration.hooks:

@@ -4,7 +4,21 @@ from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from talea import Alias, Contract, Ge, Sensitive, Spec, Title, check, create_spec, field, serialize, transform
+from talea import (
+    Alias,
+    Contract,
+    Ge,
+    Sensitive,
+    Spec,
+    Title,
+    apply_patch,
+    check,
+    create_spec,
+    derive_spec,
+    field,
+    serialize,
+    transform,
+)
 from talea.introspection import inspect_contract, inspect_spec
 
 
@@ -31,6 +45,9 @@ create_spec(1, {"value": int})  # ty: ignore[invalid-argument-type]
 create_spec("Invalid", [])  # ty: ignore[invalid-argument-type]
 create_spec("Invalid", {"value": int}, base=object)  # ty: ignore[no-matching-overload]
 create_spec("Invalid", {"value": int}, metadata=1)  # ty: ignore[invalid-argument-type]
+derive_spec(object)  # ty: ignore[invalid-argument-type]
+derive_spec(User, partial=1)  # ty: ignore[invalid-argument-type]
+apply_patch(User(id=1), object())  # ty: ignore[invalid-argument-type]
 inspect_spec(User(id=1))  # ty: ignore[invalid-argument-type]
 inspect_contract(int)  # ty: ignore[invalid-argument-type]
 Title(1)  # ty: ignore[invalid-argument-type]

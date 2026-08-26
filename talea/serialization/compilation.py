@@ -5,7 +5,7 @@ from types import FunctionType
 from typing import cast
 
 from talea.codegen import _GeneratedNames
-from talea.declaration.models import SpecSchema
+from talea.declaration.models import SerializationHook, SpecField, SpecSchema
 from talea.serialization.emission import OutputMode, _ValueProjectionCompiler, project_hook_value
 
 type SpecSerializer = Callable[[object], dict[str, object]]
@@ -45,33 +45,39 @@ class _SerializationCompiler:
         hook_by_field = {hook.field: hook for hook in schema.serializers}
         compiler = _ValueProjectionCompiler(self.mode, self.by_alias)
         if not self.filtered:
-            entries = []
-            for field in schema.fields:
-                key = field.external_name if self.by_alias else field.name
-                value = f"instance.{field.name}"
-                location = self._bind(names, namespace, "location", (key,))
-                hook = hook_by_field.get(field.name)
-                if hook is None:
-                    expression = compiler.expression(
-                        field.schema,
-                        value,
-                        location,
+            if schema.presence_aware:
+                lines.append("    result = {}")
+                presence = "instance.__talea_presence__"
+                for index, field in enumerate(schema.fields):
+                    key = field.external_name if self.by_alias else field.name
+                    expression = self._field_expression(
+                        field,
+                        key,
+                        hook_by_field,
+                        compiler,
                         names,
                         namespace,
-                        sensitive=bool(field.metadata.sensitive),
                     )
-                else:
-                    projector = self._bind(names, namespace, "project_hook", project_hook_value)
-                    function = self._bind(names, namespace, "serialization_hook", hook.function)
-                    sensitive = ", True" if field.metadata.sensitive else ""
-                    expression = (
-                        f"{projector}({function}, {value}, {self.mode!r}, {self.by_alias!r}, {location}{sensitive})"
+                    lines.append(f"    if {presence} & {1 << index}:")
+                    lines.append(f"        result[{key!r}] = {expression}")
+                lines.append("    return result")
+            else:
+                entries = []
+                for field in schema.fields:
+                    key = field.external_name if self.by_alias else field.name
+                    expression = self._field_expression(
+                        field,
+                        key,
+                        hook_by_field,
+                        compiler,
+                        names,
+                        namespace,
                     )
-                entries.append(f"{key!r}: {expression}")
-            lines.append(f"    return {{{', '.join(entries)}}}")
+                    entries.append(f"{key!r}: {expression}")
+                lines.append(f"    return {{{', '.join(entries)}}}")
         else:
             lines.append("    result = {}")
-            for field in schema.fields:
+            for index, field in enumerate(schema.fields):
                 key = field.external_name if self.by_alias else field.name
                 value = f"instance.{field.name}"
                 conditions = [
@@ -79,25 +85,17 @@ class _SerializationCompiler:
                     f"(exclude is None or {field.name!r} not in exclude)",
                     f"(not exclude_none or {value} is not None)",
                 ]
+                if schema.presence_aware:
+                    conditions.insert(0, f"(instance.__talea_presence__ & {1 << index})")
                 lines.append(f"    if {' and '.join(conditions)}:")
-                location = self._bind(names, namespace, "location", (key,))
-                hook = hook_by_field.get(field.name)
-                if hook is None:
-                    expression = compiler.expression(
-                        field.schema,
-                        value,
-                        location,
-                        names,
-                        namespace,
-                        sensitive=bool(field.metadata.sensitive),
-                    )
-                else:
-                    projector = self._bind(names, namespace, "project_hook", project_hook_value)
-                    function = self._bind(names, namespace, "serialization_hook", hook.function)
-                    sensitive = ", True" if field.metadata.sensitive else ""
-                    expression = (
-                        f"{projector}({function}, {value}, {self.mode!r}, {self.by_alias!r}, {location}{sensitive})"
-                    )
+                expression = self._field_expression(
+                    field,
+                    key,
+                    hook_by_field,
+                    compiler,
+                    names,
+                    namespace,
+                )
                 lines.append(f"        result[{key!r}] = {expression}")
             lines.append("    return result")
         exec(compile("\n".join(lines), f"<talea {self.mode} Spec serialization>", "exec"), namespace)
@@ -109,6 +107,34 @@ class _SerializationCompiler:
             function.__annotations__ = to_dict_fallback.__annotations__
             function.__dict__["__wrapped__"] = to_dict_fallback
         return function
+
+    def _field_expression(
+        self,
+        field: SpecField,
+        key: str,
+        hook_by_field: dict[str, SerializationHook],
+        compiler: _ValueProjectionCompiler,
+        names: _GeneratedNames,
+        namespace: dict[str, object],
+    ) -> str:
+        """Emit one retained field projection for either storage policy."""
+
+        value = f"instance.{field.name}"
+        location = self._bind(names, namespace, "location", (key,))
+        hook = hook_by_field.get(field.name)
+        if hook is None:
+            return compiler.expression(
+                field.schema,
+                value,
+                location,
+                names,
+                namespace,
+                sensitive=bool(field.metadata.sensitive),
+            )
+        projector = self._bind(names, namespace, "project_hook", project_hook_value)
+        function = self._bind(names, namespace, "serialization_hook", hook.function)
+        sensitive = ", True" if field.metadata.sensitive else ""
+        return f"{projector}({function}, {value}, {self.mode!r}, {self.by_alias!r}, {location}{sensitive})"
 
     @staticmethod
     def _bind(names: _GeneratedNames, namespace: dict[str, object], purpose: str, value: object) -> str:

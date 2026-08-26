@@ -29,8 +29,20 @@ class _ReplacementCompiler:
         schema: SpecSchema,
         spec_type: type[object],
         slot_setters: tuple[Callable[[object, object], None], ...],
+        presence_setter: Callable[[object, object], None] | None = None,
     ) -> Replacer:
         """Return a replacer specialized to fields, trust, hooks, and slots."""
+
+        if schema.presence_aware:
+            from talea.spec.presence import compile_presence_replacer
+
+            return compile_presence_replacer(
+                schema,
+                spec_type,
+                slot_setters,
+                cast(Callable[[object, object], None], presence_setter),
+                self.title,
+            )
 
         fields = schema.fields
         field_names = tuple(field.name for field in fields)
@@ -142,6 +154,7 @@ def replacement_for(spec_type: type[object], artifacts: _SpecArtifacts) -> Repla
                 artifacts.schema,
                 spec_type,
                 artifacts.inputs.slot_setters,
+                artifacts.presence_setter,
             )
             type.__setattr__(spec_type, "__talea_replacer__", replacer)
     return cast(Replacer, replacer)

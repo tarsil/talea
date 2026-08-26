@@ -11,7 +11,7 @@ from weakref import WeakKeyDictionary
 from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
-from talea.declaration.models import MISSING_DEFAULT, SerializationHook
+from talea.declaration.models import MISSING_DEFAULT, SerializationHook, SpecDerivation
 from talea.metadata import EMPTY_METADATA, DeclarationMetadata, ExampleValue, annotation_metadata
 from talea.schema.nodes import AliasSchema, ConstrainedSchema, Schema
 from talea.spec.declaration import _SpecDeclaration
@@ -19,6 +19,7 @@ from talea.spec.fields import _FactoryDeclaration
 
 __all__ = [
     "ContractInfo",
+    "DerivationInfo",
     "FieldInfo",
     "SpecInfo",
     "inspect_contract",
@@ -59,6 +60,19 @@ class FieldInfo:
     read_only: bool
     write_only: bool
     sensitive: bool
+    omittable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DerivationInfo:
+    """Expose immutable source and selection truth for one derived Spec."""
+
+    source: type[object]
+    retained_fields: tuple[str, ...]
+    omitted_fields: tuple[str, ...]
+    selection: str
+    partial: bool
+    explicit_name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +92,8 @@ class SpecInfo:
     description: str | None
     examples: tuple[ExampleValue, ...]
     deprecated: bool
+    presence_aware: bool = False
+    derivation: DerivationInfo | None = None
     operations: tuple[Operation, ...] = _OPERATIONS
 
 
@@ -136,6 +152,7 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                     field.default_factory,
                     field.alias,
                     field.metadata,
+                    field.omittable,
                 )
                 for field in artifacts.schema.fields
             )
@@ -153,6 +170,8 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                 artifacts.schema.metadata.description,
                 artifacts.schema.metadata.examples or (),
                 bool(artifacts.schema.metadata.deprecated),
+                artifacts.schema.presence_aware,
+                _derivation_info(artifacts.schema.derivation),
             )
             _SPEC_INFO_CACHE[spec] = cached
     return cached
@@ -244,7 +263,7 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
             default_factory,
             alias,
             effective_metadata,
-            constraints,
+            constraints=constraints,
         )
     hooks = tuple(hook for schema in declaration.inherited_schemas for hook in schema.hooks)
     serializers = tuple(serializer for schema in declaration.inherited_schemas for serializer in schema.serializers)
@@ -282,6 +301,7 @@ def _field_info(
     default_factory: Callable[[], object] | None,
     alias: str | None,
     metadata: DeclarationMetadata,
+    omittable: bool = False,
     constraints: tuple[Constraint, ...] | None = None,
 ) -> FieldInfo:
     return FieldInfo(
@@ -301,6 +321,20 @@ def _field_info(
         bool(metadata.read_only),
         bool(metadata.write_only),
         bool(metadata.sensitive),
+        omittable,
+    )
+
+
+def _derivation_info(derivation: SpecDerivation | None) -> DerivationInfo | None:
+    if derivation is None:
+        return None
+    return DerivationInfo(
+        derivation.source,
+        derivation.retained_fields,
+        derivation.omitted_fields,
+        derivation.selection,
+        derivation.partial,
+        derivation.explicit_name,
     )
 
 

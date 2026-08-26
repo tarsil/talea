@@ -23,6 +23,7 @@ def _restore_spec_instance(
     origin: type[object],
     generic_arguments: tuple[object, ...],
     values: tuple[object, ...],
+    presence: int | None = None,
 ) -> object:
     """Restore one trusted pickle payload through canonical class artifacts."""
 
@@ -33,8 +34,17 @@ def _restore_spec_instance(
         spec_type = origin
     artifacts = _ensure_finalized(spec_type)
     restored = object.__new__(spec_type)
-    for value, setter in zip(values, artifacts.inputs.slot_setters, strict=True):
-        setter(restored, value)
+    if presence is None:
+        for value, setter in zip(values, artifacts.inputs.slot_setters, strict=True):
+            setter(restored, value)
+    else:
+        value_index = 0
+        for field_index, setter in enumerate(artifacts.inputs.slot_setters):
+            if presence & (1 << field_index):
+                setter(restored, values[value_index])
+                value_index += 1
+        assert artifacts.presence_setter is not None
+        artifacts.presence_setter(restored, presence)
     return restored
 
 
@@ -87,8 +97,17 @@ class Spec(metaclass=_SpecMeta):
         spec_type = type(self)
         artifacts = _ensure_finalized(spec_type)
         copied = object.__new__(spec_type)
-        for spec_field, setter in zip(artifacts.schema.fields, artifacts.inputs.slot_setters, strict=True):
-            setter(copied, getattr(self, spec_field.name))
+        from talea.spec.presence import presence_mask
+
+        presence = presence_mask(self)
+        for index, (spec_field, setter) in enumerate(
+            zip(artifacts.schema.fields, artifacts.inputs.slot_setters, strict=True)
+        ):
+            if presence is None or presence & (1 << index):
+                setter(copied, getattr(self, spec_field.name))
+        if presence is not None:
+            assert artifacts.presence_setter is not None
+            artifacts.presence_setter(copied, presence)
         return copied
 
     def __deepcopy__(self, memo: dict[int, object]) -> Self:
@@ -100,8 +119,17 @@ class Spec(metaclass=_SpecMeta):
         artifacts = _ensure_finalized(spec_type)
         copied = object.__new__(spec_type)
         memo[id(self)] = copied
-        for spec_field, setter in zip(artifacts.schema.fields, artifacts.inputs.slot_setters, strict=True):
-            setter(copied, deepcopy(getattr(self, spec_field.name), memo))
+        from talea.spec.presence import presence_mask
+
+        presence = presence_mask(self)
+        for index, (spec_field, setter) in enumerate(
+            zip(artifacts.schema.fields, artifacts.inputs.slot_setters, strict=True)
+        ):
+            if presence is None or presence & (1 << index):
+                setter(copied, deepcopy(getattr(self, spec_field.name), memo))
+        if presence is not None:
+            assert artifacts.presence_setter is not None
+            artifacts.presence_setter(copied, presence)
         return copied
 
     def __replace__(self, /, **changes: object) -> Self:
@@ -138,8 +166,23 @@ class Spec(metaclass=_SpecMeta):
         declaration = cast(_SpecDeclaration, vars(spec_type)["__talea_declaration__"])
         origin = declaration.generic_origin or spec_type
         artifacts = _ensure_finalized(spec_type)
-        values = tuple(getattr(self, spec_field.name) for spec_field in artifacts.schema.fields)
-        return _restore_spec_instance, (origin, declaration.generic_arguments, values)
+        from talea.spec.presence import presence_mask
+
+        presence = presence_mask(self)
+        values = tuple(
+            getattr(self, spec_field.name)
+            for index, spec_field in enumerate(artifacts.schema.fields)
+            if presence is None or presence & (1 << index)
+        )
+        return _restore_spec_instance, (origin, declaration.generic_arguments, values, presence)
+
+    @property
+    def present_fields(self) -> frozenset[str]:
+        """Return immutable canonical names of fields represented by this instance."""
+
+        from talea.spec.presence import present_field_names
+
+        return present_field_names(self)
 
     to_dict = _to_dict
     to_json = _to_json
@@ -218,8 +261,12 @@ class Spec(metaclass=_SpecMeta):
         """Return the declaration name and current field values in order."""
 
         artifacts = _ensure_finalized(type(self))
+        from talea.spec.presence import presence_mask
+
+        presence = presence_mask(self)
         values = ", ".join(
             f"{field.name}={REDACTED if field.metadata.sensitive else getattr(self, field.name)!r}"
-            for field in artifacts.schema.fields
+            for index, field in enumerate(artifacts.schema.fields)
+            if presence is None or presence & (1 << index)
         )
         return f"{type(self).__name__}({values})"

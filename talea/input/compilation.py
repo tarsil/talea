@@ -31,6 +31,7 @@ class _InputCompiler:
         schema: SpecSchema,
         spec_type: type[object],
         slot_setters: tuple[Callable[[object, object], None], ...],
+        presence_setter: Callable[[object, object], None] | None = None,
     ) -> FunctionType:
         """Return a boundary callable specialized to fields, hooks, and storage."""
 
@@ -95,6 +96,7 @@ class _InputCompiler:
                 unexpected_value,
                 unexpected_error,
                 string_type,
+                presence_setter,
             )
         for index, (field, value) in enumerate(zip(fields, values, strict=True)):
             lines.extend(
@@ -174,7 +176,16 @@ class _InputCompiler:
         if has_factories:
             self._emit_raise_aggregate(lines, emitter, errors, 1)
 
-        self._emit_commit(emitter, schema, spec_type, slot_setters, values, field_names_name, 1)
+        self._emit_commit(
+            emitter,
+            schema,
+            spec_type,
+            slot_setters,
+            values,
+            field_names_name,
+            1,
+            presence_setter,
+        )
 
         source = "\n".join(lines)
         exec(compile(source, f"<talea {self.mode} input>", "exec"), namespace)
@@ -199,6 +210,7 @@ class _InputCompiler:
         unexpected_value: str,
         unexpected_error: str,
         string_type: str,
+        presence_setter: Callable[[object, object], None] | None,
     ) -> None:
         """Emit complete exact-dict construction before general Mapping analysis."""
 
@@ -243,6 +255,7 @@ class _InputCompiler:
             values,
             field_names_name,
             3,
+            presence_setter,
         )
 
     @staticmethod
@@ -254,6 +267,7 @@ class _InputCompiler:
         values: tuple[str, ...],
         field_names_name: str,
         indentation: int,
+        presence_setter: Callable[[object, object], None] | None,
     ) -> None:
         """Emit whole-Spec checks and direct immutable slot commitment."""
 
@@ -271,9 +285,22 @@ class _InputCompiler:
         allocator = emitter.bind("instance_allocator", object.__new__)
         spec_type_name = emitter.bind("spec_type", spec_type)
         emitter.emit(indentation, f"{instance} = {allocator}({spec_type_name})")
-        for index, (value, setter) in enumerate(zip(values, slot_setters, strict=True)):
-            setter_name = emitter.bind(f"slot_{index}", setter)
-            emitter.emit(indentation, f"{setter_name}({instance}, {value})")
+        if schema.presence_aware:
+            bound_setter = cast(Callable[[object, object], None], presence_setter)
+            missing = emitter.bind("missing", FACTORY_SENTINEL)
+            presence = emitter.variable("presence")
+            emitter.emit(indentation, f"{presence} = 0")
+            for index, (value, setter) in enumerate(zip(values, slot_setters, strict=True)):
+                setter_name = emitter.bind(f"slot_{index}", setter)
+                emitter.emit(indentation, f"if {value} is not {missing}:")
+                emitter.emit(indentation + 1, f"{setter_name}({instance}, {value})")
+                emitter.emit(indentation + 1, f"{presence} |= {1 << index}")
+            bound_presence_setter = emitter.bind("presence_setter", bound_setter)
+            emitter.emit(indentation, f"{bound_presence_setter}({instance}, {presence})")
+        else:
+            for index, (value, setter) in enumerate(zip(values, slot_setters, strict=True)):
+                setter_name = emitter.bind(f"slot_{index}", setter)
+                emitter.emit(indentation, f"{setter_name}({instance}, {value})")
         emitter.emit(indentation, f"return {instance}")
 
     def _emit_root_check(
@@ -368,7 +395,13 @@ def compile_input(
     spec_type: type[object],
     slot_setters: tuple[Callable[[object, object], None], ...],
     mode: InputMode,
+    presence_setter: Callable[[object, object], None] | None = None,
 ) -> InputCallable:
     """Compile one external input path without changing ordinary construction."""
 
-    return _InputCompiler(mode, spec_type.__name__).compile(schema, spec_type, slot_setters)
+    return _InputCompiler(mode, spec_type.__name__).compile(
+        schema,
+        spec_type,
+        slot_setters,
+        presence_setter,
+    )

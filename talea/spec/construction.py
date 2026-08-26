@@ -24,6 +24,7 @@ class _ConstructorCompiler:
         self,
         schema: SpecSchema,
         slot_setters: tuple[Callable[[object, object], None], ...],
+        presence_setter: Callable[[object, object], None] | None = None,
     ) -> FunctionType:
         """Return an initializer containing inline validation and slot writes.
 
@@ -31,6 +32,16 @@ class _ConstructorCompiler:
         value validates, preserving public immutability without making an
         instance temporarily writable.
         """
+
+        if schema.presence_aware:
+            from talea.spec.presence import compile_presence_constructor
+
+            return compile_presence_constructor(
+                schema,
+                slot_setters,
+                cast(Callable[[object, object], None], presence_setter),
+                self.title,
+            )
 
         fields = schema.fields
         field_names = tuple(field.name for field in fields)

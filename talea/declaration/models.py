@@ -28,6 +28,24 @@ class _MissingDefault:
 MISSING_DEFAULT: Final = _MissingDefault()
 
 type HookKind = Literal["transform", "check"]
+type DerivationSelection = Literal["all", "include", "exclude"]
+
+
+@dataclass(frozen=True, slots=True)
+class SpecDerivation:
+    """Describe the immutable source and policy of one derived Spec.
+
+    ``retained_fields`` and ``omitted_fields`` use the source's effective
+    canonical order.  ``partial`` records whether instances retain supplied-key
+    presence; requiredness itself remains owned by each resulting ``SpecField``.
+    """
+
+    source: type[object]
+    retained_fields: tuple[str, ...]
+    omitted_fields: tuple[str, ...]
+    selection: DerivationSelection
+    partial: bool
+    explicit_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +122,7 @@ class SpecField:
     default_factory: Callable[[], object] | None = None
     alias: str | None = None
     metadata: DeclarationMetadata = EMPTY_METADATA
+    omittable: bool = False
 
     def __post_init__(self) -> None:
         if self.default is not MISSING_DEFAULT and self.default_factory is not None:
@@ -115,7 +134,7 @@ class SpecField:
     def required(self) -> bool:
         """Return whether construction requires an explicit field value."""
 
-        return self.default is MISSING_DEFAULT and self.default_factory is None
+        return not self.omittable and self.default is MISSING_DEFAULT and self.default_factory is None
 
     @property
     def has_static_default(self) -> bool:
@@ -154,6 +173,7 @@ class SpecSchema:
     hooks: tuple[ValidationHook, ...] = ()
     serializers: tuple[SerializationHook, ...] = ()
     metadata: DeclarationMetadata = EMPTY_METADATA
+    derivation: SpecDerivation | None = None
     instances_are_permanently_trusted: bool = field(init=False)
 
     def __post_init__(self) -> None:
@@ -205,6 +225,7 @@ class SpecSchema:
         declared_serializers: tuple[SerializationHook, ...] = (),
         shadowed_serializer_names: frozenset[str] = frozenset(),
         declared_metadata: DeclarationMetadata = EMPTY_METADATA,
+        derivation: SpecDerivation | None = None,
     ) -> "SpecSchema":
         """Create one effective declaration from bases and local contributions.
 
@@ -258,4 +279,13 @@ class SpecSchema:
             tuple(hooks.values()),
             tuple(serializers.values()),
             metadata.merged(declared_metadata),
+            derivation,
+        )
+
+    @property
+    def presence_aware(self) -> bool:
+        """Return whether instances must retain supplied-field presence."""
+
+        return bool(self.derivation is not None and self.derivation.partial) or any(
+            field.omittable for field in self.fields
         )

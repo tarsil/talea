@@ -24,6 +24,7 @@ class _InputArtifacts:
     mapping_input: InputCallable | None = None
     json_input: InputCallable | None = None
     compiling: set[InputMode] | None = None
+    presence_setter: Callable[[object, object], None] | None = None
 
     def input_for(
         self,
@@ -43,7 +44,13 @@ class _InputArtifacts:
                     self.compiling = set()
                 self.compiling.add(mode)
                 try:
-                    compiled = compile_input(schema, spec_type, self.slot_setters, mode)
+                    compiled = compile_input(
+                        schema,
+                        spec_type,
+                        self.slot_setters,
+                        mode,
+                        self.presence_setter,
+                    )
                 finally:
                     self.compiling.remove(mode)
                 if self.recursive:

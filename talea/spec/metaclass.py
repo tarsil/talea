@@ -36,6 +36,7 @@ from talea.serialization.declaration import (
 )
 from talea.spec.declaration import (
     _deferred_init,
+    _DerivedSpecPlan,
     _ensure_finalized,
     _finalize_graph,
     _prepare_declaration,
@@ -73,6 +74,31 @@ class _SpecMeta(type):
         **kwargs: object,
     ) -> "_SpecMeta":
         metadata_items = kwargs.pop("metadata", ())
+        derived_plan = kwargs.pop("_talea_derived_plan", None)
+        if derived_plan is not None:
+            derived_plan = cast(_DerivedSpecPlan, derived_plan)
+            namespace["__slots__"] = (
+                *(field.name for field in derived_plan.fields),
+                *(("__talea_presence__",) if derived_plan.derivation.partial else ()),
+            )
+            cls = super().__new__(metaclass, name, bases, namespace, **kwargs)
+            declaration = _SpecDeclaration(
+                cls,
+                derived_plan.annotations,
+                {},
+                (),
+                derived_plan.hooks,
+                derived_plan.serializers,
+                frozenset(),
+                frozenset(),
+                False,
+                declared_metadata=derived_plan.metadata,
+                prepared_fields=derived_plan.fields,
+                derivation=derived_plan.derivation,
+            )
+            type.__setattr__(cls, "__talea_declaration__", declaration)
+            _publish_declaration(cls, declaration, False)
+            return cls
         specialization = namespace.pop("__talea_specialization__", None)
         if specialization is not None:
             origin, arguments, substitutions, free_parameters = cast(
@@ -415,6 +441,7 @@ class _SpecMeta(type):
                 or keyword.iskeyword(field_name)
                 or normalize("NFKC", field_name) != field_name
                 or (field_name.startswith("__") and not field_name.endswith("__"))
+                or field_name.startswith("__talea_")
             ):
                 raise TypeError(f"invalid Spec field name: {field_name!r}")
             if field_name not in inherited_names and any(hasattr(base, field_name) for base in bases):

@@ -8,7 +8,14 @@ from typing import Annotated, TypeVar, cast, get_args, get_origin, get_type_hint
 from weakref import WeakValueDictionary
 
 from talea.declaration.metadata import Alias
-from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema, ValidationHook
+from talea.declaration.models import (
+    MISSING_DEFAULT,
+    SerializationHook,
+    SpecDerivation,
+    SpecField,
+    SpecSchema,
+    ValidationHook,
+)
 from talea.declaration.policies import schema_contains_sensitive_metadata
 from talea.input.artifacts import _InputArtifacts
 from talea.metadata import EMPTY_METADATA, DeclarationMetadata, normalize_metadata
@@ -70,6 +77,19 @@ class _SpecArtifacts:
     inputs: _InputArtifacts
     outputs: _OutputArtifacts
     contains_sensitive: bool = False
+    presence_setter: Callable[[object, object], None] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _DerivedSpecPlan:
+    """Carry canonical source truth through the normal Spec metaclass."""
+
+    annotations: Mapping[str, object]
+    fields: tuple[SpecField, ...]
+    hooks: tuple[ValidationHook, ...]
+    serializers: tuple[SerializationHook, ...]
+    metadata: DeclarationMetadata
+    derivation: SpecDerivation
 
 
 @dataclass(slots=True)
@@ -95,6 +115,7 @@ class _SpecDeclaration:
     generic_bases: tuple[type[object], ...] = ()
     local_namespace: Mapping[str, object] | None = None
     requires_local_namespace: bool = False
+    derivation: SpecDerivation | None = None
 
     def artifacts(self) -> _SpecArtifacts:
         """Return the finalized artifacts owned by this declaration."""
@@ -353,6 +374,15 @@ def _slot_setters(
     return tuple(setters)
 
 
+def _presence_setter(cls: type[object], schema: SpecSchema) -> Callable[[object, object], None] | None:
+    """Bind presence storage only for declarations whose fields are omittable."""
+
+    if not schema.presence_aware:
+        return None
+    descriptor = cast(MemberDescriptorType, vars(cls)["__talea_presence__"])
+    return descriptor.__set__
+
+
 def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recursive: bool) -> None:
     """Compile and publish one already-prepared declaration."""
 
@@ -365,6 +395,7 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
         cast(tuple, declaration.declared_serializers),
         declaration.shadowed_serializer_names,
         declaration.declared_metadata,
+        declaration.derivation,
     )
     validators = tuple(
         compile_validator(field.schema, sensitive=True) if field.metadata.sensitive else compile_validator(field.schema)
@@ -377,7 +408,12 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
     if affected_defaults:
         _validate_static_defaults(schema, validators, frozenset(affected_defaults), cls.__name__)
     slot_setters = _slot_setters(cls, schema)
-    initializer = _ConstructorCompiler(cls.__name__).compile(schema, slot_setters)
+    presence_setter = _presence_setter(cls, schema)
+    compiler = _ConstructorCompiler(cls.__name__)
+    if presence_setter is None:
+        initializer = compiler.compile(schema, slot_setters)
+    else:
+        initializer = compiler.compile(schema, slot_setters, presence_setter)
     initializer.__module__ = cls.__module__
     initializer.__qualname__ = f"{cls.__qualname__}.__init__"
     initializer.__doc__ = "Validate and retain every declared field."
@@ -385,12 +421,13 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
         schema,
         validators,
         compile_current_state_validator(schema) if recursive else None,
-        _InputArtifacts(slot_setters, recursive),
+        _InputArtifacts(slot_setters, recursive, presence_setter=presence_setter),
         _OutputArtifacts(recursive),
         any(
             bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema)
             for field in schema.fields
         ),
+        presence_setter,
     )
     type.__setattr__(cls, "__init__", initializer)
     type.__setattr__(cls, "__talea_artifacts__", artifacts)

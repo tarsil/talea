@@ -25,8 +25,10 @@ from talea import (
     Title,
     ValidationError,
     WriteOnly,
+    apply_patch,
     check,
     create_spec,
+    derive_spec,
     field,
     serialize,
     transform,
@@ -73,6 +75,11 @@ class ContractPayload(TypedDict):
 assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), ContractPayload)
 assert_type(Contract[User](User).validate(user), User)
 assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
+UserPatch = derive_spec(User, partial=True)
+user_patch: Spec = UserPatch.from_mapping({"name": "Grace"})
+assert_type(UserPatch, type[Spec])
+assert_type(user_patch.present_fields, frozenset[str])
+assert_type(apply_patch(user, user_patch), User)
 assert_type(
     create_spec("DocumentedDynamic", {"value": int}, metadata=(Title("Dynamic"), Deprecated())),
     type[Spec],
