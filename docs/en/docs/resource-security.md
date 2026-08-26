@@ -6,7 +6,8 @@ network, and logging authority. Talea is not a sandbox for Python objects or
 application callbacks.
 
 This document defines the technical threat model for external data boundaries.
-Vulnerability reporting and release governance remain separate release work.
+Vulnerability reporting and support governance are documented separately when
+the repository publishes those policies.
 
 ## Overview
 
@@ -82,6 +83,15 @@ first configured count. The `ValidationError.truncated` signal means traversal
 was terminated by the budget, not that Talea computed how many failures were
 omitted. Depth and node exhaustion raise `ResourceLimitError` with stable
 `code`, `limit`, and `observed` integers. The exception retains no input object.
+
+| Resource code | Trigger | Enforcement |
+| --- | --- | --- |
+| `input_size` | encoded JSON exceeds `max_input_bytes` | reject before invoking the decoder |
+| `depth` | structural nesting exceeds `max_depth` | reject at the first excessive path |
+| `nodes` | compiled visits exceed `max_nodes` | reject with the first known excessive count |
+
+`max_errors` does not raise `ResourceLimitError`; it returns the deterministic
+error prefix in `ValidationError` with `truncated=True`.
 
 ## Threat model, trust boundaries, and assumptions
 
@@ -186,6 +196,35 @@ Talea does not preempt Python code, recover globally from `MemoryError`, impose
 timeouts, or sandbox custom objects. Applications remain responsible for
 request concurrency, wall-clock deadlines, process isolation, operating-system
 limits, safe callback and regex review, and any stricter transport limits
-enforced before Talea receives a complete payload. Final vulnerability-reporting
-governance and `SECURITY.md` belong to Campaign 20; this document is the
-technical model that work should consume.
+enforced before Talea receives a complete payload. This technical model does
+not replace a repository vulnerability-reporting policy or application threat
+model.
+
+## Executable hostile-input scenarios
+
+The following program exercises a secret-bearing nested failure, oversized JSON
+rejected before decoding, excessive recursion depth, an exhausted compiled-node
+budget, truncated broad error aggregation, and a custom Mapping callback that
+demonstrates the sandbox boundary.
+
+{!> ../../../docs_src/recipes/errors_and_security.py !}
+
+These cases should be tested with the endpoint's actual maximum shape. A policy
+that admits a 500-item batch must count the nested object and scalar visits, not
+only the list length. Conversely, raising `max_nodes` globally because one batch
+is large weakens unrelated endpoints. Prefer immutable policies retained per
+Contract or selected per operation.
+
+When handling errors, keep `ResourceLimitError` separate from
+`ValidationError`. The former reports `code`, `limit`, and `observed` and does
+not retain the payload. The latter reports contract invalidity and may contain
+an intentionally bounded prefix of independent failures; `truncated=True`
+means the error budget stopped traversal. Neither exception chooses an HTTP,
+queue, or retry policy for the application.
+
+Sensitive redaction is deliberately conservative. A reachable Sensitive field
+can redact broader discriminator diagnostics so another failure cannot reveal
+secret-adjacent structure. Redaction protects Talea-owned errors and repr; it
+does not erase valid objects, prevent explicit serialization, protect
+application logs that access a field directly, or neutralize a malicious
+callback.

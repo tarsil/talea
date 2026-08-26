@@ -1,5 +1,5 @@
 site_name: Talea
-site_description: A fast and light Python validation library of the future.
+site_description: Strict Python data contracts with compile-once execution.
 site_url: https://talea.tarsild.io
 docs_dir: docs/generated
 site_dir: site
@@ -26,6 +26,9 @@ theme:
     - search.highlight
     - content.tabs.link
     - content.code.copy
+    - navigation.indexes
+    - navigation.path
+    - navigation.tabs
 
 repo_name: tarsil/talea
 repo_url: https://github.com/tarsil/talea
@@ -44,27 +47,59 @@ plugins:
 
 nav:
   - Introduction: "index.md"
-  - Field semantics: "field-semantics.md"
-  - Supported types: "supported-types.md"
-  - Tagged unions: "tagged-unions.md"
-  - Constraints: "constraints.md"
-  - Metadata and sensitive fields: "metadata-security.md"
-  - Custom validation: "custom-validation.md"
-  - Input boundaries: "input-boundaries.md"
-  - Resource and security model: "resource-security.md"
-  - Serialization and JSON output: "serialization.md"
-  - Validation errors: "error-experience.md"
-  - Composition and inheritance: "composition-inheritance.md"
-  - Forward references, recursion, and generics: "recursive-generics.md"
-  - Recursive aliases and TypedDict graphs: "recursive-named-graphs.md"
-  - Arbitrary contracts: "contracts.md"
-  - Dynamic Specs, introspection, and replacement: "dynamic-utilities.md"
-  - Presence and derived contracts: "presence-derived-contracts.md"
-  - JSON Schema and OpenAPI: "json-schema-openapi.md"
-  - Remaining release ledger: "release-ledger.md"
-  - Contributing: "contributing.md"
-  - Sponsorship: "sponsorship.md"
-  - Release Notes: "release-notes.md"
+  - Getting Started:
+      - "getting-started/index.md"
+      - Why Talea?: "getting-started/why-talea.md"
+      - Installation: "getting-started/installation.md"
+      - Five-minute quickstart: "getting-started/quickstart.md"
+      - Tutorial: "getting-started/tutorial.md"
+      - Production service boundary: "getting-started/production-service.md"
+  - Concepts:
+      - "concepts/index.md"
+      - Mental model: "concepts/mental-model.md"
+      - Specs: "concepts/specs.md"
+      - Contracts: "contracts.md"
+      - Strictness and boundaries: "concepts/strictness-boundaries.md"
+      - Composition and inheritance: "composition-inheritance.md"
+      - Generics and recursion: "recursive-generics.md"
+      - Tagged unions: "tagged-unions.md"
+      - Derived and PATCH contracts: "presence-derived-contracts.md"
+  - How-to Guides:
+      - "guides/index.md"
+      - Recipes: "guides/recipes.md"
+      - Adoption and migration: "guides/adoption.md"
+  - Reference:
+      - "reference/index.md"
+      - Fields and defaults: "field-semantics.md"
+      - Supported types: "supported-types.md"
+      - Constraints: "constraints.md"
+      - Transforms and checks: "custom-validation.md"
+      - Input boundaries: "input-boundaries.md"
+      - Serialization: "serialization.md"
+      - Validation errors: "error-experience.md"
+      - Metadata and Sensitive: "metadata-security.md"
+      - JSON Schema and OpenAPI: "json-schema-openapi.md"
+      - ResourcePolicy: "resource-security.md"
+      - Typing: "reference/typing.md"
+      - Introspection: "reference/introspection.md"
+      - Dynamic Specs: "dynamic-utilities.md"
+      - Immutable updates: "reference/immutable-updates.md"
+      - Edge cases: "reference/edge-cases.md"
+      - Public API: "reference/api.md"
+  - Engineering:
+      - "engineering/index.md"
+      - Architecture: "engineering/architecture.md"
+      - Security architecture: "engineering/security.md"
+      - Performance: "engineering/performance.md"
+      - Enterprise evaluation: "engineering/enterprise-evaluation.md"
+      - Comparison: "engineering/comparison.md"
+      - Known limitations: "engineering/limitations.md"
+      - Troubleshooting: "engineering/troubleshooting.md"
+  - Project:
+      - Contributing: "contributing.md"
+      - Version, maturity, and support: "release-ledger.md"
+      - Release notes: "release-notes.md"
+      - Sponsorship: "sponsorship.md"
 
 markdown_extensions:
   - toc:

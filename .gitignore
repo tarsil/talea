@@ -12,6 +12,7 @@ __pycache__/
 virtualenv/
 build/
 dist/
+docs/generated/
 node_modules/
 results/
 site/

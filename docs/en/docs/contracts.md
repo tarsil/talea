@@ -126,7 +126,7 @@ including keys created with functional `TypedDict` syntax.
 ## Type aliases and NewType
 
 PEP 695 aliases and `NewType` retain their names in canonical schema truth for
-introspection, error context, recursion work, and future schema projection.
+introspection, error context, recursion, and standards projection.
 Their underlying validation remains compiled inline.
 
 ```python
@@ -145,12 +145,11 @@ assert Contract[LegacyId](LegacyId).validate(1) == 1
 Recursive PEP 695 aliases and TypedDict declarations use finite canonical
 named-reference graphs. Self recursion, mutual recursion, mixed graphs,
 concrete generic specializations, and recursive tagged TypedDict ASTs support
-every Contract boundary. See [Recursive aliases and TypedDict
-graphs](recursive-named-graphs.md).
+every Contract boundary. See [Generics and recursion](recursive-generics.md).
 
 ## Generic and recursive Specs
 
-Campaign 11's specialization and recursive-reference architecture is consumed
+Generic specialization and recursive-reference architecture is consumed
 directly by Contract.
 
 ```python
@@ -206,6 +205,52 @@ operations use Talea's finite default or one explicit per-call policy. See
 [Resource and security model](resource-security.md) for the ownership and trust
 boundary.
 
+## Standards projection
+
+`json_schema(mode="input" | "output")` returns Draft 2020-12 for the retained
+root annotation. `openapi_schema(...)` returns an OpenAPI 3.1-compatible Schema
+Object/components fragment. Aliases, metadata, constraints, recursion, tagged
+unions, and standard JSON representations come from the same canonical graph.
+An arbitrary transform or serializer can make one mode unknowable and then
+raises `SchemaProjectionError` rather than publishing a false schema.
+
+## Complete executable boundary set
+
+The following example moves beyond `Contract(int)`. It exercises UUID and
+`list[UUID]`, `dict[str, Decimal]`, a third-party-shaped TypedDict, a recursive
+JSON-value alias, a concrete generic alias specialization, Python and JSON
+input/output, schemas, and nested failure handling.
+
+{!> ../../../docs_src/recipes/contracts.py !}
+
+Notice that each operation answers a different question. `validate()` requires
+the Python representation already to be correct. `from_python()` admits the
+external structural form, such as a Mapping for a TypedDict or Spec.
+`from_json()` additionally owns JSON string representations. `to_python()`
+returns detached Python containers; `to_json()` validates current state and
+encodes the JSON representation. Schema methods project the same retained
+annotation rather than inspecting the example values.
+
+## Failure, security, and lifecycle guidance
+
+A Contract is immutable after construction and retains no process-global codec
+or mutable resource state. Reuse one Contract when the annotation and retained
+policy are stable; create different Contracts when two boundaries intentionally
+have different policies. An explicit per-call policy replaces the retained
+policy instead of merging dimensions, which makes the effective limit
+reviewable at the call site.
+
+Contract does not add a sandbox around a Python type. Custom callbacks,
+Mapping methods, and codecs remain trusted application behavior. Mutable input
+and output containers are revalidated at the next boundary, and cyclic runtime
+values fail rather than recursing indefinitely. See [Resource and security](resource-security.md)
+and [Error experience](error-experience.md).
+
+Do not introduce Contract solely to wrap a three-line internal predicate. A
+small direct function can be easier to review. Contract earns its place when
+the same arbitrary annotation needs multiple Talea boundaries, structured
+errors, policies, serialization, schemas, or introspection.
+
 ## Compilation, caching, and performance
 
 Contract construction resolves the annotation and compiles strict validation.
@@ -235,5 +280,5 @@ This is a static typing limitation, not a runtime limitation.
 - Custom JSON codecs select syntax only; they cannot replace canonical
   conversion or output validation.
 - Use `Contract(list[T])` for a materialized batch. Streaming, JSONL, per-item
-  failure isolation, callable decoration, and partial/presence contracts are
-  separate owners recorded in the [release ledger](release-ledger.md).
+  failure isolation, and callable decoration are not implemented. Use
+  `derive_spec(..., partial=True)` for Spec PATCH contracts.

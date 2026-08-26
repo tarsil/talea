@@ -72,6 +72,11 @@ tasks:
     cmds:
       - hatch run docs:build
 
+  docs_test:
+    desc: Executes documentation examples and validates navigation and internal links
+    cmds:
+      - hatch run docs:test
+
   serve:
     desc: Runs the documentation in live mode
     cmds:

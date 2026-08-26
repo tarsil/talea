@@ -1,148 +1,238 @@
 # Talea
 
-Talea is an early-stage Python 3.14 data-modelling and validation library. A
-`Spec` declares fields with Python annotations:
+Talea is a **2026+ Python data-contract library** for applications that want
+strict Python semantics, explicit external boundaries, immutable records, and
+standards-aware schemas without a required runtime dependency graph.
+
+It is built for Python 3.14 and newer. An annotation is resolved once into one
+canonical contract, then Talea compiles specialized pure-Python operations for
+construction, external Mapping input, JSON input, Python output, JSON output,
+and schema projection.
 
 ```python
-from talea import Spec
+from typing import Annotated
+from uuid import UUID
+
+from talea import Alias, MinLength, Sensitive, Spec
 
 
-class User(Spec):
-    id: int
-    name: str
-    active: bool = True
+class Credentials(Spec):
+    token: Annotated[str, Sensitive(), MinLength(16)]
 
 
-user = User(id=1, name="Tiago")
+class UserCreate(Spec):
+    user_id: Annotated[UUID, Alias("id")]
+    display_name: Annotated[str, Alias("displayName"), MinLength(1)]
+    credentials: Credentials
+
+
+request = UserCreate.from_json(
+    """{
+      "id": "12345678-1234-5678-1234-567812345678",
+      "displayName": "Ada Lovelace",
+      "credentials": {"token": "correct-horse-battery-staple"}
+    }"""
+)
+
+assert request.user_id == UUID("12345678-1234-5678-1234-567812345678")
+assert request.display_name == "Ada Lovelace"
+assert "correct-horse-battery-staple" not in repr(request)
 ```
 
-Validation failures expose stable codes and structured, JSON-compatible paths:
+The conversion above is deliberately attached to `from_json()`. Ordinary
+Python construction is strict:
 
 ```python
-from talea import ValidationError
-
-try:
-    User(id="1", name="Tiago")
-except ValidationError as exc:
-    errors = exc.errors()
-```
-
-Human rendering identifies the Spec and nested failure without exposing
-generated validator internals. Talea bounds representations of hostile input;
-applications should use `code`, `location`, and structured context rather than
-parse message text.
-
-Specs compose and inherit as normal Python classes:
-
-```python
-class Employee(User):
-    employee_id: int
-
-
-class Team(Spec):
-    lead: Employee
-    members: list[User]
-```
-
-Forward references, recursive graphs, and Python 3.14 generic declarations use
-the same canonical schema and compiled execution:
-
-```python
-class Tree[T](Spec):
-    value: T
-    children: list[Tree[T]]
-
-
-tree = Tree[int].from_mapping(
-    {"value": 1, "children": [{"value": 2, "children": []}]}
+UserCreate(
+    user_id="12345678-1234-5678-1234-567812345678",  # ValidationError
+    display_name="Ada Lovelace",
+    credentials=Credentials(token="correct-horse-battery-staple"),
 )
 ```
 
-PATCH contracts preserve omission separately from `None`:
+A UUID field accepts a Python `UUID` on the trusted path. JSON has no UUID
+value, so the JSON boundary owns its documented string representation. That
+separation is the core of Talea's mental model: conversion is explicit, and
+already-valid Python values do not pass through a general parsing pipeline.
 
-```python
-from talea import apply_patch, derive_spec
+## Why Talea exists
 
-UserPatch = derive_spec(User, partial=True)
-patch = UserPatch(name="Grace")
-updated = apply_patch(user, patch)
+Python applications often need more than a typed record. At an API, event,
+configuration, or third-party boundary they need to answer all of these
+questions consistently:
 
-assert patch.present_fields == frozenset({"name"})
+- Which Python values are valid without conversion?
+- Which external representations are accepted from Mapping and JSON input?
+- Where does hostile input receive finite work and error budgets?
+- What locations and stable codes does invalid nested data produce?
+- Which names and representations appear in serialized output?
+- Can a framework project the same contract as Draft 2020-12 JSON Schema or
+  an OpenAPI 3.1 Schema Object?
+- Can tooling inspect the contract without reconstructing annotations?
+
+Talea answers them from one canonical schema graph, while retaining separate
+execution paths for operations that have different trust and performance
+requirements.
+
+“2026+” describes that starting point. Talea began with Python 3.14+, PEP 695
+generics, deferred annotations, recursive type graphs, current typing behavior,
+and modern JSON Schema as architectural assumptions. It did not need to carry
+compatibility requirements for historical Python releases or retrofit those
+assumptions into an older public contract. This is a design circumstance—not a
+claim that mature libraries are obsolete, a prediction of ecosystem
+replacement, or a guarantee of future superiority.
+
+## The boundary model
+
+| Operation | Use it when | What it does |
+| --- | --- | --- |
+| `User(...)` | application code already has Python values | strict, keyword-only construction |
+| `Contract(T).validate(value)` | an arbitrary root is already Python-shaped | strict validation without conversion |
+| `User.from_mapping(data)` | an external Python Mapping represents an object | structural conversion with finite traversal policy |
+| `Contract(T).from_python(data)` | an external root may be a list, union, alias, or TypedDict | structural conversion with finite traversal policy |
+| `from_json(data)` | text or bytes crosses a serialized boundary | strict decoding, JSON representations, conversion, and resource policy |
+| `to_dict()` / `to_python()` | an application needs detached Python output | schema-aware projection and current-state validation |
+| `to_json()` | an application needs JSON text | schema-aware projection followed by encoding |
+| `json_schema()` / `openapi_schema()` | tooling needs a standards description | projection from the same canonical graph |
+
+JSON and Mapping boundaries are not aliases for the constructor. For example,
+`Decimal`, UUID, temporal values, paths, IP values, bytes, enums, nested Specs,
+and tagged unions each retain an explicit Python contract and an explicit JSON
+representation.
+
+## What is implemented
+
+Talea currently provides:
+
+- strict, keyword-only, immutable, slotted `Spec` records;
+- defaults and factories, inheritance, safe narrowing, custom transforms,
+  field checks, whole-Spec checks, and serializers;
+- built-in numeric, length, and pattern constraints carried by `Annotated`;
+- aliases, titles, descriptions, examples, deprecation, read/write metadata,
+  and sensitive-value handling;
+- `Contract` for primitives, containers, unions, `TypedDict`, type aliases,
+  recursive graphs, tagged unions, and concrete generic specializations;
+- first-class Mapping and JSON input with structured nested errors;
+- finite transport-size, depth, traversal-node, and error-aggregation policy;
+- presence-aware partial Specs, `derive_spec()`, and `apply_patch()` for PATCH
+  semantics where absent is not confused with `None`;
+- canonical discriminator-based union dispatch and OpenAPI discriminator maps;
+- Python and JSON serialization with explicit per-call codec boundaries;
+- JSON Schema Draft 2020-12 and OpenAPI 3.1-compatible Schema Objects;
+- public immutable introspection and runtime `create_spec()` declarations;
+- compile-once specialized pure-Python execution with permanent benchmark
+  canaries for distinct workloads.
+
+The documentation proves these features with executable account API, REST
+PATCH, event, financial, recursive AST, arbitrary Contract, error/security,
+schema/OpenAPI, dynamic declaration, and immutable replacement examples.
+
+## A complete service boundary
+
+A framework-neutral request flow looks like this:
+
+```text
+raw request bytes
+    -> ResourcePolicy
+    -> UserCreate.from_json(...)
+    -> ValidationError or ResourceLimitError
+    -> application/domain operation
+    -> UserResponse
+    -> to_json()
 ```
 
-Only supplied partial fields validate and serialize. Source defaults and
-factories do not run for omitted fields, and applying a patch delegates to the
-normal immutable replacement lifecycle so complete-source invariants rerun.
+Talea does not choose routes, dependency injection, HTTP status codes, ORM
+behavior, or response envelopes. A FastAPI, Lilya, Django, Starlette, Flask, or
+other adapter can own those framework concerns while calling the explicit
+Talea boundary operations. The manual includes the entire executable flow,
+plus presence-aware PATCH and generated input/output OpenAPI fragments.
 
-Concrete specializations such as `Tree[int]` are cached classes with concrete
-validators; construction performs no runtime type-parameter dispatch. Cyclic
-Mapping input and cyclic serialization fail deliberately with structured paths.
+## Installation
 
-Spec declarations resolve their annotations, validate static defaults, and
-compile strict standalone validators once when the class is created. The same
-validation compiler emits those operations directly into each specialized Spec
-constructor, avoiding per-field validator calls. Construction is keyword-only,
-performs no coercion, and stores validated values in compact instance slots.
-Spec field bindings are immutable after construction. Talea
-permanently trusts declarations only when their value graphs are also
-transitively immutable. Nested mutable Specs are revalidated against their
-current declared state at each new validation boundary. Mutable defaults use a
-per-instance factory:
+Talea requires Python 3.14+. Until a package-index release is published,
+install from a source checkout:
 
-```python
-from talea import Spec, field
-
-
-class Basket(Spec):
-    items: list[int] = field(default_factory=list)
+```console
+git clone https://github.com/tarsil/talea.git
+cd talea
+python -m pip install .
 ```
 
-Applications can explicitly transform inbound field values before strict
-validation and assert field or cross-field invariants afterward:
+The core package declares `dependencies = []`. Development, test, benchmark,
+build, and documentation tools remain separate development dependencies.
 
-```python
-from talea import check, transform
+## Not a competition
 
+Talea is not trying to replace Pydantic, msgspec, dataclasses, attrs, or
+manually written validation.
 
-class Interval(Spec):
-    start: int
-    end: int
+Pydantic has broad adoption, extensive integrations, a mature ecosystem, and
+coercive/parsing workflows many applications actively want. msgspec has an
+extremely fast native implementation, mature serialization, and a different
+set of representation and performance tradeoffs. Dataclasses and attrs remain
+excellent for internal records that do not need a full external-boundary
+contract. Direct Python is often clearest for three checks in one specialized
+function.
 
-    @transform("start")
-    def parse_start(value: object) -> object:
-        return int(value) if isinstance(value, str) else value
+Talea is another design point: strict, dependency-light, Python-native,
+compile-once, explicit-boundary, introspectable, standards-aware, and
+security-conscious. Selection is a requirements decision, not a winner/loser
+ranking.
 
-    @check("start", "end")
-    def ordered(start: int, end: int) -> None:
-        if end < start:
-            raise ValueError("invalid interval")
-```
+## When Talea fits—and when it does not
 
-Transforms do not weaken unhooked fields and cannot bypass the canonical
-schema. Checks run before immutable slot commitment. Outbound field serializers
-use a separate `@serialize("field")` lifecycle and never change validation.
+Talea is worth evaluating when a project uses Python 3.14+, wants strict
+ordinary Python construction, needs Mapping or JSON boundaries, values an
+empty required dependency graph, and can benefit from structured errors,
+finite external-input policy, schemas, or framework introspection.
 
-Subclass fields follow inherited fields, while an override keeps its inherited
-position. Each subclass has one flat keyword-only constructor for its complete
-effective declaration. Compact multiple inheritance is available when there is
-one state-bearing Spec slot lineage; method-only mixins must declare
-`__slots__ = ()`.
+It is likely the wrong choice when:
 
-Untrusted Python mappings use `User.from_mapping(data)`, which constructs nested
-Specs, reports missing and unexpected fields, and aggregates independent field
-failures without changing ordinary construction. Serialized JSON uses
-`User.from_json(data)`. The standard-library decoder is strict about duplicate
-keys and non-standard numeric constants, while an explicit per-call `loads`
-callable can select another JSON implementation. `user.to_dict()` returns a
-detached Python mapping, and `user.to_json()` applies Talea's compiled
-schema-aware JSON projection before an optional per-call `dumps` codec. Decimal
-output is precision-safe text, timedelta uses exact ISO 8601 duration text, and
-bytes use strict base64.
+- the application depends heavily on Pydantic-specific integrations or wants
+  broad coercion by default;
+- Python 3.13 or earlier must remain supported;
+- settings, ORM extraction, or a large plugin ecosystem must come from the
+  same package;
+- msgspec already exactly matches a high-throughput native serialization
+  workflow;
+- the only requirement is a small internal record, where a dataclass or attrs
+  class is simpler;
+- specialized validation is shorter and clearer as manually written Python;
+- adopting a pre-1.0 library with a small ecosystem is unacceptable.
 
-The canonical schema foundation covers built-in scalar types, homogeneous
-built-in containers, dictionaries, fixed and variadic tuples, PEP 604 unions,
-explicit Literal-backed tagged unions, Literal, enums, UUIDs, dates and times,
-Decimal, pathlib paths, and IP address
-families. `Annotated` carries Talea's immutable numeric, length, and pattern
-constraints. Schema and validator compiler internals are not exported from the
-root `talea` package.
+## Documentation
+
+- [Documentation home](https://talea.tarsild.io)
+- [Why Talea?](https://talea.tarsild.io/getting-started/why-talea/)
+- [Five-minute quickstart](https://talea.tarsild.io/getting-started/quickstart/)
+- [Progressive tutorial](https://talea.tarsild.io/getting-started/tutorial/)
+- [Production service boundary](https://talea.tarsild.io/getting-started/production-service/)
+- [Concepts and mental model](https://talea.tarsild.io/concepts/)
+- [How-to recipes](https://talea.tarsild.io/guides/recipes/)
+- [Complete API reference](https://talea.tarsild.io/reference/api/)
+- [Security and resource model](https://talea.tarsild.io/resource-security/)
+- [Performance method and evidence](https://talea.tarsild.io/engineering/performance/)
+- [Known limitations](https://talea.tarsild.io/engineering/limitations/)
+
+For a local checkout, `task docs_test` executes all `docs_src` examples and
+checks navigation, links, API inventory, and documentation policy. `task build`
+builds the site; `task build_with_checks` verifies release artifacts.
+
+## Maturity and evidence
+
+Talea is pre-1.0. Compatibility, deprecation, support, and release governance
+are not yet frozen, and its ecosystem is necessarily much smaller than mature
+alternatives. The project does not call that tradeoff complete or invisible.
+
+Repository gates include unit and integration tests, 100% line coverage,
+linting, formatting, static typing, package checks, executable documentation,
+standards-conformance tests, security/adversarial cases, and 18 permanent
+benchmark workloads. Performance comparisons require semantically equivalent
+operations; no claim is based on removing validation from one side.
+
+See [Contributing](https://talea.tarsild.io/contributing/) for exact commands,
+[Maturity and support](https://talea.tarsild.io/release-ledger/) for current
+governance, and [Security](https://talea.tarsild.io/engineering/security/) for
+the technical threat model and reporting status.
+
+Talea is licensed under the MIT License.

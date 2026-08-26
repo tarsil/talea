@@ -3,8 +3,8 @@
 Talea has one declaration vocabulary for documentation, boundary
 classification, and sensitive-data policy. Metadata is immutable, normalized
 when a declaration is resolved, and retained beside structural validation
-truth. Introspection, validation failures, serialization failures, and future
-schema projection consume that same record; none re-read annotations.
+truth. Introspection, validation failures, serialization failures, and
+standards projection consume that same record; none re-read annotations.
 
 ## Field metadata
 
@@ -58,8 +58,8 @@ registry lookup, or runtime branch.
 Examples accept JSON-compatible scalars, finite floats, sequences, and
 string-keyed mappings. Talea snapshots lists and mappings into recursively
 immutable canonical values. It does not run transforms, checks, factories, or
-validation merely to approve documentation examples. A future schema consumer
-can project these retained values without executing application code.
+validation merely to approve documentation examples. Schema projection uses
+these retained values without executing application code.
 
 ### Duplicate and unknown metadata
 
@@ -189,10 +189,10 @@ Talea's failure objects; callback code remains trusted application code.
 Sensitive and write-only are deliberately different:
 
 - `Sensitive` protects errors and representation used for diagnostics.
-- `WriteOnly` classifies external output policy for future adapters.
+- `WriteOnly` classifies an external output policy for schemas and adapters.
 
 Normal `to_dict()` and `to_json()` include sensitive and write-only fields.
-Campaign 13 does not silently change the round-trip contract:
+Metadata does not silently change the round-trip contract:
 
 ```python
 credentials = Login(password="correct horse")
@@ -206,8 +206,8 @@ Likewise, a JSON codec failure for a value graph containing sensitive metadata
 does not retain the codec exception. Successful custom hooks and codecs still
 receive the actual value because serialization was explicitly requested.
 
-Read-only and write-only enforcement is deferred to the future presence and
-derived-contract owner. JSON Schema words alone are not sufficient reason to
+Read-only and write-only are projected to JSON Schema/OpenAPI but are not
+runtime enforcement. JSON Schema words alone are not sufficient reason to
 reject Talea Mapping input or omit normal output.
 
 ## Inheritance and explicit opt-out
@@ -280,12 +280,13 @@ Open generic introspection exposes metadata before the field schema can be
 resolved. Concrete specialization and recursive finalization retain the same
 metadata without copying it per instance or per recursive expansion.
 
-## Future schema projection
+## JSON Schema and OpenAPI projection
 
-JSON Schema and OpenAPI are not implemented by this campaign. Their future
-owner can consume canonical field, Spec, Contract, TypedDict, and alias
-metadata directly, alongside structural Schema constraints and identities. It
-must not re-read annotations or invent a second metadata record.
+`json_schema()` and `openapi_schema()` project titles, descriptions, examples,
+deprecation, `readOnly`, and `writeOnly` from canonical field, Spec, Contract,
+TypedDict, and alias metadata. `Sensitive` is intentionally absent from public
+standards output because it is a Talea error-redaction policy, not a standard
+schema keyword. See [JSON Schema and OpenAPI](json-schema-openapi.md).
 
 ## Security guidance and limitations
 
@@ -298,9 +299,9 @@ must not re-read annotations or invent a second metadata record.
   effects; Talea only controls its own errors.
 - Sensitive error objects discard raw input and causes. Capture separate safe
   diagnostic facts before crossing the validation boundary when required.
-- Read-only and write-only are classification only until a dedicated derived
-  contract defines presence and output enforcement.
+- Read-only and write-only are classification and schema projection only; use
+  application-owned input/output policy for enforcement.
 
 Metadata is class/Contract-owned cold state. Instances retain only field
-values, and metadata-free successful validation and serialization do not pay a
-Campaign 13 runtime tax.
+values, and metadata-free successful validation and serialization have no
+metadata traversal.

@@ -307,7 +307,7 @@ discriminator mapping order are deterministic.
 ## Tagged unions and OpenAPI discriminators
 
 Tagged unions use `oneOf` because every branch has a required, canonical,
-single-value discriminator field and Campaign 14 already rejects tag
+single-value discriminator field and declaration resolution rejects tag
 collisions. Pure JSON Schema relies on those field `const` constraints.
 
 OpenAPI projection adds:
@@ -360,3 +360,26 @@ Schema generation is cold tooling work. It adds no metadata to instances, no
 registry to declarations, and no imports or branches to generated constructor,
 validation, input, or serialization functions. A new mutable dictionary is
 built per call, avoiding shared-state corruption and unbounded global caches.
+
+## Complete framework projection example
+
+This executable example combines nested account contracts, aliases, numeric
+constraints, title/description metadata, read/write annotations, Sensitive
+data, a presence-aware PATCH projection, a tagged event Contract, input/output
+modes, and an OpenAPI discriminator map.
+
+{!> ../../../docs_src/recipes/schema_openapi.py !}
+
+The returned fragment is intentionally smaller than an OpenAPI document. A
+framework owns paths, operations, request bodies, responses, security schemes,
+and component merging. Talea supplies a root Schema Object and the components
+reachable from that root. Component-name conflicts between independent
+fragments are therefore an adapter concern and should be detected while the
+framework assembles its document.
+
+For debugging, start at the root `$ref`, locate its definition, and then inspect
+the field's external alias in `properties`. If a field is absent, verify that
+the expected mode is being generated and that it was retained by a derived
+Spec. If projection raises `SchemaProjectionError`, look for a transform on the
+input side or serializer on the output side; Talea refuses to guess the domain
+of arbitrary Python callbacks.

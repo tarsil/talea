@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "talea"
-description = "A fast and light Python validation library of the future"
+description = "Strict Python data contracts with compile-once execution"
 readme = "README.md"
 requires-python = ">=3.14"
 dynamic = ['version']
@@ -82,7 +82,7 @@ clean_pyc = "find . -type f -name \"*.pyc\" -delete"
 clean_pyi = "find . -type f -name \"*.pyi\" -delete"
 clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
 build_with_check = "hatch build; twine check dist/*"
-lint = "ruff check --fix --line-length 99 talea tests benchmarks {args}"
+lint = "ruff check --fix --line-length 99 talea tests benchmarks docs_src scripts/docs_check.py {args}"
 format = "hatch fmt && hatch fmt --check && hatch run test:check_types"
 
 [tool.hatch.envs.docs]
@@ -100,6 +100,7 @@ clean = "scripts/docs.py clean"
 build = "scripts/docs.py build --clean"
 serve = "scripts/docs.py serve"
 dev = "scripts/docs.py serve"
+test = "python scripts/docs_check.py"
 
 [tool.hatch.envs.test]
 features = ["testing", "benchmarking"]
@@ -115,7 +116,7 @@ extra-dependencies = [
 test = "hatch test -- {args}"
 test_man = "hatch test -- {args} -s -vv"
 coverage = "pytest --cov=talea --cov-report=term-missing {args}"
-check_types = "ty check talea benchmarks typing_contracts"
+check_types = "ty check talea benchmarks docs_src typing_contracts"
 benchmark_schema = "python benchmarks/schema_resolution.py"
 benchmark_spec = "python benchmarks/spec_construction.py"
 benchmark_composition = "python benchmarks/spec_composition.py"
@@ -151,8 +152,6 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "W", "F", "C", "B", "I"]
 ignore = ["E501", "B008", "C901", "B026"]
-
-exclude = ["docs_src/"]
 
 [tool.ruff.lint.isort]
 combine-as-imports = true

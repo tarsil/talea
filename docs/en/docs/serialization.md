@@ -126,7 +126,7 @@ JSON string and accepts that string on Decimal JSON input. This preserves the
 coefficient and exponent exactly and gives stdlib and external codecs the same
 genuinely JSON-native tree.
 
-Campaign 9's finite JSON-number input remains accepted. It is useful for
+Finite JSON-number input remains accepted. It is useful for
 external producers, and the default decoder still preserves fractional tokens
 as Decimal. The canonical Talea outbound form is a string because JSON has no
 standard in-memory arbitrary-precision numeric scalar that can be handed to an
@@ -159,8 +159,8 @@ Examples include `PT0S`, `P2D`, `PT1.000001S`, and
 
 Bytes use padded RFC 4648 base64. Decoding validates alphabet and padding; an
 ordinary string field is never base64-decoded. This schema-specific distinction
-avoids ambiguity for a plain bytes field and aligns with future JSON Schema
-`contentEncoding` projection.
+avoids ambiguity for a plain bytes field and projects to JSON Schema
+`contentEncoding`.
 
 Unions such as `bytes | str`, `Decimal | str`, or `timedelta | str` have
 intrinsically overlapping JSON string representations. Talea applies its
@@ -204,7 +204,7 @@ Pass `by_alias=False` when an internal-name diagnostic mapping is needed.
 
 Aliases must be non-empty and unique. An alias cannot collide with any
 canonical or external name in the effective inherited declaration. Input,
-output, and future schema projection all consume the same `SpecField.alias`;
+output, and standards projection all consume the same `SpecField.alias`;
 there are no separate validation and serialization alias maps.
 
 ## Field selection
@@ -224,7 +224,7 @@ use aliases. This avoids policies changing meaning with `by_alias`.
 Plain output pays no per-field selection branches. A separate filtered
 serializer is compiled lazily only when one of these options is used.
 
-Nested include/exclude trees are not implemented. Callers can serialize a
+Nested include/exclude trees are not supported. Callers can serialize a
 nested Spec directly or use a field serializer when a nested public view is a
 domain contract. `exclude_defaults` is absent because default factories do not
 own one stable comparable default. `exclude_unset` is absent because Talea does
@@ -264,7 +264,7 @@ Hook exceptions become `SerializationError` at the field location and remain
 available as `__cause__`. Validation errors continue to mean input rejected by
 a contract; they are not reused for output failures. Whole-Spec serializers
 are not supported because replacing the complete declared representation would
-undermine canonical field, alias, and future schema truth.
+undermine canonical field, alias, and standards schema truth.
 
 ## Selecting a JSON encoder
 

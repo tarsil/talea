@@ -278,7 +278,7 @@ normal Python pickling limitations. `module` and `qualname` can be supplied to
 `derive_spec()` when an application owns importable class registration; Talea
 does not mutate modules on the application's behalf.
 
-## Introspection and future schema projection
+## Introspection and schema projection
 
 `inspect_spec()` exposes derived truth without compiler state:
 
@@ -295,14 +295,14 @@ assert info.derivation.retained_fields == ("id", "name", "active")
 
 Each `FieldInfo` reports `required` and `omittable`. `SpecInfo.derivation`
 reports the source, retained and omitted fields, selection policy, partial
-policy, and explicit name. Future JSON Schema projection can therefore produce
+policy, and explicit name. JSON Schema projection therefore produces
 required-key truth directly from the canonical declaration; it does not need
 to inspect runtime instances or infer semantics from class names.
 
 TypedDict remains its own canonical structural contract. Its `Required` and
 `NotRequired` keys already distinguish presence from value nullability. Talea
-does not wrap TypedDict requiredness in the Spec derivation API, but future
-schema projection can consume both owners consistently.
+does not wrap TypedDict requiredness in the Spec derivation API; schema
+projection consumes both owners consistently.
 
 ## Static typing and scope
 
@@ -313,9 +313,10 @@ Runtime fields still retain their exact schemas, while static code can use
 contract crosses a typed boundary. `apply_patch()` preserves the concrete type
 of its complete source argument.
 
-Campaign 16 does not add direct `field(omittable=True)` syntax,
-`contract.partial()`, automatic read/write projections, field renaming, open
-generic derivation, JSON Schema, OpenAPI, or global resource limits.
+There is no direct `field(omittable=True)` syntax, `contract.partial()`,
+automatic runtime read/write enforcement, field renaming, or open-generic
+derivation. JSON Schema/OpenAPI projection and external-input resource limits
+apply to the resulting concrete Spec through their normal owners.
 
 ## Performance model
 
@@ -330,3 +331,26 @@ current-state validation, and replacement functions for presence-aware derived
 classes. The permanent `benchmark_presence` task covers cold derivation,
 0/1/5/all-present construction and serialization, `present_fields`, patch
 application, memory, weak collection, and ordinary Spec zero-tax canaries.
+
+## Complete REST PATCH example
+
+The executable example below combines an excluded server-owned identifier,
+aliases, a source default, an optional field, a Sensitive token, empty and
+one-field patches, explicit `None`, a default-equal value, omitted
+`AttributeError`, Python/JSON projection, `apply_patch`, a failed field
+constraint, a failed complete-object invariant, `copy.replace`, and input JSON
+Schema.
+
+{!> ../../../docs_src/tutorials/patches.py !}
+
+In an HTTP adapter, decode the patch once, use `present_fields` for auditing or
+authorization if needed, load the current complete object, apply the patch, and
+persist only the validated result. Talea does not authorize which actor may
+change a field, resolve concurrent revisions, perform database updates, or
+choose response codes. Those remain application concerns.
+
+Avoid serializing the complete source to a dictionary and merging patch output
+by hand. That route loses the exact source/patch relationship, can confuse
+aliases with Python names, and risks bypassing replacement validation. The
+canonical `apply_patch()` owner exists to keep presence and whole-object truth
+together.

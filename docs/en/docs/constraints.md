@@ -106,8 +106,8 @@ product = Product(code="ABC-0042")
 Talea-owned constraints affect validation. Other `Annotated` metadata is
 ignored, not retained in the compact canonical validation schema, and never
 executed. This policy avoids turning arbitrary metadata objects into accidental
-validators or adding unused introspection cost. A future introspection owner
-may provide a separate preservation contract without changing validation.
+validators or adding unused introspection cost. Talea-owned metadata has a
+separate canonical record; see [Metadata and Sensitive](metadata-security.md).
 
 ## Inheritance and trust
 
@@ -130,6 +130,86 @@ and structured context containing the failed limit or pattern. Talea remains
 fail-fast across Spec fields; [Validation errors](error-experience.md) documents
 human rendering, JSON projection, and union branch diagnostics.
 
-Unconstrained Specs contain no Campaign 6 metadata loops, regex machinery,
+Unconstrained Specs contain no constraint metadata loops, regex machinery,
 type adapters, or registry lookups. Each used constraint adds only its direct
 Python operation to the specialized validator or constructor.
+
+## Boundary walkthrough
+
+The lower and upper limits are inclusive or exclusive exactly as named:
+
+```python
+from typing import Annotated
+
+from talea import Contract, Ge, Lt
+
+
+type RiskScore = Annotated[int, Ge(0), Lt(100)]
+risk_scores = Contract[RiskScore](RiskScore)
+
+assert risk_scores.validate(0) == 0
+assert risk_scores.validate(99) == 99
+# -1 fails with greater_than_or_equal; 100 fails with less_than.
+```
+
+For sized values, boundaries count the declared Python container or string:
+
+```python
+from talea import MaxLength, MinLength
+
+
+type Tags = Annotated[list[str], MinLength(1), MaxLength(3)]
+tags = Contract[Tags](Tags)
+
+assert tags.validate(["verified"])
+# [] fails min_length; four tags fail max_length.
+```
+
+Constraints compose with aliases, nested Specs, unions, TypedDict fields, and
+container items. Place `Annotated` at the level being constrained:
+
+```python
+type NonEmptyText = Annotated[str, MinLength(1)]
+type NonEmptyList = Annotated[list[str], MinLength(1)]
+
+# list[NonEmptyText] constrains each string; NonEmptyList constrains the list.
+```
+
+## Inheritance narrowing example
+
+```python
+from talea import Spec
+
+
+class PublicLabel(Spec):
+    value: Annotated[str, MinLength(1), MaxLength(120)]
+
+
+class ShortLabel(PublicLabel):
+    value: Annotated[str, MinLength(3), MaxLength(40)]
+```
+
+The child accepts a subset of parent values, so substituting it does not weaken
+the inherited contract. Reversing either bound is rejected at declaration.
+Pattern implication is not generally decidable; Talea accepts identical
+patterns but does not guess that one different regular expression narrows
+another.
+
+## Schema and debugging
+
+Integer/float bounds and sized-container limits project to the corresponding
+Draft 2020-12 keyword. The property holding `RiskScore`, for example, carries
+`minimum: 0` and `exclusiveMaximum: 100`. Decimal bounds stay runtime-only
+because Decimal is represented as JSON text, and float `MultipleOf` stays
+runtime-only because Talea's tolerance is not JSON Schema's exact mathematical
+rule.
+
+When a declaration fails, inspect the base type and constraint value before
+debugging runtime input: `Ge(0)` on Decimal should be `Ge(Decimal("0"))`, and
+`MinLength` cannot apply to UUID. When a value fails, consume the stable code,
+location, and `context` from `ValidationError.errors()`; the context retains the
+effective normalized bound.
+
+Do not use a structural constraint for business policy that changes with
+database state, permissions, clocks, or external services. Those checks belong
+in the application operation, not a supposedly stable data contract.

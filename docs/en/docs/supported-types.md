@@ -126,5 +126,95 @@ nested declarations, containers, unions, constraints on child fields, and
 concrete generic specialization. `ReadOnly` metadata is retained but has no
 runtime mutation semantics. Recursive type aliases and recursive TypedDict
 graphs resolve through finite declaration-identity back-edges, including
-mutual and concrete generic recursion. See [Recursive aliases and TypedDict
-graphs](recursive-named-graphs.md).
+mutual and concrete generic recursion. See [Generics and
+recursion](recursive-generics.md).
+
+## Type and operation matrix
+
+| Contract family | Strict Python | External Python | JSON input | Python output | JSON output | Schema |
+| --- | --- | --- | --- | --- | --- | --- |
+| primitives | exact built-in values | same strict values | native JSON scalar where compatible | same scalar | JSON scalar; finite-number rules apply | scalar type |
+| UUID, temporal, Decimal, Path, IP, bytes | declared Python object | same strict object | documented string representation | Python object | documented string representation | type plus format/content encoding where defined |
+| Enum and Literal | exact member/value and runtime type | same | canonical JSON member/value | same Python value | canonical JSON value | enum/const |
+| list/set/frozenset/dict/tuple | exact concrete container | recursively converts nested mappings/Specs | JSON array/object where representable | detached concrete Python containers | arrays/objects | array/object shapes |
+| Spec | instance of the declared nominal type | Mapping constructs a Spec | object constructs a Spec | aliased detached mapping | object | named object definition |
+| TypedDict | exact dict with closed keys | Mapping becomes a detached dict | object becomes a detached dict | detached dict | object | named closed object definition |
+| untagged union | first strict branch that succeeds | branches attempted in canonical order | branches attempted in canonical order | selected runtime branch | selected branch representation | `anyOf` |
+| tagged union | nominal Spec or exact tagged dict | direct discriminator dispatch | direct external-tag dispatch | selected branch | selected branch | `oneOf`; OpenAPI discriminator |
+| recursive named graph | strict acyclic/cycle-aware graph | resource-governed traversal | resource-governed traversal | detached acyclic graph | acyclic JSON | finite definitions and references |
+
+Transforms or serializers can deliberately change a boundary domain. If their
+input or output cannot be expressed statically, the corresponding schema mode
+raises `SchemaProjectionError` instead of guessing.
+
+## Important JSON representations and edge cases
+
+### Decimal and exact financial values
+
+Strict Python construction accepts a `Decimal`; it rejects strings, integers,
+and floats. JSON input and output use strings so decimal text survives without
+binary floating-point loss:
+
+```python
+from decimal import Decimal
+from talea import Contract
+
+
+amount = Contract[Decimal](Decimal)
+assert amount.validate(Decimal("42.50")) == Decimal("42.50")
+assert amount.from_json('"42.50"') == Decimal("42.50")
+assert amount.to_json(Decimal("42.50")) == '"42.50"'
+```
+
+JSON Schema therefore describes Decimal as a string. Numeric Decimal
+constraints remain runtime-only because JSON Schema numeric keywords do not
+apply to numeric text. Use Decimal for representational exactness, then keep
+currency conversion, rounding policy, tick sizes, and accounting rules in the
+domain layer.
+
+### Date, datetime, and time
+
+`date` rejects `datetime` despite Python's subclass relationship. JSON uses
+ISO-formatted strings and reconstructs the declared temporal type. Talea
+accepts both naive and timezone-aware `datetime`; it does not impose an
+application timezone policy. API contracts that require instants should add a
+check for `tzinfo` and normalize elsewhere deliberately.
+
+### Bytes
+
+Python paths accept exact bytes. JSON uses padded base64 text; arbitrary plain
+text is not silently encoded. Schema output carries the content encoding, while
+length constraints describe base64 blocks conservatively and runtime
+validation owns exact decoded length. Keep streaming uploads outside a complete
+in-memory JSON field when their size warrants a streaming protocol.
+
+### IP addresses and paths
+
+Address, interface, and network types remain distinct, as do IPv4 and IPv6.
+JSON uses their standard string form, but external Python mappings still require
+the declared Python object. Path annotations follow `pathlib`'s nominal
+hierarchy and JSON uses text; Talea does not check file existence, permissions,
+or path traversal policy.
+
+### Tuples, sets, and dictionaries
+
+Fixed tuples validate each declared position; variadic tuples validate every
+item against one contract. JSON represents both as arrays. Sets and frozensets
+also use arrays at JSON boundaries and reject duplicate decoded values rather
+than silently collapsing them. JSON dictionaries require representable string
+keys; a Python mapping contract with non-string keys cannot claim an ordinary
+JSON-object schema.
+
+## Financial composition example
+
+The following application-shaped example uses UUID identifiers, Decimal
+quantity and price, currency/side enums, a timezone-aware datetime, aliases
+matching an external protocol, nested instrument and money Specs, constraints,
+serialization, schema output, and a whole-order currency invariant.
+
+{!> ../../../docs_src/tutorials/finance.py !}
+
+Talea establishes representation, type, constraints, and declared cross-field
+invariants. Venue calendars, market permissions, credit limits, regulatory
+classification, settlement behavior, and persistence remain domain concerns.
+This example makes no compliance claim.

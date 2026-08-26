@@ -108,5 +108,42 @@ Spec references rather than copying complete branch declarations.
 
 `inspect_contract()` and Spec field introspection expose `TaggedUnionSchema`.
 Its branch tuple is immutable and contains no public mutable dispatch table.
-This is also the discriminator truth that a future JSON Schema/OpenAPI owner
-will project; this campaign does not emit JSON Schema or OpenAPI.
+`json_schema()` projects `oneOf` branches from this truth.
+`openapi_schema()` additionally emits a discriminator with the common external
+property name and a mapping to branch components. Recursive, generic, and
+TypedDict branches use the same finite definitions graph.
+
+## Production event stream
+
+The executable example below uses four event types, UUID and datetime boundary
+representations, Decimal, aliases, a Sensitive authorization token, a generic
+`EventEnvelope[T]`, strict JSON input/output, invalid tags, selected-branch
+failures, JSON Schema, and an OpenAPI discriminator map.
+
+{!> ../../../docs_src/tutorials/events.py !}
+
+The Sensitive token illustrates an important boundary rule: Sensitive redacts
+Talea-owned representation and failure snapshots, but successful serialization
+still follows the declared contract. If an event projection must omit a secret,
+declare a separate outward event type or explicitly exclude that field at the
+Spec boundary; do not treat security metadata as an output allow-list.
+
+Tagged dispatch is a domain fit here because `type` is a protocol-level fact.
+An unknown event is not “the branch whose validation failed least”; it is an
+unsupported protocol message. Direct selection also gives framework tooling a
+canonical OpenAPI mapping and avoids creating diagnostics for branches the
+sender never selected.
+
+## Performance and when not to tag
+
+Tagged dispatch runs only the selected branch. Small unions use direct
+comparisons; larger unions use a retained type-sensitive lookup. Cold
+resolution verifies tags and collisions once, while repeated Mapping/JSON
+input avoids the trial cost and branch-error allocation of an untagged union.
+
+Do not add a discriminator merely to optimize a union whose data has no stable
+tag. The field becomes part of the external contract and must round-trip. An
+ordinary union remains clearer for small value alternatives such as `int | str`
+or when branch choice is genuinely structural. For recursive composition, see
+the [tagged AST](recursive-generics.md#recursive-tagged-ast); for output shapes,
+see [JSON Schema and OpenAPI](json-schema-openapi.md).

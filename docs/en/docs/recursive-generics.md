@@ -122,8 +122,9 @@ Mapping/JSON input and serialization reject cycles:
 - successful acyclic paths pay identity tracking only for recursive
   declarations.
 
-Depth is otherwise governed by normal Python recursion limits. Talea does not
-silently truncate a deeply nested graph.
+External Mapping and JSON input also consume the selected `ResourcePolicy`
+depth and node budgets. Strict trusted construction and output remain subject
+to normal Python resource limits; Talea does not silently truncate a graph.
 
 ### Trust
 
@@ -283,6 +284,67 @@ Static type checkers see the PEP 695 declaration directly: `Box[int].value` is
 `int`, nested generic fields remain parameterized, and recursive fields retain
 their concrete recursive type.
 
+## Recursive aliases and TypedDict graphs
+
+Named PEP 695 aliases and TypedDict declarations participate in the same finite
+reference graph as Specs:
+
+```python
+from typing import NotRequired, TypedDict
+
+from talea import Contract
+
+
+type JSONValue = (
+    str | int | float | bool | None | list[JSONValue] | dict[str, JSONValue]
+)
+
+
+class NodePayload(TypedDict):
+    value: int
+    children: list[NodePayload]
+    parent: NotRequired[NodePayload]
+
+
+json_values: Contract[JSONValue] = Contract(JSONValue)
+nodes: Contract[NodePayload] = Contract(NodePayload)
+```
+
+Recursive aliases can be self-recursive, mutually recursive, or mixed with
+TypedDict declarations. Identity comes from the declaration object and its
+concrete arguments, not only from a display name. Required, `NotRequired`,
+inherited, `ReadOnly`, metadata, and unknown-key behavior remain the same as for
+non-recursive TypedDict.
+
+Concrete generic recursive aliases and TypedDicts are supported:
+
+```python
+type Tree[T] = T | list[Tree[T]]
+
+
+class BoxNode[T](TypedDict):
+    value: T
+    children: list[BoxNode[T]]
+
+
+integer_tree: Contract[Tree[int]] = Contract(Tree[int])
+integer_nodes: Contract[BoxNode[int]] = Contract(BoxNode[int])
+```
+
+Open generic aliases and TypedDicts remain non-executable. Specializations are
+weakly retained where class identity caching applies; Contracts retain the
+concrete graph they own and no process-global alias registry is created.
+
+Tagged unions can appear at recursive edges, including TypedDict AST branches.
+A known discriminator selects one compiled branch at each level. JSON Schema
+and OpenAPI use finite definitions/components and `$ref` back-edges from the
+same named identity graph.
+
+Python must be able to resolve deferred names through the declaration's normal
+Python 3.14 namespace. Runtime cycles are rejected rather than reconstructed.
+Introspection exposes finite `NamedReferenceSchema` values rather than embedding
+the target graph recursively.
+
 ## Copying and pickle
 
 `copy.copy()` and `copy.deepcopy()` preserve the concrete class without
@@ -304,3 +366,31 @@ compiled shape as an equivalent non-generic Spec. Recursive construction,
 conversion, and serialization scale with the actual traversed data. Ordinary
 non-generic, non-recursive Specs retain their direct generated constructors and
 do not carry recursive input/output state or current-state validators.
+
+## Recursive tagged AST
+
+A recursive abstract syntax tree combines several ideas that are easy to
+confuse in isolation: a PEP 695 recursive alias, TypedDict branch declarations,
+a protocol discriminator, container recursion, nested error locations, cycle
+rejection, and finite schema references. The executable example models literal,
+binary, and function-call expressions and round-trips a realistic JSON tree.
+
+{!> ../../../docs_src/tutorials/recursive_ast.py !}
+
+The type graph is recursive but finite: `Expression` points to branch
+definitions, and binary/call branches point back to `Expression`. Each actual
+JSON value is finite and acyclic. A Python list that contains itself is instead
+a cyclic runtime value; it has no JSON tree representation and Talea reports a
+`cycle` failure.
+
+Tagged recursion is appropriate when each node carries a stable grammar tag.
+It makes invalid node kinds precise, dispatches directly, and gives OpenAPI a
+discriminator mapping. An ordinary recursive Spec is simpler when every node
+has one shape; a recursive alias is simpler when no named record behavior is
+needed. Keep AST evaluation, name resolution, permissions, and execution limits
+outside the structural contract unless they are value invariants.
+
+For production input, combine the recursive contract with a `ResourcePolicy`.
+Depth limits protect structural nesting, node limits bound compiled visits, and
+tagged dispatch prevents unrelated branches from being attempted. See
+[Resource and security](resource-security.md) for the exact accounting model.

@@ -89,15 +89,32 @@ remain individual location segments. A segment that is not itself a safe JSON
 scalar becomes bounded representation text in `errors()`; the internal Python
 location remains structured and unchanged.
 
-## Codes
+## ErrorCode reference
 
-The public vocabulary currently contains:
-
-- structure: `type`, `literal`, `union`, `missing`, `unexpected`;
-- constraints: `greater_than`, `greater_than_or_equal`, `less_than`,
-  `less_than_or_equal`, `multiple_of`, `min_length`, `max_length`, `pattern`;
-- custom validation: `transform`, `field_check`, `spec_check`;
-- default production: `factory`.
+| Code | Meaning and typical location | Likely fix |
+| --- | --- | --- |
+| `type` | wrong exact/nominal type at a field or item | supply the declared Python type or use the proper external boundary |
+| `literal` | value is not one declared Literal | use one exact type-sensitive alternative |
+| `union` | every untagged union branch failed | inspect `branches` and correct the selected shape |
+| `missing` | required Mapping/JSON key is absent | supply the external field name |
+| `unexpected` | Mapping/JSON contains an unknown key | remove it or correct an alias |
+| `greater_than` | numeric value is not above the limit | raise the value or change the declaration |
+| `greater_than_or_equal` | numeric value is below the inclusive limit | raise the value or change the declaration |
+| `less_than` | numeric value is not below the limit | lower the value or change the declaration |
+| `less_than_or_equal` | numeric value is above the inclusive limit | lower the value or change the declaration |
+| `multiple_of` | numeric value is not divisible by the declaration | supply a valid multiple |
+| `min_length` | string/bytes/container is too short | add members or lower the constraint |
+| `max_length` | string/bytes/container is too long | remove members or raise the constraint |
+| `pattern` | string does not contain a regex match | correct the value or pattern |
+| `transform` | trusted pre-validation callback raised | correct callback input policy or behavior |
+| `field_check` | field-local assertion raised | satisfy the business invariant |
+| `spec_check` | multi-field/whole-Spec assertion raised | inspect `locations` and satisfy the invariant |
+| `factory` | default factory raised | repair it; inspect a non-sensitive `__cause__` |
+| `json_invalid` | decoder could not produce valid JSON input | correct syntax or codec contract |
+| `json_duplicate` | default decoder found a duplicate object key | emit each key once |
+| `cycle` | repeated object identity formed an unsupported cycle | replace back-references with IDs or an acyclic representation |
+| `discriminator_missing` | tagged input lacks its required tag | supply the common external discriminator key |
+| `discriminator_unknown` | tag has the right type but no branch | use one value in `expected_tags` |
 
 `missing` and `unexpected` belong to `from_mapping` and `from_json`. Those
 external boundaries aggregate independent field failures. Normal Spec
@@ -105,9 +122,8 @@ construction retains its real keyword-only Python signature, so omitted
 required arguments, unknown keywords, and positional misuse raise native
 `TypeError`, not `ValidationError`.
 
-JSON syntax adds `json_invalid` and `json_duplicate`. Parser line, column, and
-character position appear in `context` when available; they do not become Talea
-field-location segments.
+Parser line, column, and character position appear in `context` when available;
+they do not become Talea field-location segments.
 
 ## Nested and constraint failures
 
@@ -149,7 +165,7 @@ structured projection work.
 
 Custom rejections use the same `ValidationError` interface. Applications do not
 need separate handling for structural, constraint, and custom failures.
-Campaign 7's `CustomValidationError` remains a compatibility subtype in
+`CustomValidationError` remains a compatibility subtype in
 `talea.validation`; catching the root `ValidationError` catches it.
 
 - a transform `ValueError` has code and stage `transform`, the field location,

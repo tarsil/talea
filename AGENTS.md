@@ -666,6 +666,12 @@ Do not silently defer incomplete requirements.
 
 Keep technical documentation close to implemented behaviour.
 
+Substantial user-facing examples should live as executable programs in
+`docs_src/` and be included into prose where practical. `task docs_test` must
+execute those examples and validate documentation navigation, internal links,
+and the root public API inventory. Documentation integrity failures are release
+blockers.
+
 Update documentation in the same coherent campaign when public behaviour
 changes.
 

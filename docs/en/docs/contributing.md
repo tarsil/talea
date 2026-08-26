@@ -1,159 +1,76 @@
 # Contributing
 
-Thank you for showing interes in contributing to Talea. There are many ways you can help and contribute to the
-project.
+Talea targets Python 3.14+ and uses Hatch, pytest, Ruff, `ty`, Zensical, and the
+repository Taskfile. Changes must preserve strict semantics, single ownership,
+zero required runtime dependencies, and enforced 100% line coverage.
 
-* Try Talea and [report bugs and issues](https://github.com/tarsil/talea/issues/new) you find.
-* [Implement new features](https://github.com/tarsil/talea/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22).
-* Help othes by [reviewing pull requests](https://github.com/tarsil/talea/pulls).
-* Help writting documentation.
-* Use the discussions and actively participate on them.
-* Become an contributor by helping Talea growing and spread the words across small, medium, large or any company
-size.
+## Set up a checkout
 
-## Reporting possible bugs and issues
-
-It is natural that you might find something that Talea should support or even experience some sorte of unexpected
-behaviour that needs addressing.
-
-The way we love doing things is very simple, contributions should start out with a
-[discussion](https://github.com/tarsil/talea/discussions). The potential bugs shall be raised as "Potential Issue"
-in the discussions, the feature requests may be raised as "Ideas".
-
-We can then decide if the discussion needs to be escalated into an "Issue" or not.
-
-When reporting something you should always try to:
-
-* Be as more descriptive as possible
-* Provide as much evidence as you can, something like:
-    * OS platform
-    * Python version
-    * Installed dependencies
-    * Code snippets
-    * Tracebacks
-
-Avoid putting examples extremely complex to understand and read. Simplify the examples as much as possible to make
-it clear to understand and get the required help.
-
-## Development
-
-To develop for Talea, create a fork of the [Talea repository](https://github.com/tarsil/talea) on GitHub.
-
-After, clone your fork with the follow command replacing `YOUR-USERNAME` wih your GitHub username:
-
-```shell
-$ git clone https://github.com/YOUR-USERNAME/talea
+```console
+git clone https://github.com/YOUR-USERNAME/talea.git
+cd talea
+python -m pip install hatch
+hatch env create
+hatch env create test
+hatch env create docs
 ```
 
-talea also uses [hatch](https://hatch.pypa.io/latest/) for its development, testing and release
-cycles.
+Report possible defects with a minimal reproduction, Python version, operating
+system, installed package versions, traceback, expected behavior, and actual
+behavior. Do not include credentials or hostile payloads containing live data.
 
-Please make sure you run:
+## Development gates
 
-```shell
-pip install hatch
+Use the repository tasks rather than inventing parallel commands:
+
+```console
+task test
+task coverage
+task lint
+task format
+task mypy
+task docs_test
+task build
+task build_with_checks
 ```
 
-### Install the project dependencies
+Run `git diff --check` before committing. Performance-sensitive changes must run
+the relevant permanent benchmark tasks; release review runs all of them.
 
-Not necessary because the dependencies are automatically installed by hatch.
-But if environments should be pre-initialized it can be done with `hatch env`
+## Documentation
 
-```shell
-$ cd talea
-$ hatch env create
-$ hatch env create test
-$ hatch env create docs
-```
+User-facing Markdown lives in `docs/en/docs/`. Important examples live as
+normal Python programs in `docs_src/` and are included into pages with:
 
-!!! Tip
-    This is the recommended way but if you still feel you want your own virtual environment and
-    all the packages installed there, you can always run `scripts/install`.
+The source page uses the include form
+`&#123;!> relative/path/to/example.py !&#125;`. Paths resolve from the Markdown
+file that contains the directive.
 
-### Enable pre-commit
+`task docs_test` executes every `docs_src` program and verifies explicit
+navigation, internal Markdown links, and the root public API inventory.
+`task build` expands includes into `docs/generated/` and builds the site.
 
-The project comes with a pre-commit hook configuration. To enable it, just run inside the clone:
+Examples must use meaningful contracts, assert important output, pass Ruff and
+`ty`, and avoid network access. Do not copy a code block into Markdown when the
+same substantial example can have one executable owner.
 
-```shell
-$ hatch run pre-commit install
-```
+## Architecture and tests
 
-### Run the tests
+Identify the canonical owner before editing. Schema resolution owns type
+structure; declarations own fields and lifecycle; validation, input,
+serialization, errors, resource policy, and standards projection consume that
+truth. A new execution target must not reread annotations or recreate semantics.
 
-To run the tests, use:
+Behavior changes require focused success, failure, boundary, inheritance, and
+typing coverage where relevant. Performance claims require measured comparator
+workloads with equivalent semantics. See [Architecture](engineering/architecture.md)
+and [Performance](engineering/performance.md).
 
-```shell
-$ hatch run test:test
-```
+## Commits and releases
 
-Because Talea uses pytest, any additional arguments will be passed. More info within the
-[pytest documentation](https://docs.pytest.org/en/latest/how-to/usage.html)
+Use Conventional Commits for coherent reviewable slices. Release notes describe
+user-visible additions, changes, removals, deprecations, and fixes; test-only or
+mechanical documentation work does not need a user-facing release entry.
 
-To run the linting, use:
-
-```shell
-$ hatch run lint
-```
-
-### Documentation
-
-Improving the documentation is quite easy and it is placed inside the `talea/docs` folder.
-
-To start the docs, run:
-
-```shell
-$ hatch run docs:serve
-```
-
-## Building Talea
-
-To build a package locally, run:
-
-```shell
-$ hatch build
-```
-
-Alternatively running:
-
-```
-$ hatch shell
-```
-
-It will install the requirements and create a local build in your virtual environment.
-
-## Releasing
-
-*This section is for the maintainers of `Talea`*.
-
-### Building the Talea for release
-
-Before releasing a new package into production some considerations need to be taken into account.
-
-* **Changelog**
-    * Like many projects, we follow the format from [keepchangelog](https://keepachangelog.com/en/1.0.0/).
-    * [Compare](https://github.com/tarsil/talea/compare/) `main` with the release tag and list of the entries
-that are of interest to the users of the framework.
-        * What **must** go in the changelog? added, changed, removed or deprecated features and the bug fixes.
-        * What is **should not go** in the changelog? Documentation changes, tests or anything not specified in the
-point above.
-        * Make sure the order of the entries are sorted by importance.
-        * Keep it simple.
-
-* *Version bump*
-    * The version should be in `__init__.py` of the main package.
-
-#### Releasing
-
-Once the `release` PR is merged, create a new [release](https://github.com/tarsil/talea/releases/new)
-that includes:
-
-Example:
-
-There will be a release of the version `0.2.3`, this is what it should include.
-
-* Release title: `Version 0.2.3`.
-* Tag: `0.2.3`.
-* The description should be copied from the changelog.
-
-Once the release is created, it should automatically upload the new version to PyPI. If something
-does not work with PyPI the release can be done by running `scripts/release`.
+Build artifacts with `task build_with_checks`. Maintainers own versioning,
+tagging, package-index publication, and support policy.

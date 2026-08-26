@@ -1,8 +1,7 @@
-# Dynamic Specs, introspection, and replacement
+# Dynamic Specs
 
-Campaign 12 adds three productivity surfaces around the normal Spec lifecycle:
-`create_spec`, immutable public introspection, and Python-native
-`copy.replace`. None creates a second model runtime.
+`create_spec` creates a normal Spec class from trusted runtime declarations. It
+does not create a second execution path.
 
 ## Dynamic Spec creation
 
@@ -117,7 +116,7 @@ Once created, dynamic construction, Mapping input, JSON, Python output, and
 JSON output are the same compiled operations as an equivalent static Spec.
 Only class definition pays the small declaration-API parsing cost.
 
-## Public introspection
+## Related tooling: public introspection
 
 Frameworks can import immutable description values from `talea.introspection`:
 
@@ -149,7 +148,7 @@ This surface consumes canonical truth but is not JSON Schema. A framework can
 use it for command registration, routing, documentation tooling, or dependency
 analysis without coupling to private Talea declarations.
 
-## Immutable replacement
+## Related operation: immutable replacement
 
 Talea implements Python 3.14's `__replace__` protocol, so standard
 `copy.replace` is the only replacement vocabulary.
@@ -212,7 +211,23 @@ def build_message(name: str, configured_fields: dict[str, object]):
 Validate the configuration before calling this function. `namespace` is a
 trusted code surface, not a safe container for user-supplied callbacks.
 
-All-fields-optional/PATCH derivation and callable validation are intentionally
-not approximated by these APIs. Presence state, cross-field hook policy, and
-Python signature binding need dedicated owners; see the
-[release ledger](release-ledger.md).
+Presence-aware PATCH is provided by `derive_spec(..., partial=True)` and
+`apply_patch()`; see [Derived and PATCH
+contracts](presence-derived-contracts.md). Callable-signature validation is not
+implemented.
+
+## Executable dynamic lifecycle
+
+This example creates a runtime account contract with a lower-bound constraint,
+default, metadata, and a dynamically supplied check. It then uses Mapping/JSON
+input, public introspection, validated `copy.replace()`, failure codes, and JSON
+Schema.
+
+{!> ../../../docs_src/recipes/dynamic_and_replacement.py !}
+
+Dynamic declarations should be built from trusted, low-cardinality
+configuration during startup or tooling work. Exposing `create_spec()` directly
+to request data would let remote input control declaration cardinality and
+compilation work; `ResourcePolicy` intentionally governs data traversal, not
+trusted schema creation. Prefer class syntax whenever fields are known in
+source because it gives readers and type checkers the clearest contract.
