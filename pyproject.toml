@@ -133,6 +133,7 @@ benchmark_tagged = "python benchmarks/tagged_unions.py"
 benchmark_recursive_named = "python benchmarks/recursive_named_graphs.py"
 benchmark_presence = "python benchmarks/presence_derivation.py"
 benchmark_json_schema = "python benchmarks/json_schema.py"
+benchmark_resources = "python benchmarks/resource_security.py"
 
 [tool.isort]
 profile = "black"

@@ -178,3 +178,8 @@ tasks:
     desc: Benchmarks JSON Schema/OpenAPI projection, size, scaling, and memory
     cmds:
       - hatch run test:benchmark_json_schema
+
+  benchmark_resources:
+    desc: Benchmarks boundary resource enforcement, adversarial scaling, and retention
+    cmds:
+      - hatch run test:benchmark_resources
