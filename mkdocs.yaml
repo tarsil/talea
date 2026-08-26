@@ -1,5 +1,5 @@
 site_name: Talea
-site_description: Strict Python data contracts with compile-once execution.
+site_description: Modern Python data contracts with strict validation, serialization, and JSON Schema.
 site_url: https://talea.tarsild.io
 docs_dir: docs/generated
 site_dir: site

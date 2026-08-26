@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "talea"
-description = "Strict Python data contracts with compile-once execution"
+description = "Modern Python data contracts with strict validation, serialization, and JSON Schema"
 readme = "README.md"
 requires-python = ">=3.14"
 dynamic = ['version']
@@ -13,36 +13,45 @@ authors = [
     { name = "Tiago Silva", email = "tiago.arasilva@gmail.com" },
 ]
 classifiers = [
-    "Intended Audience :: Information Technology",
-    "Intended Audience :: System Administrators",
-    "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python",
-    "Topic :: Internet",
-    "Topic :: Software Development :: Libraries :: Application Frameworks",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Software Development",
-    "Typing :: Typed",
-    "Development Status :: 4 - Beta",
-    "Environment :: Web Environment",
-    "Framework :: AsyncIO",
-    "Framework :: AnyIO",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
-    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
-    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Typing :: Typed",
 ]
 dependencies = []
-keywords = ["talea"]
+keywords = [
+    "validation",
+    "data-validation",
+    "data-contracts",
+    "schema",
+    "json",
+    "json-schema",
+    "openapi",
+    "serialization",
+    "deserialization",
+    "typing",
+    "type-validation",
+    "runtime-validation",
+    "strict-validation",
+    "structured-data",
+    "pure-python",
+    "zero-dependencies",
+]
 
 [project.urls]
 Homepage = "https://github.com/tarsil/talea"
 Documentation = "https://talea.tarsild.io"
 Changelog = "https://talea.tarsild.io/release-notes/"
 Funding = "https://github.com/sponsors/tarsil"
+Issues = "https://github.com/tarsil/talea/issues"
 Source = "https://github.com/tarsil/talea"
 
 
@@ -81,7 +90,7 @@ benchmarking = [
 clean_pyc = "find . -type f -name \"*.pyc\" -delete"
 clean_pyi = "find . -type f -name \"*.pyi\" -delete"
 clean_pycache = "find . -type d -name \"*__pycache__*\" -delete"
-build_with_check = "hatch build; twine check dist/*"
+build_with_check = "hatch build && twine check dist/*"
 lint = "ruff check --fix --line-length 99 talea tests benchmarks docs_src scripts/docs_check.py {args}"
 format = "hatch fmt && hatch fmt --check && hatch run test:check_types"
 

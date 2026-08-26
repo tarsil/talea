@@ -32,14 +32,6 @@
 
 ---
 
-**Documentation**: [https://talea.tarsild.io](https://lilya.dev) 📚
-
-**Source Code**: [https://github.com/tarsil/talea](https://github.com/dymmond/lilya)
-
-**The official supported version is always the latest released**.
-
----
-
 Talea is a **2026+ Python data-contract library** for applications that want
 strict Python semantics, explicit external boundaries, immutable records, and
 standards-aware schemas without a required runtime dependency graph.
@@ -189,8 +181,13 @@ plus presence-aware PATCH and generated input/output OpenAPI fragments.
 
 ## Installation
 
-Talea requires Python 3.14+. Until a package-index release is published,
-install from a source checkout:
+Talea requires Python 3.14+. Install the published release from PyPI:
+
+```console
+python -m pip install talea
+```
+
+To install from a source checkout instead:
 
 ```console
 git clone https://github.com/tarsil/talea.git

@@ -2,7 +2,13 @@
 
 Talea requires Python 3.14 or newer.
 
-Until a package-index release is published, install from a source checkout:
+Install the published release from PyPI:
+
+```console
+python -m pip install talea
+```
+
+To install from a source checkout instead:
 
 ```console
 git clone https://github.com/tarsil/talea.git

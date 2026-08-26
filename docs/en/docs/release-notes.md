@@ -1,148 +1,99 @@
-# Release Notes
+ # Release Notes
 
-## 0.1.0
+## 0.1.0 — First Public Release
 
-### Added
+Talea 0.1.0 is the first public release of Talea, a pure-Python data-contract
+library for Python 3.14 and newer. It provides strict validation, explicit
+Mapping and JSON boundaries, serialization, structured errors, and standards
+projection from one canonical schema graph, with zero required runtime
+dependencies.
 
-- Immutable `ResourcePolicy` enforcement for JSON transport size, structural
-  depth, compiled input work, and deterministic error aggregation across Spec
-  and Contract external boundaries.
-- Structured payload-free `ResourceLimitError`, machine-visible validation
-  truncation, operation-local/thread-isolated counters, and pre-decoder checks
-  for both standard and custom JSON codecs.
-- A technical threat model, annotation-expression hardening, property and
-  adversarial security coverage, and resource/depth/breadth/retention
-  benchmarks.
-- Draft 2020-12 `json_schema()` and OpenAPI 3.1 `openapi_schema()` on concrete
-  Specs and arbitrary Contracts, with explicit input/output modes.
-- Deterministic reusable definitions for Specs, aliases, TypedDicts, concrete
-  generics, mutual recursion, and tagged unions, including collision-safe names
-  and RFC 6901 pointer escaping.
-- Canonical aliases, requiredness, partial/PATCH presence, defaults, metadata,
-  constraints, standard-library JSON representations, and OpenAPI
-  discriminator mappings in standards projection.
-- Official Draft 2020-12 and OpenAPI 3.1.2 conformance checks, property-based
-  runtime/schema consistency tests, adversarial naming and metadata coverage,
-  and schema projection/size/memory benchmarks.
-- `derive_spec()` for independent all-fields-omittable PATCH Specs and ordered
-  include/exclude projections without false source subtyping.
-- Compact integer supplied-field presence, immutable `present_fields`, absent
-  slot behavior, present-only Mapping/JSON output, and immutable derivation
-  provenance through `inspect_spec()`.
-- `apply_patch()` source-identity enforcement and delegation to Talea's existing
-  `copy.replace` owner for changed-field validation, mutable current-state
-  checks, atomicity, and complete-source invariants.
-- Dedicated presence/derivation property, adversarial, copy/pickle, typing,
-  declaration, construction, serialization, patching, memory, and zero-tax
-  performance coverage.
-- Finite canonical named-reference graphs for self-recursive and mutually
-  recursive PEP 695 aliases, TypedDict declarations, concrete generic
-  specializations, and mixed alias/TypedDict graphs.
-- Complete Contract and Spec validation, Mapping/JSON input, Python/JSON
-  output, exact recursive locations, cycle safety, sensitive redaction, and
-  immutable introspection for recursive named graphs.
-- Direct tagged-union dispatch inside recursive TypedDict ASTs plus dedicated
-  typing, concurrency, adversarial, memory, and depth benchmarks.
-- First-class `Discriminator` declarations and finite immutable tagged-union
-  schema truth derived from required single-value Literal fields.
-- Direct tagged branch selection for strict Spec values, Mapping and JSON
-  input, TypedDict contracts, Python output, and JSON output, including aliases,
-  optional values, concrete generics, recursive Spec graphs, and introspection.
-- Stable `discriminator_missing` and `discriminator_unknown` errors with exact
-  nested locations, machine-readable discriminator/tag context, and sensitive
-  tag redaction.
-- Dedicated tagged-union typing contracts, security and declaration tests, and
-  branch-count/input/output performance benchmarks.
-- Canonical immutable field, Spec, Contract, TypedDict, and type-alias metadata
-  for title, description, examples, deprecation, read-only, write-only, and
-  sensitive classification.
-- Sensitive validation and serialization failure policy with default redaction,
-  raw-value discard, cause removal, nested path propagation, immutable public
-  introspection, adversarial tests, and dedicated benchmarks.
-- Retained `Contract[T]` validation, external Python conversion, JSON input,
-  Python projection, and JSON output for arbitrary supported roots without
-  wrapper Specs.
-- First-class TypedDict, PEP 695 type-alias, generic alias, and `NewType`
-  canonical schema support with strict structural input/output semantics.
-- `create_spec()` for normal dynamically declared Spec subclasses with explicit
-  fields, defaults, factories, identity, inheritance, and trusted namespace
-  contributions.
-- Immutable public `FieldInfo`, `SpecInfo`, and `ContractInfo` views in
-  `talea.introspection`.
-- Python-native immutable reconstruction through `copy.replace`, including
-  changed-value validation, mutable current-state checks, and whole-Spec
-  invariants.
-- Dedicated Contract, dynamic Spec, replacement, introspection, cold/warm,
-  memory, and retained-owner benchmarks.
-- Python 3.14 generic Specs with concrete weakly cached specializations,
-  bounds, constraints, parameter defaults, nested generic composition, generic
-  inheritance, and recursive generic schemas.
-- Deferred forward-reference graph finalization for self and mutually recursive
-  Specs without a global registry, plus recursive Mapping/JSON conversion and
-  Python/JSON serialization.
-- Deliberate cyclic-input and cyclic-serialization failures with exact paths,
-  recursion-safe current-state validation, copy/deep-copy support, and acyclic
-  pickle reconstruction for importable Spec classes.
-- Dedicated generic cold/hot specialization, equivalent concrete construction,
-  recursive traversal, cycle detection, and specialization-retention benchmarks.
-- Lazy compiled `Spec.to_dict()` Python projection and `Spec.to_json()` strict
-  JSON encoding with detached container output and nested Spec serialization.
-- Precision-safe Decimal strings, exact ISO 8601 timedelta durations, strict
-  base64 bytes, standard-library/Enum/Literal symmetry, and per-call custom
-  `dumps` normalization to `str`.
-- Canonical `Alias` field metadata, top-level include/exclude/exclude-none
-  policies, and inherited `@serialize` field hooks with a separate
-  `SerializationError` domain.
-- Dedicated Python projection, JSON projection, codec, declaration, first-use,
-  allocation, and memory benchmarks plus production serialization docs.
-- Compiled `Spec.from_mapping` construction for untrusted Mapping input with
-  nested Spec construction, strict Python container semantics, structured
-  missing/unexpected fields, and deterministic independent-field aggregation.
-- Strict `Spec.from_json` decoding with a replaceable per-call decoder,
-  duplicate-key and non-finite-token rejection in the standard-library path,
-  precision-safe Decimal tokens, and schema-aware standard-library types.
-- Dedicated Mapping/JSON timing, allocation, codec, and declaration-cost
-  benchmarks plus production input-boundary documentation.
-- Lazy, independently cached Mapping and JSON boundary compilation, with a
-  complete-dict execution path that preserves aggregation while restoring
-  ordinary Spec declaration cost and converging on equivalent handwritten
-  Mapping performance.
-- Public `ValidationError`, `ErrorCode`, and typed JSON-compatible `ErrorData`
-  projection with structured locations and stable machine codes.
-- Talea-native multiline rendering, bounded hostile-input representation,
-  compact union branch diagnostics, and unified custom-validation failures.
-- Structured factory execution failures with preserved exception causes and a
-  dedicated error creation, rendering, projection, and allocation benchmark.
-- Explicit `transform` declarations for inbound field conversion before normal
-  strict structural validation.
-- Post-structural `check` declarations for field assertions and atomic
-  cross-field invariants, including deterministic inheritance and override
-  semantics.
-- Custom failure transport and specialized current-state revalidation of nested
-  mutable Spec invariants.
-- Campaign 6 strict support for Literal, enums, UUID, temporal values, Decimal,
-  pathlib paths, and IPv4/IPv6 address, network, and interface families.
-- Immutable `Gt`, `Ge`, `Lt`, `Le`, `MultipleOf`, `MinLength`, `MaxLength`, and
-  `Pattern` declarations carried by `Annotated` and compiled into specialized
-  checks.
-- Early constraint applicability, normalization, contradiction detection, and
-  constrained-field covariance.
-- Added `talea.Spec` with required keyword-only fields, strict construction,
-  compact slots, compile-once declaration processing, and field-aware errors.
-- Added validated static defaults, `field(default_factory=...)`, mutable-default
-  safety, and immutable Spec instances.
-- Added nominal nested Spec fields across containers and unions, transitive
-  trust classification, inherited fields, covariant field overrides, and flat
-  specialized subclass construction.
-- Added compact multiple inheritance for one state-bearing Spec lineage and
-  empty-slotted method mixins.
+### Highlights
 
-### Changed
+- Immutable, slotted `Spec` records with strict keyword-only construction,
+  defaults and factories, inheritance, concrete generics, recursive contracts,
+  constraints, transforms, checks, and serialization hooks.
+- `Contract[T]` validation and conversion for arbitrary supported roots,
+  including primitives, containers, unions, `TypedDict`, PEP 695 aliases,
+  `NewType`, tagged unions, and concrete generic specializations.
+- Separate execution paths for trusted Python construction, untrusted Mapping
+  input, JSON input, Python output, JSON output, introspection, and schema
+  projection.
+- Presence-aware derived contracts through `derive_spec()` and `apply_patch()`,
+  so PATCH-style input distinguishes an absent field from a field set to
+  `None`.
+- JSON Schema Draft 2020-12 and OpenAPI 3.1-compatible Schema Objects generated
+  from the same contract truth used at runtime.
+- Pure-Python compile-once execution with permanent performance and allocation
+  canaries for distinct workloads.
 
-- Spec constructors now inline strict field-validation operations from the same
-  compiler owner used for standalone validators, eliminating per-field Python
-  validator calls during construction.
-- Nested Spec references that are not permanently trusted now receive
-  specialized current-state validation at each new validation boundary.
+### Contracts, input, and output
 
-### Fixed
+Ordinary `Spec` construction uses strict Python semantics. Conversion belongs
+to explicit external boundaries: `from_mapping()`, `from_json()`, and the
+corresponding `Contract` operations. Standard-library values such as UUIDs,
+temporal values, `Decimal`, paths, IP types, bytes, enums, and literals retain
+documented Python and JSON representations.
+
+Nested and inherited Specs, recursive and generic graphs, aliases, constraints,
+tagged unions, and custom validation all participate in the same structural
+model. `to_dict()`, `to_python()`, and `to_json()` provide schema-aware output
+with aliases, include/exclude policy, sensitive-value handling, and custom
+serializers where declared.
+
+Runtime `create_spec()` declarations, immutable `FieldInfo`, `SpecInfo`, and
+`ContractInfo` views, and `copy.replace()` support make the compiled contract
+available to frameworks and application tooling without requiring annotation
+reconstruction.
+
+### Errors and external-boundary policy
+
+Validation failures expose nested locations, stable machine-readable codes,
+bounded rendering, and JSON-compatible error data. Sensitive fields redact
+rejected values and remove unsafe causes by default.
+
+`ResourcePolicy` places finite limits on JSON transport size, structural depth,
+compiled traversal work, and aggregated errors at untrusted Mapping and JSON
+boundaries. Talea also rejects duplicate JSON object keys, non-finite numeric
+tokens, cyclic runtime graphs, invalid discriminator tags, and unsupported
+recursive execution shapes with explicit errors.
+
+Custom transforms, checks, serializers, codecs, and Mapping implementations are
+trusted application code. Talea does not sandbox callbacks. The release includes
+a documented technical threat model, adversarial tests, property tests, and
+resource benchmarks; these controls are not a claim of independent security
+certification.
+
+### Schema and documentation
+
+`json_schema()` projects Draft 2020-12 schemas and `openapi_schema()` projects
+OpenAPI 3.1-compatible Schema Objects. Both support input and output modes,
+reusable definitions, recursive references, aliases, constraints, metadata,
+requiredness, PATCH presence, tagged-union discriminator maps, and concrete
+generic specializations.
+
+The manual covers the mental model, supported types, input and output,
+constraints, composition, recursion, tagged unions, derived contracts, errors,
+resource policy, JSON Schema and OpenAPI, introspection, performance, security,
+and adoption. Its substantial examples execute as part of the repository
+release gates.
+
+### Requirements and maturity
+
+- Python 3.14 or newer is required.
+- Talea is implemented in pure Python and declares zero required runtime
+  dependencies.
+- This is a pre-1.0 release. Public APIs, compatibility policy, deprecation
+  windows, and long-term support policy may evolve prior to 1.0.
+- The ecosystem and integration surface are new; Talea deliberately does not
+  include settings management, ORM extraction, or callable-signature validation
+  in core.
+
+### Known limitations
+
+Custom hooks are synchronous trusted callbacks, arbitrary transforms and
+serializers cannot always be represented in JSON Schema, open generic contracts
+must be specialized for execution, and external-input resource policy does not
+govern trusted construction or arbitrary callback work. See the
+[authoritative limitations list](engineering/limitations.md) for the complete
+scope and operational boundaries.
