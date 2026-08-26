@@ -20,7 +20,7 @@ theme:
         icon: lucide/moon
         name: Switch to light mode
   favicon: statics/images/favicon.ico
-  logo: statics/images/logo-white.svg
+  logo: statics/images/black.png
   features:
     - search.suggest
     - search.highlight

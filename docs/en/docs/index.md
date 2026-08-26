@@ -1,5 +1,37 @@
 # Talea
 
+<p align="center">
+  <a href="https://talea.tarsild.io"><img src="https://res.cloudinary.com/dymmond/image/upload/v1787765742/Talea/logo_gn9nx6.png" alt='Talea'></a>
+</p>
+
+<p align="center">
+    <em>Data contracts, built for modern Python</em>
+</p>
+
+<p align="center">
+<a href="https://github.com/tarsil/talea/actions/workflows/test-suite.yml/badge.svg?event=push&branch=main" target="_blank">
+    <img src="https://github.com/tarsil/talea/actions/workflows/test-suite.yml/badge.svg?event=push&branch=main" alt="Test Suite">
+</a>
+
+<a href="https://pypi.org/project/talea" target="_blank">
+    <img src="https://img.shields.io/pypi/v/talea?color=%2334D058&label=pypi%20package" alt="Package version">
+</a>
+
+<a href="https://pypi.org/project/talea" target="_blank">
+    <img src="https://img.shields.io/pypi/pyversions/talea.svg?color=%2334D058" alt="Supported Python versions">
+</a>
+</p>
+
+---
+
+**Documentation**: [https://talea.tarsild.io](https://talea.tarsild.io) 📚
+
+**Source Code**: [https://github.com/tarsil/talea](https://github.com/tarsil/talea)
+
+**The official supported version is always the latest released**.
+
+---
+
 Talea is a **2026+ Python data-contract library** built for strict Python
 semantics, explicit external boundaries, immutable records, and standards-aware
 schemas. It targets Python 3.14+, is implemented in pure Python, and declares
