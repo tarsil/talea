@@ -4,6 +4,17 @@
 
 ### Added
 
+- `derive_spec()` for independent all-fields-omittable PATCH Specs and ordered
+  include/exclude projections without false source subtyping.
+- Compact integer supplied-field presence, immutable `present_fields`, absent
+  slot behavior, present-only Mapping/JSON output, and immutable derivation
+  provenance through `inspect_spec()`.
+- `apply_patch()` source-identity enforcement and delegation to Talea's existing
+  `copy.replace` owner for changed-field validation, mutable current-state
+  checks, atomicity, and complete-source invariants.
+- Dedicated presence/derivation property, adversarial, copy/pickle, typing,
+  declaration, construction, serialization, patching, memory, and zero-tax
+  performance coverage.
 - Finite canonical named-reference graphs for self-recursive and mutually
   recursive PEP 695 aliases, TypedDict declarations, concrete generic
   specializations, and mixed alias/TypedDict graphs.

@@ -58,6 +58,22 @@ tree = Tree[int].from_mapping(
 )
 ```
 
+PATCH contracts preserve omission separately from `None`:
+
+```python
+from talea import apply_patch, derive_spec
+
+UserPatch = derive_spec(User, partial=True)
+patch = UserPatch(name="Grace")
+updated = apply_patch(user, patch)
+
+assert patch.present_fields == frozenset({"name"})
+```
+
+Only supplied partial fields validate and serialize. Source defaults and
+factories do not run for omitted fields, and applying a patch delegates to the
+normal immutable replacement lifecycle so complete-source invariants rerun.
+
 Concrete specializations such as `Tree[int]` are cached classes with concrete
 validators; construction performs no runtime type-parameter dispatch. Cyclic
 Mapping input and cyclic serialization fail deliberately with structured paths.

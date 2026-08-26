@@ -58,6 +58,7 @@ nav:
   - Recursive aliases and TypedDict graphs: "recursive-named-graphs.md"
   - Arbitrary contracts: "contracts.md"
   - Dynamic Specs, introspection, and replacement: "dynamic-utilities.md"
+  - Presence and derived contracts: "presence-derived-contracts.md"
   - Remaining release ledger: "release-ledger.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"

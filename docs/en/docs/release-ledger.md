@@ -6,11 +6,11 @@ future owner; it is not a claim that the feature exists.
 
 | Capability | Disposition | Named owner and reason |
 | --- | --- | --- |
-| Partial/PATCH, all-fields-optional, pick, omit, and read/write derivation | Deferred | **Presence and Derived Spec Contracts**: define omitted state, defaults/factories, aliases, generic identity, serializers, and cross-field hook policy before generating normal Specs through `create_spec`. |
+| Partial/PATCH, all-fields-omittable, pick, and omit derivation | Delivered | `derive_spec()` projects canonical source fields into a normal independent Spec. Partial instances retain an integer presence mask, preserve absence instead of widening values with `None`, and apply safely through `apply_patch()` and `copy.replace`. |
 | Callable argument and return validation | Deferred | **Callable Signature Contracts**: own signature binding, defaults, positional/keyword rules, variadics, descriptors, async behavior, return validation, exception policy, typing preservation, and wrapper cost using Contract as a leaf consumer. |
 | Detached callable-contract objects | Rejected pending a distinct use case | The Callable Signature Contracts owner should expose one decorator vocabulary; a second overlapping object API has no demonstrated value. |
 | JSON Schema and OpenAPI projection | Deferred | **Schema Projection** consumes canonical metadata, aliases, constraints, recursive identity, and Campaign 14 tagged-union discriminator truth without re-reading annotations. |
-| Read/write enforcement and derived contracts | Deferred | **Presence and Derived Spec Contracts** defines input rejection, output omission, defaults, aliases, hooks, and derived-contract behavior. Campaign 13 retains canonical read/write classification only. |
+| Metadata-driven read/write derivation and enforcement | Deferred | Campaign 16 deliberately keeps `ReadOnly` and `WriteOnly` as canonical metadata. Automatic read/write projections still need a distinct policy for boundary enforcement and OpenAPI use. |
 | Dataclass, NamedTuple, and ordinary-class conversion | Deferred | **Structured Class Interoperability**: define construction, trust, attribute access, defaults, inheritance, and serialization without becoming an object mapper. |
 | Settings and environment loading | Different product owner | **Talea Settings integration/package**, outside core validation. It must own source precedence, secrets, environment parsing, and application lifecycle. |
 | Bulk iterable validation and per-item failures | Deferred | **Batch and Streaming Boundaries**. Materialized batches use `Contract(list[T])`; streams need consumption and failure-isolation policy. |

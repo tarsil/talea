@@ -46,3 +46,6 @@ cycle behavior, Python 3.14 type parameters, and concrete specialization.
 for roots such as `list[User]`, aliases, and `TypedDict` without wrapper Specs.
 [Dynamic Specs, introspection, and replacement](dynamic-utilities.md) covers
 `create_spec`, stable framework metadata, and `copy.replace`.
+[Presence and derived contracts](presence-derived-contracts.md) covers partial
+PATCH contracts, pick/omit projection, supplied-field inspection, and safe
+application through the existing immutable replacement lifecycle.
