@@ -181,6 +181,8 @@ class _ValidationEmitter:
         target_namespace = vars(schema.spec_type)
         artifacts = target_namespace.get("__talea_artifacts__")
         target_identity = target_namespace["__talea_declaration__"]
+        if artifacts is None and target_identity.prepared_fields is None and not target_identity.finalizing:
+            artifacts = target_identity.artifacts()
         if artifacts is None or target_identity.is_recursive():
             if target_identity.values_are_immutable(frozenset({schema.spec_type})):
                 return

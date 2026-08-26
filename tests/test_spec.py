@@ -39,6 +39,7 @@ class Payload(Spec):
 def test_root_package_exports_only_the_deliberate_public_api() -> None:
     assert talea.__all__ == [
         "Alias",
+        "Contract",
         "Ge",
         "Gt",
         "ErrorCode",

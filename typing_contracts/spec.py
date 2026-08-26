@@ -3,11 +3,12 @@
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Literal, assert_type
+from typing import Annotated, Literal, TypedDict, assert_type
 from uuid import UUID
 
 from talea import (
     Alias,
+    Contract,
     ErrorCode,
     ErrorData,
     Ge,
@@ -42,6 +43,20 @@ assert_type(user.to_dict(), dict[str, object])
 assert_type(user.to_dict(include={"id"}, exclude_none=True), dict[str, object])
 assert_type(user.to_json(), str)
 assert (identifier, name, tags) == (1, "Tiago", [])
+
+assert_type(Contract(int).validate(1), int)
+assert_type(Contract[list[int]](list[int]).validate([1]), list[int])
+assert_type(Contract[list[int]](list[int]).from_python([1]), list[int])
+assert_type(Contract[list[int]](list[int]).from_json("[1]"), list[int])
+assert_type(Contract[list[int]](list[int]).to_python([1]), object)
+assert_type(Contract[list[int]](list[int]).to_json([1]), str)
+
+
+class ContractPayload(TypedDict):
+    id: int
+
+
+assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), ContractPayload)
 
 
 def custom_loads(data: str | bytes | bytearray) -> object:

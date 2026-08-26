@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from talea import Alias, Ge, Spec, check, field, serialize, transform
+from talea import Alias, Contract, Ge, Spec, check, field, serialize, transform
 
 
 class User(Spec):
@@ -23,6 +23,9 @@ User.from_json(1)  # ty: ignore[invalid-argument-type]
 User.from_json("{}", loads=lambda: {})  # ty: ignore[invalid-argument-type]
 User(id=1).to_dict(include=["id"])  # ty: ignore[invalid-argument-type]
 User(id=1).to_json(dumps=lambda value: 1)  # ty: ignore[invalid-argument-type]
+Contract[int](int).to_python("1")  # ty: ignore[invalid-argument-type]
+Contract[int](int).to_json("1")  # ty: ignore[invalid-argument-type]
+Contract[int](int).from_json(1)  # ty: ignore[invalid-argument-type]
 
 
 class Box[T](Spec):
