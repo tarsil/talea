@@ -65,8 +65,7 @@ def derive_spec(
     hooks = tuple(
         hook
         for hook in artifacts.schema.hooks
-        if all(field in retained_set for field in hook.fields)
-        and (not partial or len(hook.fields) == 1)
+        if all(field in retained_set for field in hook.fields) and (not partial or len(hook.fields) == 1)
     )
     serializers = tuple(serializer for serializer in artifacts.schema.serializers if serializer.field in retained_set)
     source_name = (declaration.generic_origin or source).__name__
@@ -117,9 +116,7 @@ def apply_patch[SourceSpecT: Spec](instance: SourceSpecT, patch: Spec) -> Source
     if provenance is None or not provenance.partial:
         raise TypeError("apply_patch requires a partial derived Spec")
     if provenance.source is not type(instance):
-        raise TypeError(
-            f"patch for {provenance.source.__qualname__} cannot apply to {type(instance).__qualname__}"
-        )
+        raise TypeError(f"patch for {provenance.source.__qualname__} cannot apply to {type(instance).__qualname__}")
     from copy import replace as copy_replace
 
     from talea.spec.presence import presence_mask

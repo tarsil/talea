@@ -123,9 +123,7 @@ class HandPartial:
         """Return present fields in canonical order."""
 
         return {
-            f"field_{index}": getattr(self, f"field_{index}")
-            for index in range(10)
-            if self.presence & (1 << index)
+            f"field_{index}": getattr(self, f"field_{index}") for index in range(10) if self.presence & (1 << index)
         }
 
 
@@ -233,10 +231,7 @@ def benchmark_memory() -> None:
         f"shallow instance normal={sys.getsizeof(normal)} B "
         f"partial-empty={sys.getsizeof(empty)} B partial-five={sys.getsizeof(partial_five)} B"
     )
-    print(
-        "presence mask shallow="
-        f"{sys.getsizeof(object.__getattribute__(empty, '__talea_presence__'))} B"
-    )
+    print(f"presence mask shallow={sys.getsizeof(object.__getattribute__(empty, '__talea_presence__'))} B")
     print(f"1000 discarded derivations retained={retained} bytes first_collected={collected}")
 
 

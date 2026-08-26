@@ -47,9 +47,7 @@ def compile_presence_constructor(
     }
     emitter = _ValidationEmitter(lines, names, namespace, title=title)
     transforms = {
-        field.name: tuple(
-            hook for hook in schema.hooks if hook.kind == "transform" and hook.fields == (field.name,)
-        )
+        field.name: tuple(hook for hook in schema.hooks if hook.kind == "transform" and hook.fields == (field.name,))
         for field in fields
     }
     checks = {
@@ -125,9 +123,7 @@ def compile_presence_replacer(
     emitter = _ValidationEmitter(lines, names, namespace, title=title)
     values = tuple(names.allocate(f"field_{index}") for index in range(len(fields)))
     transforms = {
-        field.name: tuple(
-            hook for hook in schema.hooks if hook.kind == "transform" and hook.fields == (field.name,)
-        )
+        field.name: tuple(hook for hook in schema.hooks if hook.kind == "transform" and hook.fields == (field.name,))
         for field in fields
     }
     checks = {
@@ -187,6 +183,4 @@ def present_field_names(instance: object) -> frozenset[str]:
     )
     if mask is None:
         return frozenset(field.name for field in artifacts.schema.fields)
-    return frozenset(
-        field.name for index, field in enumerate(artifacts.schema.fields) if mask & (1 << index)
-    )
+    return frozenset(field.name for index, field in enumerate(artifacts.schema.fields) if mask & (1 << index))
