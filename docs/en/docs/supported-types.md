@@ -28,10 +28,11 @@ event = Event(
 )
 ```
 
-Passing the UUID or datetime as a string raises `ValidationError` unless that
-specific field declares an explicit inbound `transform`. Talea provides no
-global coercion policy. General serialized-format parsing remains a separate
-future input boundary.
+Passing the UUID or datetime as a string to ordinary construction or
+`from_mapping` raises `ValidationError` unless that field declares an explicit
+inbound `transform`. `from_json` owns a separate schema-aware representation
+contract for JSON strings. Talea provides no global coercion policy. See
+[Input boundaries](input-boundaries.md).
 
 ## Type families
 

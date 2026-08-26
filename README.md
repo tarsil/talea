@@ -94,7 +94,13 @@ effective declaration. Compact multiple inheritance is available when there is
 one state-bearing Spec slot lineage; method-only mixins must declare
 `__slots__ = ()`.
 
-Parsing and serialization are not implemented yet.
+Untrusted Python mappings use `User.from_mapping(data)`, which constructs nested
+Specs, reports missing and unexpected fields, and aggregates independent field
+failures without changing ordinary construction. Serialized JSON uses
+`User.from_json(data)`. The standard-library decoder is strict about duplicate
+keys and non-standard numeric constants, while an explicit per-call `loads`
+callable can select another JSON implementation. Outbound serialization is not
+implemented yet.
 
 The canonical schema foundation covers built-in scalar types, homogeneous
 built-in containers, dictionaries, fixed and variadic tuples, PEP 604 unions,

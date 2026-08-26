@@ -4,6 +4,14 @@
 
 ### Added
 
+- Compiled `Spec.from_mapping` construction for untrusted Mapping input with
+  nested Spec construction, strict Python container semantics, structured
+  missing/unexpected fields, and deterministic independent-field aggregation.
+- Strict `Spec.from_json` decoding with a replaceable per-call decoder,
+  duplicate-key and non-finite-token rejection in the standard-library path,
+  precision-safe Decimal tokens, and schema-aware standard-library types.
+- Dedicated Mapping/JSON timing, allocation, codec, and declaration-cost
+  benchmarks plus production input-boundary documentation.
 - Public `ValidationError`, `ErrorCode`, and typed JSON-compatible `ErrorData`
   projection with structured locations and stable machine codes.
 - Talea-native multiline rendering, bounded hostile-input representation,

@@ -24,8 +24,10 @@ class Team(Spec):
     lead: User | None = None
 ```
 
-Construction accepts an existing compatible instance and retains that object.
-It does not convert mappings or rebuild nested Specs. Subclasses are accepted
+Ordinary `Spec(...)` construction accepts an existing compatible instance and
+retains that object. It does not convert mappings or rebuild nested Specs;
+`from_mapping` and `from_json` own those separate external-data operations.
+Subclasses are accepted
 where a base Spec is annotated, following normal `isinstance` semantics. A
 wrong member inside a container reports the field and container position, such
 as `("members", 2)`.

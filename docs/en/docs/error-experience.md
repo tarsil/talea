@@ -99,11 +99,15 @@ The public vocabulary currently contains:
 - custom validation: `transform`, `field_check`, `spec_check`;
 - default production: `factory`.
 
-`missing` and `unexpected` are reserved for a data-input boundary. Normal Spec
+`missing` and `unexpected` belong to `from_mapping` and `from_json`. Those
+external boundaries aggregate independent field failures. Normal Spec
 construction retains its real keyword-only Python signature, so omitted
-required arguments, unknown keywords, and positional misuse currently raise
-native `TypeError`, not `ValidationError`. Talea will use the structured codes
-when a future mapping or serialized-data operation owns those semantics.
+required arguments, unknown keywords, and positional misuse raise native
+`TypeError`, not `ValidationError`.
+
+JSON syntax adds `json_invalid` and `json_duplicate`. Parser line, column, and
+character position appear in `context` when available; they do not become Talea
+field-location segments.
 
 ## Nested and constraint failures
 
@@ -198,10 +202,9 @@ exception collection, or final aggregation branch on every success.
 
 Union alternatives are a different dimension: branch failures are diagnostic
 evidence required to explain why the one union path failed, so they are
-collected on that failure path only. Talea does not currently expose a synthetic
-aggregation constructor. A future mapping/JSON input operation can compile
-collection together with structured `missing` and `unexpected` fields without
-changing normal Python construction.
+collected on that failure path only. Mapping and JSON input compile independent
+field collection together with structured `missing` and `unexpected` fields
+without changing normal Python construction.
 
 ## Framework response example
 

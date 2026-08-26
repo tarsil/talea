@@ -35,4 +35,7 @@ post-structural field and cross-field checks. See
 subclass behavior. [Custom validation](custom-validation.md) documents the
 application lifecycle. [Validation errors](error-experience.md) documents stable
 codes, structured locations, JSON projection, union diagnostics, and safe human
-rendering. Parsing and serialization are not available yet.
+rendering. [Input boundaries](input-boundaries.md) covers aggregated Mapping
+construction, nested data, strict JSON decoding, schema-aware standard-library
+conversion, and per-call decoder selection. Outbound serialization is not
+available yet.
