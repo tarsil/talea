@@ -124,6 +124,7 @@ benchmark_recursive_generics = "python benchmarks/recursive_generics.py"
 benchmark_utilities = "python benchmarks/utilities.py"
 benchmark_metadata = "python benchmarks/metadata_security.py"
 benchmark_tagged = "python benchmarks/tagged_unions.py"
+benchmark_recursive_named = "python benchmarks/recursive_named_graphs.py"
 
 [tool.isort]
 profile = "black"

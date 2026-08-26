@@ -163,3 +163,8 @@ tasks:
     desc: Benchmarks tagged dispatch, boundaries, output, failure, and branch scaling
     cmds:
       - hatch run test:benchmark_tagged
+
+  benchmark_recursive_named:
+    desc: Benchmarks recursive alias and TypedDict graph resolution and execution
+    cmds:
+      - hatch run test:benchmark_recursive_named
