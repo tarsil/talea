@@ -17,6 +17,7 @@ from talea import (
     Spec,
     ValidationError,
     check,
+    create_spec,
     field,
     serialize,
     transform,
@@ -57,6 +58,14 @@ class ContractPayload(TypedDict):
 
 
 assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), ContractPayload)
+assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
+
+
+class DynamicBase(Spec):
+    base: int
+
+
+assert_type(create_spec("DynamicChild", {"value": str}, base=DynamicBase), type[DynamicBase])
 
 
 def custom_loads(data: str | bytes | bytearray) -> object:

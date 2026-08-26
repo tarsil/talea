@@ -6,6 +6,7 @@ from talea.declaration.metadata import Alias
 from talea.errors import ErrorCode, ErrorData, ValidationError
 from talea.serialization import SerializationError, serialize
 from talea.spec import Spec, check, field, transform
+from talea.spec.dynamic import create_spec
 
 __all__ = [
     "Alias",
@@ -24,6 +25,7 @@ __all__ = [
     "SerializationError",
     "ValidationError",
     "check",
+    "create_spec",
     "field",
     "serialize",
     "transform",
