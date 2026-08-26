@@ -143,3 +143,8 @@ tasks:
     desc: Benchmarks compiled Python projection, JSON projection, encoding, and output costs
     cmds:
       - hatch run test:benchmark_serialization
+
+  benchmark_recursive_generics:
+    desc: Benchmarks generic specialization and recursive execution
+    cmds:
+      - hatch run test:benchmark_recursive_generics

@@ -120,6 +120,7 @@ benchmark_errors = "python benchmarks/error_experience.py"
 benchmark_mapping = "python benchmarks/input_boundaries.py mapping"
 benchmark_json = "python benchmarks/input_boundaries.py json"
 benchmark_serialization = "python benchmarks/serialization.py"
+benchmark_recursive_generics = "python benchmarks/recursive_generics.py"
 
 [tool.isort]
 profile = "black"
