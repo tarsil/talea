@@ -59,6 +59,7 @@ nav:
   - Arbitrary contracts: "contracts.md"
   - Dynamic Specs, introspection, and replacement: "dynamic-utilities.md"
   - Presence and derived contracts: "presence-derived-contracts.md"
+  - JSON Schema and OpenAPI: "json-schema-openapi.md"
   - Remaining release ledger: "release-ledger.md"
   - Contributing: "contributing.md"
   - Sponsorship: "sponsorship.md"

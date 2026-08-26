@@ -49,3 +49,6 @@ for roots such as `list[User]`, aliases, and `TypedDict` without wrapper Specs.
 [Presence and derived contracts](presence-derived-contracts.md) covers partial
 PATCH contracts, pick/omit projection, supplied-field inspection, and safe
 application through the existing immutable replacement lifecycle.
+[JSON Schema and OpenAPI projection](json-schema-openapi.md) covers Draft
+2020-12 documents, OpenAPI 3.1 Schema Objects, definitions, recursion,
+input/output modes, and callback limitations.

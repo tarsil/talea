@@ -4,6 +4,17 @@
 
 ### Added
 
+- Draft 2020-12 `json_schema()` and OpenAPI 3.1 `openapi_schema()` on concrete
+  Specs and arbitrary Contracts, with explicit input/output modes.
+- Deterministic reusable definitions for Specs, aliases, TypedDicts, concrete
+  generics, mutual recursion, and tagged unions, including collision-safe names
+  and RFC 6901 pointer escaping.
+- Canonical aliases, requiredness, partial/PATCH presence, defaults, metadata,
+  constraints, standard-library JSON representations, and OpenAPI
+  discriminator mappings in standards projection.
+- Official Draft 2020-12 and OpenAPI 3.1.2 conformance checks, property-based
+  runtime/schema consistency tests, adversarial naming and metadata coverage,
+  and schema projection/size/memory benchmarks.
 - `derive_spec()` for independent all-fields-omittable PATCH Specs and ordered
   include/exclude projections without false source subtyping.
 - Compact integer supplied-field presence, immutable `present_fields`, absent
