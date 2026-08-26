@@ -193,20 +193,25 @@ object is not retained, value-derived location members are redacted, and
 callback causes are dropped. See [Metadata and sensitive
 fields](metadata-security.md).
 
-## Fail-fast policy
+## Aggregation and truncation
 
-Spec construction is deliberately fail-fast across independent fields and
-within a structural path. For invalid `age`, `email`, and `active` values, the
-first field in canonical declaration order fails and later transforms or checks
-do not run. This preserves atomic construction, the specialized constructor,
-and Campaign 7-class successful performance without an error list, per-field
-exception collection, or final aggregation branch on every success.
+Trusted `Spec(...)` construction remains fail-fast and pays no aggregation or
+resource-policy cost. Mapping and JSON boundaries collect independent failures
+in canonical declaration order, followed by unexpected keys in Mapping order.
+The selected `ResourcePolicy.max_errors` bounds this work. Once the budget is
+reached, validation stops and the resulting exception has
+`error.truncated is True`; `errors()` contains the deterministic collected
+prefix. The human header includes `[truncated]`.
+
+`truncated` means that budget enforcement terminated aggregation. It does not
+claim a count of omitted failures, because Talea deliberately does not continue
+traversal to discover that count. Nested aggregation and union projection
+preserve the signal.
 
 Union alternatives are a different dimension: branch failures are diagnostic
 evidence required to explain why the one union path failed, so they are
-collected on that failure path only. Mapping and JSON input compile independent
-field collection together with structured `missing` and `unexpected` fields
-without changing normal Python construction.
+collected on that failure path only. The shared node budget counts branches
+actually attempted; tagged unions dispatch only to the selected branch.
 
 ## Framework response example
 

@@ -4,6 +4,15 @@
 
 ### Added
 
+- Immutable `ResourcePolicy` enforcement for JSON transport size, structural
+  depth, compiled input work, and deterministic error aggregation across Spec
+  and Contract external boundaries.
+- Structured payload-free `ResourceLimitError`, machine-visible validation
+  truncation, operation-local/thread-isolated counters, and pre-decoder checks
+  for both standard and custom JSON codecs.
+- A technical threat model, annotation-expression hardening, property and
+  adversarial security coverage, and resource/depth/breadth/retention
+  benchmarks.
 - Draft 2020-12 `json_schema()` and OpenAPI 3.1 `openapi_schema()` on concrete
   Specs and arbitrary Contracts, with explicit input/output modes.
 - Deterministic reusable definitions for Specs, aliases, TypedDicts, concrete

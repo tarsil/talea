@@ -317,7 +317,8 @@ Non-finite numbers, unsupported Enum values, non-string JSON keys, invalid
 hook results, wrong codec return types, and non-UTF-8 codec bytes fail clearly.
 
 Serialization creates output proportional to the declared value graph. Talea
-does not impose a speculative size or nesting limit; applications receiving
-unbounded values should enforce resource policy at their boundary. Recursive
-Specs are outside the current annotation contract, so compiled serializers do
-not need a runtime recursive-schema interpreter.
+does not apply `ResourcePolicy` to output: serialization operates on
+application-owned, already-validated values rather than an external transport.
+Recursive Specs and named graphs are supported by separately compiled back
+edges, with deliberate cycle rejection. Applications that serialize mutable or
+otherwise unbounded graphs own output size, deadlines, and process isolation.

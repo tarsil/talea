@@ -181,6 +181,31 @@ nodes = forest.from_json('[{"value":1,"children":[]}]')
 Concrete generic specializations are required. An open generic cannot define a
 complete runtime contract.
 
+## Retained resource policy
+
+`Contract` may retain one immutable input policy for repeated boundary use:
+
+```python
+from talea import Contract, ResourcePolicy
+
+identifiers = Contract(
+    list[int],
+    policy=ResourcePolicy(max_nodes=10_001),
+)
+values = identifiers.from_json("[1, 2, 3]")
+```
+
+`from_python()` and `from_json()` use the retained policy. An explicit per-call
+policy replaces it completely; policies are never merged. `None` on a policy
+field disables that dimension. `validate()` remains the trusted strict-value
+hot path and does no resource accounting. Python/JSON output and standards
+projection likewise remain application/tooling-owned operations.
+
+Specs do not retain class-level resource configuration. Their Mapping and JSON
+operations use Talea's finite default or one explicit per-call policy. See
+[Resource and security model](resource-security.md) for the ownership and trust
+boundary.
+
 ## Compilation, caching, and performance
 
 Contract construction resolves the annotation and compiles strict validation.
@@ -203,7 +228,7 @@ This is a static typing limitation, not a runtime limitation.
 ## Security and operational guidance
 
 - Treat one retained Contract as application-owned immutable boundary state.
-- External input remains hostile and receives the same depth, cycle, union,
+- External input remains hostile and receives the same resource, cycle, union,
   numeric, and representation checks as Spec boundaries.
 - Annotation resolution never evaluates arbitrary callbacks. Explicit string
   forward references use Talea's restricted structural resolution policy.

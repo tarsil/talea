@@ -51,6 +51,7 @@ nav:
   - Metadata and sensitive fields: "metadata-security.md"
   - Custom validation: "custom-validation.md"
   - Input boundaries: "input-boundaries.md"
+  - Resource and security model: "resource-security.md"
   - Serialization and JSON output: "serialization.md"
   - Validation errors: "error-experience.md"
   - Composition and inheritance: "composition-inheritance.md"

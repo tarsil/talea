@@ -251,6 +251,45 @@ callable is not stored on the Spec declaration or instance. Outbound JSON uses
 the symmetric per-call `dumps` shape without replacing this input abstraction.
 See [Serialization and JSON output](serialization.md).
 
+## Resource policy
+
+Every untrusted Mapping and JSON operation uses an immutable
+`ResourcePolicy`. Talea's default is equivalent to:
+
+```python
+from talea import ResourcePolicy
+
+policy = ResourcePolicy(
+    max_input_bytes=8 * 1024 * 1024,
+    max_depth=64,
+    max_nodes=100_000,
+    max_errors=100,
+)
+```
+
+Pass `policy=policy` to `Spec.from_mapping()` or `Spec.from_json()`. Each field
+also accepts `None`, which disables only that dimension. There is no setter or
+process-global override.
+
+`max_input_bytes` is the encoded JSON transport size. Byte inputs use exact
+length. Text uses UTF-8 byte length without allocating an encoded copy. The
+check happens before the default or custom decoder. A scalar root has depth
+zero; a root container has depth one; each nested container adds one.
+`max_nodes` counts compiled schema visits, including scalar values and union
+branches actually attempted. A tagged union visits only its selected branch.
+
+When depth or work exceeds its limit, `ResourceLimitError` exposes `code`,
+`limit`, and `observed` without retaining the input. Error aggregation instead
+returns the first `max_errors` failures in canonical order and sets
+`ValidationError.truncated` to `True`; traversal terminates at that point.
+
+These are work limits, not business-schema constraints. Talea deliberately has
+no separate string, bytes, integer, Decimal, or per-container size setting.
+Use `MaxLength` or an application transport rule when the data model requires
+one. Python 3.14's integer-string conversion limit still applies to JSON integer
+tokens. A single node budget covers broad containers without overlapping limit
+meanings.
+
 ## Malformed input and parser limits
 
 Default malformed JSON raises `ValidationError` with `json_invalid`. When the
@@ -261,11 +300,13 @@ Error projections bound the displayed input. Small standard parser failures are
 retained as `__cause__`; large documents do not retain the decoder exception
 that would otherwise keep the complete source alive.
 
-Talea adds no speculative document-size or nesting limit. Standard decoder
-resource behavior therefore still applies. Applications accepting unbounded
-hostile payloads should enforce transport limits before decoding. Custom
-Mapping methods and non-`ValueError` decoder exceptions are application code and
-propagate rather than being mislabeled as field failures.
+The transport limit bounds what reaches the selected parser. Talea cannot bound
+CPU or allocation inside a custom decoder, custom `Mapping` method, transform,
+check, factory, or regular expression; those are trusted application code.
+Non-`ValueError` decoder exceptions and custom Mapping failures propagate rather
+than being mislabeled as field failures. Applications still own concurrency,
+deadlines, process isolation, and any stricter limit enforced before a complete
+payload reaches Talea.
 
 ## Performance model
 

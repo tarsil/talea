@@ -6,6 +6,7 @@ future owner; it is not a claim that the feature exists.
 
 | Capability | Disposition | Named owner and reason |
 | --- | --- | --- |
+| External-input resource policy | Delivered | `ResourcePolicy` and operation-local resource state bound JSON transport size, compiled depth/work, and error aggregation for Spec/Contract input without global mutation or trusted-hot-path tax. Output, tooling, and trusted custom code remain caller-owned by explicit threat-model decision. |
 | Partial/PATCH, all-fields-omittable, pick, and omit derivation | Delivered | `derive_spec()` projects canonical source fields into a normal independent Spec. Partial instances retain an integer presence mask, preserve absence instead of widening values with `None`, and apply safely through `apply_patch()` and `copy.replace`. |
 | Callable argument and return validation | Deferred | **Callable Signature Contracts**: own signature binding, defaults, positional/keyword rules, variadics, descriptors, async behavior, return validation, exception policy, typing preservation, and wrapper cost using Contract as a leaf consumer. |
 | Detached callable-contract objects | Rejected pending a distinct use case | The Callable Signature Contracts owner should expose one decorator vocabulary; a second overlapping object API has no demonstrated value. |
