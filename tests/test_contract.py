@@ -149,21 +149,25 @@ def test_contract_artifacts_compile_lazily_and_reuse_per_instance() -> None:
     python_input = artifacts.python_input
     contract.from_python([2])
     assert artifacts.python_input is python_input
+    assert artifacts.input_for("mapping") is python_input
 
     contract.from_json("[1]")
     json_input = artifacts.json_input
     contract.from_json("[2]")
     assert artifacts.json_input is json_input
+    assert artifacts.input_for("json") is json_input
 
     contract.to_python([1])
     python_output = artifacts.python_output
     contract.to_python([2])
     assert artifacts.python_output is python_output
+    assert artifacts.output_for("python") is python_output
 
     contract.to_json([1])
     json_output = artifacts.json_output
     contract.to_json([2])
     assert artifacts.json_output is json_output
+    assert artifacts.output_for("json") is json_output
 
 
 def test_contract_has_no_copy_or_global_canonicalization_magic() -> None:

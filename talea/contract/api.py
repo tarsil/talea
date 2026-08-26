@@ -84,7 +84,10 @@ class Contract(Generic[T]):
             ValidationError: If conversion or validation fails.
         """
 
-        return self._artifacts.input_for("mapping")(value)  # ty: ignore[invalid-return-type]
+        compiled = self._artifacts.python_input
+        if compiled is None:
+            compiled = self._artifacts.input_for("mapping")
+        return compiled(value)  # ty: ignore[invalid-return-type]
 
     def from_json(
         self,
@@ -104,7 +107,10 @@ class Contract(Generic[T]):
         """
 
         decoded = decode_json(data, loads, title=self._artifacts.title)
-        return self._artifacts.input_for("json")(decoded)  # ty: ignore[invalid-return-type]
+        compiled = self._artifacts.json_input
+        if compiled is None:
+            compiled = self._artifacts.input_for("json")
+        return compiled(decoded)  # ty: ignore[invalid-return-type]
 
     def to_python(self, value: T, /) -> object:
         """Validate and return a detached Python representation of ``value``.
@@ -118,7 +124,10 @@ class Contract(Generic[T]):
         """
 
         validated = self._artifacts.validator(value)
-        return self._artifacts.output_for("python")(validated, ())
+        compiled = self._artifacts.python_output
+        if compiled is None:
+            compiled = self._artifacts.output_for("python")
+        return compiled(validated, ())
 
     def to_json(
         self,
@@ -138,5 +147,8 @@ class Contract(Generic[T]):
         """
 
         validated = self._artifacts.validator(value)
-        projected = self._artifacts.output_for("json")(validated, ())
+        compiled = self._artifacts.json_output
+        if compiled is None:
+            compiled = self._artifacts.output_for("json")
+        projected = compiled(validated, ())
         return encode_json(projected, dumps)

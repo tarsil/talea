@@ -148,3 +148,8 @@ tasks:
     desc: Benchmarks generic specialization and recursive execution
     cmds:
       - hatch run test:benchmark_recursive_generics
+
+  benchmark_utilities:
+    desc: Benchmarks Contract, create_spec, introspection, and copy.replace
+    cmds:
+      - hatch run test:benchmark_utilities
