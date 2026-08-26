@@ -1,15 +1,23 @@
 from collections.abc import Callable
 from dataclasses import FrozenInstanceError
+from enum import Enum
+from typing import cast
 
 import pytest
 
-from talea import Spec
+from talea import Ge, Spec
 from talea.schema import (
+    ConstrainedSchema,
+    EnumSchema,
     FixedTupleSchema,
+    LiteralSchema,
+    LiteralValue,
     MappingSchema,
     PrimitiveSchema,
     SequenceSchema,
     SpecReferenceSchema,
+    TypeCheckMode,
+    TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
@@ -40,6 +48,9 @@ from talea.schema import (
             frozenset({PrimitiveSchema("bool"), PrimitiveSchema("bytes")}),
         ),
         (SpecReferenceSchema(Spec), "spec_type", int),
+        (TypeSchema(int, "exact"), "mode", "nominal"),
+        (LiteralSchema(frozenset({LiteralValue(int, 1)})), "values", frozenset()),
+        (ConstrainedSchema(PrimitiveSchema("int"), (Ge(0),)), "constraints", (Ge(1),)),
     ],
 )
 def test_structural_schema_nodes_are_immutable(schema: object, attribute: str, replacement: object) -> None:
@@ -71,10 +82,19 @@ def test_primitive_schema_is_immutable() -> None:
     [
         lambda: FixedTupleSchema(()),
         lambda: UnionSchema(frozenset({PrimitiveSchema("int")})),
+        lambda: LiteralSchema(frozenset()),
+        lambda: TypeSchema(cast(type[object], 1), "exact"),
+        lambda: TypeSchema(int, cast(TypeCheckMode, "adaptive")),
+        lambda: EnumSchema(cast(type[Enum], int), ()),
+        lambda: ConstrainedSchema(PrimitiveSchema("int"), ()),
+        lambda: ConstrainedSchema(
+            ConstrainedSchema(PrimitiveSchema("int"), (Ge(0),)),
+            (Ge(1),),
+        ),
     ],
 )
-def test_schema_nodes_reject_invalid_cardinality(construction: Callable[[], object]) -> None:
-    with pytest.raises(ValueError):
+def test_schema_nodes_reject_invalid_invariants(construction: Callable[[], object]) -> None:
+    with pytest.raises((TypeError, ValueError)):
         construction()
 
 

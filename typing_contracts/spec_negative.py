@@ -1,6 +1,26 @@
 """Negative static-typing probes for Talea Spec declarations."""
 
-from talea import Spec, field
+from enum import StrEnum
+from typing import Annotated, Literal
+from uuid import UUID
+
+from talea import (
+    Alias,
+    Contract,
+    Ge,
+    ResourcePolicy,
+    Sensitive,
+    Spec,
+    Title,
+    apply_patch,
+    check,
+    create_spec,
+    derive_spec,
+    field,
+    serialize,
+    transform,
+)
+from talea.introspection import inspect_contract, inspect_spec
 
 
 class User(Spec):
@@ -14,6 +34,51 @@ User(id="1")  # ty: ignore[invalid-argument-type]
 User(id=1, active="yes")  # ty: ignore[invalid-argument-type]
 User(id=1, tags=[1])  # ty: ignore[invalid-argument-type]
 User(id=1, unknown=True)  # ty: ignore[unknown-argument]
+User.from_mapping([])  # ty: ignore[invalid-argument-type]
+User.from_json(1)  # ty: ignore[invalid-argument-type]
+User.from_json("{}", loads=lambda: {})  # ty: ignore[invalid-argument-type]
+User.from_mapping({"id": 1}, policy=object())  # ty: ignore[invalid-argument-type]
+User.from_json("{}", policy=object())  # ty: ignore[invalid-argument-type]
+User(id=1).to_dict(include=["id"])  # ty: ignore[invalid-argument-type]
+User(id=1).to_json(dumps=lambda value: 1)  # ty: ignore[invalid-argument-type]
+Contract[int](int).to_python("1")  # ty: ignore[invalid-argument-type]
+Contract[int](int).to_json("1")  # ty: ignore[invalid-argument-type]
+Contract[int](int).from_json(1)  # ty: ignore[invalid-argument-type]
+Contract[int](int, policy=object())  # ty: ignore[no-matching-overload]
+Contract[int](int).from_python(1, policy=object())  # ty: ignore[invalid-argument-type]
+Contract[int](int).to_python(1, policy=ResourcePolicy())  # ty: ignore[unknown-argument]
+User(id=1).to_json(policy=ResourcePolicy())  # ty: ignore[unknown-argument]
+Contract[int](int).json_schema(mode="validation")  # ty: ignore[invalid-argument-type]
+User.json_schema(mode="serialization")  # ty: ignore[invalid-argument-type]
+create_spec(1, {"value": int})  # ty: ignore[invalid-argument-type]
+create_spec("Invalid", [])  # ty: ignore[invalid-argument-type]
+create_spec("Invalid", {"value": int}, base=object)  # ty: ignore[no-matching-overload]
+create_spec("Invalid", {"value": int}, metadata=1)  # ty: ignore[invalid-argument-type]
+derive_spec(object)  # ty: ignore[invalid-argument-type]
+derive_spec(User, partial=1)  # ty: ignore[invalid-argument-type]
+apply_patch(User(id=1), object())  # ty: ignore[invalid-argument-type]
+inspect_spec(User(id=1))  # ty: ignore[invalid-argument-type]
+inspect_contract(int)  # ty: ignore[invalid-argument-type]
+Title(1)  # ty: ignore[invalid-argument-type]
+Sensitive("yes")  # ty: ignore[invalid-argument-type]
+
+
+type RecursiveValue = int | list[RecursiveValue]
+
+
+class RecursivePayload(Spec):
+    root: RecursiveValue
+
+
+Contract[RecursiveValue](RecursiveValue).to_json(["wrong"])  # ty: ignore[invalid-argument-type]
+RecursivePayload(root=["wrong"])  # ty: ignore[invalid-argument-type]
+
+
+class Box[T](Spec):
+    value: T
+
+
+Box[int](value="1")  # ty: ignore[invalid-argument-type]
 
 user = User(id=1)
 user.id = 2  # ty: ignore[invalid-assignment]
@@ -61,3 +126,65 @@ employee.employee_id = 2  # ty: ignore[invalid-assignment]
 
 base_only: Employee = Person(name="Ada")  # ty: ignore[invalid-assignment]
 sibling: Person = Address(city="Zurich")  # ty: ignore[invalid-assignment]
+
+
+class Status(StrEnum):
+    ACTIVE = "active"
+
+
+class StrictPayload(Spec):
+    identifier: UUID
+    status: Status
+    operation: Literal["create", "delete"]
+    score: Annotated[int, Ge(0)]
+
+
+StrictPayload(
+    identifier="00000000-0000-0000-0000-000000000000",  # ty: ignore[invalid-argument-type]
+    status="active",  # ty: ignore[invalid-argument-type]
+    operation="update",  # ty: ignore[invalid-argument-type]
+    score="1",  # ty: ignore[invalid-argument-type]
+)
+
+
+class InvalidCheckReturn(Spec):
+    value: int
+
+    @check("value")  # ty: ignore[invalid-argument-type]
+    def replaces(value: int) -> int:
+        return value
+
+
+class TypedTransform(Spec):
+    value: int
+
+    @transform("value")
+    def parse(value: object) -> object:
+        return value
+
+
+TypedTransform(value="1")  # ty: ignore[invalid-argument-type]
+
+
+class AsyncCheck(Spec):
+    value: int
+
+    @check("value")  # ty: ignore[invalid-argument-type]
+    async def invalid(value: int) -> None:
+        pass
+
+
+class Aliased(Spec):
+    internal_name: Annotated[str, Alias("externalName")]
+
+
+Aliased(externalName="value")  # ty: ignore[missing-argument, unknown-argument]
+Aliased()  # ty: ignore[missing-argument]
+
+
+class InvalidSerializer(Spec):
+    value: int
+
+    @serialize("value")
+    async def output(value: int) -> str:
+        return str(value)

@@ -86,3 +86,15 @@
 .text-justify {
   text-align: justify;
 }
+
+
+[data-md-color-scheme="slate"] {
+  /* main canvas & surface backgrounds */
+  --md-default-bg-color: #121824;
+  --md-default-bg-color--light: #1a2332;
+  --md-default-bg-color--lighter: #232e42;
+  --md-default-bg-color--dark: #0d121b;
+
+  /* sidebars and headers */
+  --md-code-bg-color: #17202e;
+}

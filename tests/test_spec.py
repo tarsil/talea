@@ -10,12 +10,19 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 import talea
-import talea.annotations
-import talea.spec as spec_module
+import talea.schema.resolution as annotation_resolution
+import talea.spec.declaration as spec_module
+import talea.spec.fields as field_module
+import talea.spec.metaclass as metaclass_module
 from talea import Spec, field
-from talea._declaration import MISSING_DEFAULT, SpecSchema
-from talea.annotations import AnnotationResolutionError
-from talea.schema import MappingSchema, PrimitiveSchema, SequenceSchema, UnionSchema
+from talea.declaration import MISSING_DEFAULT, SpecSchema
+from talea.schema import (
+    AnnotationResolutionError,
+    MappingSchema,
+    PrimitiveSchema,
+    SequenceSchema,
+    UnionSchema,
+)
 from talea.validation import ValidationError
 
 
@@ -29,13 +36,48 @@ class Payload(Spec):
     metadata: dict[str, int | None]
 
 
-def test_root_package_exports_only_the_spec_declaration_api() -> None:
-    assert talea.__all__ == ["Spec", "field"]
+def test_root_package_exports_only_the_deliberate_public_api() -> None:
+    assert talea.__all__ == [
+        "Alias",
+        "Contract",
+        "Deprecated",
+        "Description",
+        "Discriminator",
+        "Ge",
+        "Gt",
+        "ErrorCode",
+        "ErrorData",
+        "Examples",
+        "Le",
+        "Lt",
+        "MaxLength",
+        "MinLength",
+        "MultipleOf",
+        "Pattern",
+        "ReadOnly",
+        "ResourceLimitError",
+        "ResourcePolicy",
+        "SchemaProjectionError",
+        "Sensitive",
+        "Spec",
+        "apply_patch",
+        "SerializationError",
+        "ValidationError",
+        "Title",
+        "WriteOnly",
+        "check",
+        "create_spec",
+        "derive_spec",
+        "field",
+        "serialize",
+        "transform",
+    ]
     assert talea.Spec is Spec
     assert talea.field is field
     assert not hasattr(talea, "SpecSchema")
     assert not hasattr(talea, "compile_validator")
-    assert not hasattr(talea, "ValidationError")
+    assert not hasattr(talea, "CustomValidationError")
+    assert talea.ValidationError is ValidationError
 
 
 def test_empty_spec_declaration_constructs_without_instance_metadata() -> None:
@@ -123,7 +165,9 @@ def test_invalid_nested_field_composes_the_complete_location() -> None:
         Payload(values=[1, 2], metadata={"ok": 1, "wrong": "2"})  # type: ignore[invalid-argument-type]
 
     assert raised.value.location == ("metadata", "wrong")
-    assert str(raised.value) == ("Validation failed at ['metadata']['wrong']: expected int | None, received str ('2')")
+    assert str(raised.value).startswith(
+        "Payload\n  metadata.wrong\n    Expected one of: int | None\n    received: '2' (str)"
+    )
 
 
 def test_instances_are_compact_and_retain_only_declared_values() -> None:
@@ -145,7 +189,7 @@ def test_required_only_constructor_retains_no_default_runtime_artifacts() -> Non
         if getattr(value, "__name__", None) == "__set__" and hasattr(value, "__self__")
     }
 
-    assert not any(isinstance(value, spec_module._FactorySentinel) for value in globals_.values())
+    assert not any(isinstance(value, field_module._FactorySentinel) for value in globals_.values())
     assert not any(isinstance(value, spec_module._FactoryDeclaration) for value in globals_.values())
     assert object.__setattr__ not in globals_.values()
     assert not any(validator in globals_.values() for validator in validators)
@@ -344,9 +388,11 @@ def test_factory_failure_has_a_clear_field_boundary_and_preserves_cause() -> Non
     class FailedFactory(Spec):
         count: int = field(default_factory=fail)
 
-    with pytest.raises(TypeError, match="default factory for field 'count' failed") as raised:
+    with pytest.raises(ValidationError, match="Default factory failed") as raised:
         FailedFactory()
 
+    assert raised.value.code == "factory"
+    assert raised.value.location == ("count",)
     assert raised.value.__cause__ is failure
 
 
@@ -490,6 +536,9 @@ def test_declaration_resolves_and_compiles_exactly_once(monkeypatch: pytest.Monk
 
     declaration_compile_calls = compile_calls
     declaration_exec_calls = exec_calls
+    artifacts = vars(Lifecycle)["__talea_artifacts__"]
+    assert artifacts.inputs.mapping_input is None
+    assert artifacts.inputs.json_input is None
     assert Lifecycle(id=1, labels=["one"]).id == 1
     assert Lifecycle(id=2, labels=["two"]).id == 2
     assert resolution_calls == 2
@@ -499,6 +548,23 @@ def test_declaration_resolves_and_compiles_exactly_once(monkeypatch: pytest.Monk
     assert declaration_exec_calls == 3
     assert compile_calls == declaration_compile_calls
     assert exec_calls == declaration_exec_calls
+
+    assert Lifecycle.from_mapping({"id": 3, "labels": ["three"]}).id == 3
+    mapping_compile_calls = compile_calls
+    mapping_exec_calls = exec_calls
+    assert artifacts.inputs.mapping_input is not None
+    assert artifacts.inputs.json_input is None
+    assert Lifecycle.from_mapping({"id": 4, "labels": ["four"]}).id == 4
+    assert compile_calls == mapping_compile_calls
+    assert exec_calls == mapping_exec_calls
+
+    assert Lifecycle.from_json('{"id":5,"labels":["five"]}').id == 5
+    json_compile_calls = compile_calls
+    json_exec_calls = exec_calls
+    assert artifacts.inputs.json_input is not None
+    assert Lifecycle.from_json('{"id":6,"labels":["six"]}').id == 6
+    assert compile_calls == json_compile_calls
+    assert exec_calls == json_exec_calls
 
 
 def test_repeated_construction_uses_no_reflection_or_compilation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -516,8 +582,8 @@ def test_repeated_construction_uses_no_reflection_or_compilation(monkeypatch: py
     monkeypatch.setattr(spec_module, "compile_validator", forbidden)
     monkeypatch.setattr(spec_module._ConstructorCompiler, "compile", forbidden)
     monkeypatch.setattr(spec_module, "get_type_hints", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_origin", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_args", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_origin", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_args", forbidden)
     monkeypatch.setattr(builtins, "compile", forbidden)
     monkeypatch.setattr(builtins, "exec", forbidden)
 
@@ -550,8 +616,8 @@ def test_defaults_use_only_retained_declaration_artifacts(monkeypatch: pytest.Mo
     monkeypatch.setattr(spec_module, "compile_validator", forbidden)
     monkeypatch.setattr(spec_module._ConstructorCompiler, "compile", forbidden)
     monkeypatch.setattr(spec_module, "get_type_hints", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_origin", forbidden)
-    monkeypatch.setattr(talea.annotations, "get_args", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_origin", forbidden)
+    monkeypatch.setattr(annotation_resolution, "get_args", forbidden)
     monkeypatch.setattr(builtins, "compile", forbidden)
     monkeypatch.setattr(builtins, "exec", forbidden)
 
@@ -725,7 +791,7 @@ def test_declaration_name_is_not_executable_generated_source() -> None:
 
 def test_malformed_annotation_protocols_are_rejected() -> None:
     with pytest.raises(TypeError, match="requires at least one Spec base"):
-        spec_module._SpecMeta("Detached", (object,), {})
+        metaclass_module._SpecMeta("Detached", (object,), {})
     with pytest.raises(TypeError, match="requires an annotations mapping"):
         type("InvalidAnnotations", (Spec,), {"__annotations__": 1})
     with pytest.raises(TypeError, match="requires a callable annotation function"):

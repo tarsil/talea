@@ -1,12 +1,11 @@
 import re
 from types import NoneType
-from typing import Annotated, Literal
 
 import pytest
 
 from talea import Spec
-from talea.annotations import AnnotationResolutionError, resolve_annotation
 from talea.schema import (
+    AnnotationResolutionError,
     FixedTupleSchema,
     MappingSchema,
     PrimitiveSchema,
@@ -14,6 +13,7 @@ from talea.schema import (
     SpecReferenceSchema,
     UnionSchema,
     VariadicTupleSchema,
+    resolve_annotation,
 )
 
 
@@ -160,8 +160,6 @@ def test_resolves_spec_references_through_supported_compositions() -> None:
         (dict[str], dict[str]),
         (tuple[()], tuple[()]),
         (tuple[int, str, ...], tuple[int, str, ...]),
-        (Literal[1], Literal[1]),
-        (Annotated[int, "positive"], Annotated[int, "positive"]),
     ],
 )
 def test_rejects_unsupported_annotations(annotation: object, unresolved: object) -> None:

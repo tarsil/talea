@@ -3,7 +3,7 @@
 from statistics import median
 from timeit import Timer
 
-from talea.annotations import resolve_annotation
+from talea.schema import resolve_annotation
 
 _ITERATIONS = 200_000
 _REPEATS = 7

@@ -72,6 +72,11 @@ tasks:
     cmds:
       - hatch run docs:build
 
+  docs_test:
+    desc: Executes documentation examples and validates navigation and internal links
+    cmds:
+      - hatch run docs:test
+
   serve:
     desc: Runs the documentation in live mode
     cmds:
@@ -113,3 +118,73 @@ tasks:
     desc: Benchmarks validator compilation and execution
     cmds:
       - hatch run test:benchmark_validator
+
+  benchmark_types:
+    desc: Benchmarks strict standard types, Literal, and constraints
+    cmds:
+      - hatch run test:benchmark_types
+
+  benchmark_hooks:
+    desc: Benchmarks custom validation and unhooked construction canaries
+    cmds:
+      - hatch run test:benchmark_hooks
+
+  benchmark_errors:
+    desc: Benchmarks structured error creation, rendering, projection, and allocations
+    cmds:
+      - hatch run test:benchmark_errors
+
+  benchmark_mapping:
+    desc: Benchmarks compiled Mapping input, aggregation, allocations, and declaration cost
+    cmds:
+      - hatch run test:benchmark_mapping
+
+  benchmark_json:
+    desc: Benchmarks JSON decode, Talea boundary work, full input, codecs, and allocations
+    cmds:
+      - hatch run test:benchmark_json
+
+  benchmark_serialization:
+    desc: Benchmarks compiled Python projection, JSON projection, encoding, and output costs
+    cmds:
+      - hatch run test:benchmark_serialization
+
+  benchmark_recursive_generics:
+    desc: Benchmarks generic specialization and recursive execution
+    cmds:
+      - hatch run test:benchmark_recursive_generics
+
+  benchmark_utilities:
+    desc: Benchmarks Contract, create_spec, introspection, and copy.replace
+    cmds:
+      - hatch run test:benchmark_utilities
+
+  benchmark_metadata:
+    desc: Benchmarks canonical metadata and sensitive failure redaction
+    cmds:
+      - hatch run test:benchmark_metadata
+
+  benchmark_tagged:
+    desc: Benchmarks tagged dispatch, boundaries, output, failure, and branch scaling
+    cmds:
+      - hatch run test:benchmark_tagged
+
+  benchmark_recursive_named:
+    desc: Benchmarks recursive alias and TypedDict graph resolution and execution
+    cmds:
+      - hatch run test:benchmark_recursive_named
+
+  benchmark_presence:
+    desc: Benchmarks derived declarations, presence-aware execution, patching, and memory
+    cmds:
+      - hatch run test:benchmark_presence
+
+  benchmark_json_schema:
+    desc: Benchmarks JSON Schema/OpenAPI projection, size, scaling, and memory
+    cmds:
+      - hatch run test:benchmark_json_schema
+
+  benchmark_resources:
+    desc: Benchmarks boundary resource enforcement, adversarial scaling, and retention
+    cmds:
+      - hatch run test:benchmark_resources

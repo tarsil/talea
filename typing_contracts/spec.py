@@ -1,8 +1,42 @@
 """Positive static-typing contract for Talea Spec declarations."""
 
-from typing import assert_type
+from copy import replace
+from datetime import date
+from decimal import Decimal
+from enum import StrEnum
+from typing import Annotated, Literal, TypedDict, assert_type
+from uuid import UUID
 
-from talea import Spec, field
+from talea import (
+    Alias,
+    Contract,
+    Deprecated,
+    Description,
+    Discriminator,
+    ErrorCode,
+    ErrorData,
+    Examples,
+    Ge,
+    MaxLength,
+    MinLength,
+    ReadOnly,
+    ResourceLimitError,
+    ResourcePolicy,
+    SchemaProjectionError,
+    Sensitive,
+    Spec,
+    Title,
+    ValidationError,
+    WriteOnly,
+    apply_patch,
+    check,
+    create_spec,
+    derive_spec,
+    field,
+    serialize,
+    transform,
+)
+from talea.introspection import ContractInfo, SpecInfo, inspect_contract, inspect_spec
 
 
 class User(Spec):
@@ -19,7 +53,188 @@ tags: list[str] = user.tags
 
 assert_type(User(id=1, name="Tiago"), User)
 assert_type(User(id=1, name="Tiago", active=False, tags=["maintainer"]), User)
+assert_type(User.from_mapping({"id": 1, "name": "Tiago"}), User)
+assert_type(User.from_mapping({"id": 1, "name": "Tiago"}, policy=ResourcePolicy()), User)
+assert_type(User.from_json('{"id": 1, "name": "Tiago"}'), User)
+assert_type(User.from_json('{"id": 1, "name": "Tiago"}', policy=ResourcePolicy()), User)
+assert_type(User.json_schema(), dict[str, object])
+assert_type(User.json_schema(mode="output"), dict[str, object])
+assert_type(User.openapi_schema(), dict[str, object])
+assert_type(user.to_dict(), dict[str, object])
+assert_type(user.to_dict(include={"id"}, exclude_none=True), dict[str, object])
+assert_type(user.to_json(), str)
+assert_type(replace(user, name="Grace"), User)
+assert_type(inspect_spec(User), SpecInfo)
+assert_type(inspect_contract(Contract(int)), ContractInfo)
 assert (identifier, name, tags) == (1, "Tiago", [])
+
+assert_type(Contract(int).validate(1), int)
+assert_type(Contract[list[int]](list[int]).validate([1]), list[int])
+assert_type(Contract[list[int]](list[int]).from_python([1]), list[int])
+assert_type(
+    Contract[list[int]](list[int], policy=ResourcePolicy()).from_python(
+        [1],
+        policy=ResourcePolicy(max_nodes=None),
+    ),
+    list[int],
+)
+assert_type(Contract[list[int]](list[int]).from_json("[1]"), list[int])
+assert_type(Contract[list[int]](list[int]).to_python([1]), object)
+assert_type(Contract[list[int]](list[int]).to_json([1]), str)
+assert_type(Contract[list[int]](list[int]).json_schema(), dict[str, object])
+assert_type(Contract[list[int]](list[int]).openapi_schema(mode="output"), dict[str, object])
+
+schema_projection_error: type[TypeError] = SchemaProjectionError
+resource_limit_error: type[Exception] = ResourceLimitError
+
+
+class ContractPayload(TypedDict):
+    id: int
+
+
+assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), ContractPayload)
+assert_type(Contract[User](User).validate(user), User)
+assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
+UserPatch = derive_spec(User, partial=True)
+user_patch: Spec = UserPatch.from_mapping({"name": "Grace"})
+assert_type(UserPatch, type[Spec])
+assert_type(user_patch.present_fields, frozenset[str])
+assert_type(apply_patch(user, user_patch), User)
+assert_type(
+    create_spec("DocumentedDynamic", {"value": int}, metadata=(Title("Dynamic"), Deprecated())),
+    type[Spec],
+)
+
+
+type RecursiveValue = int | list[RecursiveValue]
+
+
+class RecursivePayload(TypedDict):
+    value: int
+    children: list[RecursivePayload]
+
+
+class RecursiveDocument(Spec):
+    root: RecursiveValue
+
+
+type RecursiveTree[T] = T | list[RecursiveTree[T]]
+
+recursive_value: Contract[RecursiveValue] = Contract(RecursiveValue)
+recursive_payload: Contract[RecursivePayload] = Contract(RecursivePayload)
+recursive_tree: Contract[RecursiveTree[int]] = Contract(RecursiveTree[int])
+
+assert_type(recursive_value.validate([1, [2]]), int | list[RecursiveValue])
+assert_type(recursive_payload.validate({"value": 1, "children": []}), RecursivePayload)
+assert_type(recursive_tree.validate([1, [2]]), int | list[RecursiveTree[int]])
+assert_type(RecursiveDocument(root=[1, [2]]).root, int | list[RecursiveValue])
+
+
+class MetadataPayload(Spec):
+    secret: Annotated[
+        str,
+        Title("Secret"),
+        Description("Sensitive text."),
+        Examples("example"),
+        Deprecated(),
+        ReadOnly(),
+        WriteOnly(),
+        Sensitive(),
+    ]
+
+
+assert_type(MetadataPayload(secret="value").secret, str)
+assert_type(Contract[int](Annotated[int, Sensitive()]).validate(1), int)
+
+
+class TypedCard(Spec):
+    kind: Literal["card"]
+    number: str
+
+
+class TypedBank(Spec):
+    kind: Literal["bank"]
+    iban: str
+
+
+type TypedPayment = Annotated[TypedCard | TypedBank, Discriminator("kind")]
+payment_contract: Contract[TypedPayment] = Contract(TypedPayment)
+typed_card = TypedCard(kind="card", number="1")
+
+assert_type(payment_contract.validate(typed_card), TypedCard | TypedBank)
+assert_type(payment_contract.from_python({"kind": "card", "number": "1"}), TypedCard | TypedBank)
+assert_type(payment_contract.from_json('{"kind":"bank","iban":"CH1"}'), TypedCard | TypedBank)
+
+
+class PaymentEnvelope(Spec):
+    payment: TypedPayment
+    optional_payment: TypedPayment | None = None
+
+
+assert_type(PaymentEnvelope(payment=typed_card).payment, TypedCard | TypedBank)
+assert_type(PaymentEnvelope(payment=typed_card).optional_payment, TypedCard | TypedBank | None)
+
+
+class TypedSuccess[T](Spec):
+    kind: Literal["success"]
+    value: T
+
+
+class TypedFailure[T](Spec):
+    kind: Literal["failure"]
+    error: T
+
+
+type TypedResult = Annotated[TypedSuccess[User] | TypedFailure[str], Discriminator("kind")]
+assert_type(
+    Contract[TypedResult](TypedResult).validate(TypedSuccess[User](kind="success", value=user)),
+    TypedSuccess[User] | TypedFailure[str],
+)
+
+
+class DynamicBase(Spec):
+    base: int
+
+
+assert_type(create_spec("DynamicChild", {"value": str}, base=DynamicBase), type[DynamicBase])
+
+
+def custom_loads(data: str | bytes | bytearray) -> object:
+    """Exercise the external decoder callable contract."""
+
+    return {"id": 1, "name": "Tiago"}
+
+
+assert_type(User.from_json("encoded", loads=custom_loads), User)
+
+
+def custom_dumps(value: object) -> bytes:
+    """Exercise the external encoder callable contract."""
+
+    return b"{}"
+
+
+assert_type(user.to_json(dumps=custom_dumps), str)
+
+
+class Aliased(Spec):
+    internal_name: Annotated[str, Alias("externalName")]
+
+
+aliased = Aliased(internal_name="value")
+assert_type(aliased.internal_name, str)
+assert_type(aliased.to_dict(), dict[str, object])
+
+
+class Serialized(Spec):
+    value: int
+
+    @serialize("value")
+    def output(value: int) -> str:
+        return str(value)
+
+
+assert_type(Serialized.output(1), str)
 
 
 class Person(Spec):
@@ -59,9 +274,106 @@ inherited_name: str = employee.name
 inherited_aliases: list[str] = employee.aliases
 
 assert_type(Employee(name="Ada", employee_id=1), Employee)
+assert_type(Employee.from_mapping({"name": "Ada", "employee_id": 1}), Employee)
 assert_type(Employee(name="Ada", employee_id=1, active=False, aliases=["A"]), Employee)
 assert_type(NamedEmployee(employee_id=2), NamedEmployee)
 assert_type(department.manager, Employee)
 assert_type(department.members, list[Person])
 assert_type(department.deputy, Employee | None)
 assert_type(NarrowIdentity(value="staff", person=employee).value, str)
+
+
+class Box[T](Spec):
+    value: T
+
+
+class Page[T](Spec):
+    items: list[T]
+
+
+class Response[T](Spec):
+    page: Page[T]
+
+
+class Tree[T](Spec):
+    value: T
+    children: list[Tree[T]]
+
+
+assert_type(Box[int](value=1), Box[int])
+assert_type(Box[int](value=1).value, int)
+assert_type(Contract[Page[User]](Page[User]).validate(Page[User](items=[user])), Page[User])
+assert_type(Response[str](page=Page[str](items=["typed"])).page, Page[str])
+assert_type(Tree[int](value=1, children=[]).children, list[Tree[int]])
+
+
+class Status(StrEnum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+
+
+class ProductionPayload(Spec):
+    identifier: UUID
+    day: date
+    status: Status
+    operation: Literal["create", "delete"]
+    score: Annotated[int, Ge(0)]
+    tags: Annotated[list[str], MinLength(1), MaxLength(5)]
+    amount: Decimal
+
+
+production = ProductionPayload(
+    identifier=UUID(int=0),
+    day=date.min,
+    status=Status.ACTIVE,
+    operation="create",
+    score=1,
+    tags=["typed"],
+    amount=Decimal("1.0"),
+)
+
+assert_type(production.identifier, UUID)
+assert_type(production.status, Status)
+assert_type(production.operation, Literal["create", "delete"])
+assert_type(production.score, int)
+assert_type(production.tags, list[str])
+
+
+class Interval(Spec):
+    start: int
+    end: int
+
+    @transform("start")
+    def parse_start(value: object) -> object:
+        return int(value) if isinstance(value, str) else value
+
+    @check("start")
+    def non_negative(start: int) -> None:
+        if start < 0:
+            raise ValueError("start must be non-negative")
+
+    @check("start", "end")
+    def ordered(start: int, end: int) -> None:
+        if end < start:
+            raise ValueError("end must not precede start")
+
+
+class BoundedInterval(Interval):
+    @check("end")
+    def finite_end(end: int) -> None:
+        if end > 1_000:
+            raise ValueError("end is too large")
+
+
+interval = BoundedInterval(start=1, end=2)
+assert_type(interval.start, int)
+assert_type(BoundedInterval.parse_start("3"), object)
+
+
+def project_validation_error(error: ValidationError) -> list[ErrorData]:
+    """Exercise the public typed handling contract without manufacturing a failure."""
+
+    assert_type(error.code, ErrorCode)
+    assert_type(error.location, tuple[object, ...])
+    assert_type(error.errors(), list[ErrorData])
+    return error.errors()

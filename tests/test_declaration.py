@@ -5,7 +5,7 @@ from typing import cast
 import pytest
 
 from talea import Spec
-from talea._declaration import MISSING_DEFAULT, SpecField, SpecSchema
+from talea.declaration import MISSING_DEFAULT, SpecField, SpecSchema
 from talea.schema import (
     FixedTupleSchema,
     MappingSchema,

@@ -1,0 +1,43 @@
+# Version, maturity, and support
+
+Talea is currently version 0.1.0 and remains pre-1.0. The implemented runtime is
+substantial, but compatibility, deprecation windows, long-term support, and
+formal vulnerability-reporting governance are not yet frozen.
+
+## Implemented product surface
+
+The release includes Specs, Contracts, strict validation, constraints,
+standard-library types, defaults/factories, inheritance, recursive and generic
+types, TypedDict and PEP 695 aliases, tagged unions, Mapping/JSON input,
+serialization, structured errors, metadata and redaction, presence-aware
+derived/PATCH Specs, introspection, dynamic creation, JSON Schema Draft 2020-12,
+OpenAPI 3.1-compatible projection, and finite external-input resource policies.
+
+## Deliberate boundaries
+
+| Capability | Current disposition |
+| --- | --- |
+| callable argument/return validation | Not implemented; requires signature, descriptor, async, and typing policy |
+| automatic runtime ReadOnly/WriteOnly enforcement | Not implemented; metadata and schema projection are available |
+| dataclass, NamedTuple, and ordinary-class mapping | Not implemented; core is not an object mapper |
+| settings/environment loading | Separate integration or package, not core |
+| streaming batches and JSONL | Not implemented; materialized batches use `Contract(list[T])` |
+| arbitrary annotation callbacks | Not implemented; transforms/checks own custom validation |
+| retained global codec/Contract registries | Rejected for core; application boundaries own retained objects |
+| `Any`/`object` passthrough contracts | Rejected because they erase contract truth |
+| abstract Mapping/Sequence conversion | Rejected because concrete output shape is ambiguous |
+| ORM attribute extraction | Rejected for core; an integration must own lazy access and errors |
+| output/schema resource governance | Caller-owned in the current threat model |
+
+The complete operational list is on [Known limitations](engineering/limitations.md).
+
+## Quality evidence
+
+Repository acceptance requires tests, enforced 100% line coverage, Ruff lint
+and formatting, `ty` contracts, executable documentation examples, internal
+navigation/link validation, documentation and package builds, and permanent
+benchmark tasks. A passing development checkout is evidence for that commit;
+it is not a promise that every downstream environment is identical.
+
+Release history belongs in [Release notes](release-notes.md). Contributor
+workflow is documented in [Contributing](contributing.md).
