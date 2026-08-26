@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
 
-from talea import Ge, Spec, check, field, transform
+from talea import Alias, Ge, Spec, check, field, serialize, transform
 
 
 class User(Spec):
@@ -21,6 +21,8 @@ User(id=1, unknown=True)  # ty: ignore[unknown-argument]
 User.from_mapping([])  # ty: ignore[invalid-argument-type]
 User.from_json(1)  # ty: ignore[invalid-argument-type]
 User.from_json("{}", loads=lambda: {})  # ty: ignore[invalid-argument-type]
+User(id=1).to_dict(include=["id"])  # ty: ignore[invalid-argument-type]
+User(id=1).to_json(dumps=lambda value: 1)  # ty: ignore[invalid-argument-type]
 
 user = User(id=1)
 user.id = 2  # ty: ignore[invalid-assignment]
@@ -114,3 +116,19 @@ class AsyncCheck(Spec):
     @check("value")  # ty: ignore[invalid-argument-type]
     async def invalid(value: int) -> None:
         pass
+
+
+class Aliased(Spec):
+    internal_name: Annotated[str, Alias("externalName")]
+
+
+Aliased(externalName="value")  # ty: ignore[missing-argument, unknown-argument]
+Aliased()  # ty: ignore[missing-argument]
+
+
+class InvalidSerializer(Spec):
+    value: int
+
+    @serialize("value")
+    async def output(value: int) -> str:
+        return str(value)

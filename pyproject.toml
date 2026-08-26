@@ -119,6 +119,7 @@ benchmark_hooks = "python benchmarks/custom_validation.py"
 benchmark_errors = "python benchmarks/error_experience.py"
 benchmark_mapping = "python benchmarks/input_boundaries.py mapping"
 benchmark_json = "python benchmarks/input_boundaries.py json"
+benchmark_serialization = "python benchmarks/serialization.py"
 
 [tool.isort]
 profile = "black"

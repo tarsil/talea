@@ -13,14 +13,36 @@ from inspect import (
 )
 from threading import RLock
 from types import FunctionType, MemberDescriptorType
-from typing import ClassVar, Self, cast, dataclass_transform, get_type_hints
+from typing import (
+    Annotated,
+    ClassVar,
+    Self,
+    cast,
+    dataclass_transform,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 from unicodedata import normalize
 
-from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema, ValidationHook
+from talea.declaration.metadata import Alias
+from talea.declaration.models import (
+    MISSING_DEFAULT,
+    SpecField,
+    SpecSchema,
+    ValidationHook,
+)
 from talea.input.compilation import InputCallable, compile_input
 from talea.input.emission import InputMode
 from talea.input.json import JsonInput, JsonLoads, decode_json
 from talea.schema.resolution import resolve_annotation
+from talea.serialization.api import to_dict as _to_dict, to_json as _to_json
+from talea.serialization.artifacts import _OutputArtifacts
+from talea.serialization.declaration import (
+    inspect_serializers,
+    mro_shadowed_serializers,
+    validate_callback_markers,
+)
 from talea.spec.construction import _ConstructorCompiler
 from talea.spec.fields import _FactoryDeclaration, field
 from talea.spec.hooks import _HOOK_MARKER, _HookMarker
@@ -70,6 +92,7 @@ class _SpecArtifacts:
     schema: SpecSchema
     validators: tuple[Validator, ...]
     inputs: _InputArtifacts
+    outputs: _OutputArtifacts
 
 
 @dataclass_transform(kw_only_default=True, frozen_default=True, field_specifiers=(field,))
@@ -95,6 +118,7 @@ class _SpecMeta(type):
                     schema,
                     (),
                     _InputArtifacts(()),
+                    _OutputArtifacts(),
                 ),
             )
             return cls
@@ -106,8 +130,11 @@ class _SpecMeta(type):
         annotations = metaclass._inspect_annotations(namespace)
         field_names = tuple(annotations)
         local_attribute_names = frozenset(namespace)
+        validate_callback_markers(namespace, _HOOK_MARKER)
         declared_hooks = metaclass._inspect_hooks(namespace, field_names)
+        declared_serializers = inspect_serializers(namespace, field_names)
         declared_hook_names = frozenset(hook.name for hook in declared_hooks)
+        declared_serializer_names = frozenset(serializer.name for serializer in declared_serializers)
         inherited_schemas = tuple(cast(_SpecArtifacts, vars(base)["__talea_artifacts__"]).schema for base in spec_bases)
         inherited_names = frozenset(field.name for schema in inherited_schemas for field in schema.fields)
         metaclass._validate_declaration(namespace, bases, field_names, inherited_names)
@@ -128,18 +155,30 @@ class _SpecMeta(type):
         fields = []
         for field_name in field_names:
             declaration = declarations.get(field_name, MISSING_DEFAULT)
-            resolved = resolve_annotation(resolved_annotations[field_name])
+            annotation = resolved_annotations[field_name]
+            resolved = resolve_annotation(annotation)
+            alias = metaclass._field_alias(annotation)
             if isinstance(declaration, _FactoryDeclaration):
-                fields.append(SpecField(field_name, resolved, default_factory=declaration.default_factory))
+                fields.append(
+                    SpecField(
+                        field_name,
+                        resolved,
+                        default_factory=declaration.default_factory,
+                        alias=alias,
+                    )
+                )
             else:
-                fields.append(SpecField(field_name, resolved, default=declaration))
+                fields.append(SpecField(field_name, resolved, default=declaration, alias=alias))
         declared_fields = tuple(fields)
         mro_shadowed_hooks = metaclass._mro_shadowed_hooks(cls, inherited_schemas)
+        mro_shadowed = mro_shadowed_serializers(cls, inherited_schemas, _SpecMeta)
         schema = SpecSchema.compose(
             inherited_schemas,
             declared_fields,
             declared_hooks,
             (local_attribute_names - declared_hook_names) | mro_shadowed_hooks,
+            declared_serializers,
+            (local_attribute_names - declared_serializer_names) | mro_shadowed,
         )
         validators = tuple(compile_validator(field.schema) for field in schema.fields)
         affected_defaults = set(field_names)
@@ -162,7 +201,7 @@ class _SpecMeta(type):
         type.__setattr__(
             cls,
             "__talea_artifacts__",
-            _SpecArtifacts(schema, validators, _InputArtifacts(slot_setters)),
+            _SpecArtifacts(schema, validators, _InputArtifacts(slot_setters), _OutputArtifacts()),
         )
         return cls
 
@@ -252,6 +291,17 @@ class _SpecMeta(type):
             delattr(value, _HOOK_MARKER)
             namespace[name] = staticmethod(value)
         return tuple(hooks)
+
+    @staticmethod
+    def _field_alias(annotation: object) -> str | None:
+        """Extract one top-level Alias while leaving type resolution canonical."""
+
+        if get_origin(annotation) is not Annotated:
+            return None
+        aliases = tuple(item for item in get_args(annotation)[1:] if isinstance(item, Alias))
+        if len(aliases) > 1:
+            raise TypeError("a Spec field can declare only one Alias")
+        return aliases[0].name if aliases else None
 
     @staticmethod
     def _mro_shadowed_hooks(
@@ -426,12 +476,16 @@ class Spec(metaclass=_SpecMeta):
 
         raise AttributeError(f"{type(self).__name__} instances are immutable")
 
+    to_dict = _to_dict
+    to_json = _to_json
+
     @classmethod
     def from_mapping(cls, data: Mapping[str, object]) -> Self:
         """Construct ``cls`` from an untrusted Python mapping.
 
         The mapping boundary accepts any :class:`collections.abc.Mapping` with
-        exact declared field names. Python values remain strict: primitives and
+        each field's canonical external name (its Alias when declared, otherwise
+        its Python name). Python values remain strict: primitives and
         containers are not coerced, while a nested Mapping may construct a
         nested Spec. Field transforms run once before boundary conversion and
         canonical validation. Independent declared-field failures are reported
@@ -440,7 +494,7 @@ class Spec(metaclass=_SpecMeta):
         only after supplied fields and the external key set are valid.
 
         Args:
-            data: Untrusted field values keyed by exact Spec field names.
+            data: Untrusted field values keyed by canonical external names.
 
         Returns:
             A fully validated immutable instance of the invoked Spec subclass.
@@ -484,9 +538,10 @@ class Spec(metaclass=_SpecMeta):
         JSON arrays convert to the declared list, tuple, set, or frozenset
         representation. Strings convert to supported UUID, temporal, path, IP,
         and JSON-compatible Enum contracts. Decimal numbers never pass through
-        float on the default path. Timedelta has no JSON representation in this
-        release. Transforms receive the decoded JSON value before Talea's
-        schema-specific conversion and run exactly once.
+        float on the default path; exact Decimal strings are also accepted.
+        Timedelta uses ISO 8601 duration strings and bytes use strict base64.
+        Transforms receive the decoded JSON value before Talea's schema-specific
+        conversion and run exactly once.
 
         Args:
             data: Serialized JSON text or bytes accepted by the selected decoder.
@@ -504,7 +559,7 @@ class Spec(metaclass=_SpecMeta):
 
         Codec state is per call and is never retained by a Spec class or
         instance. The decoded-value boundary is compiled and cached on first
-        JSON use. Outbound encoding is intentionally outside this API.
+        JSON use. :meth:`to_json` owns the symmetric outbound operation.
         """
 
         decoded = decode_json(data, loads, title=cls.__name__)

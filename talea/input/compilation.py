@@ -35,7 +35,7 @@ class _InputCompiler:
         """Return a boundary callable specialized to fields, hooks, and storage."""
 
         fields = schema.fields
-        field_names = tuple(field.name for field in fields)
+        field_names = tuple(field.external_name for field in fields)
         names = _GeneratedNames((*field_names, "data"))
         errors = names.allocate("errors")
         missing_fields = names.allocate("missing_fields")
@@ -100,7 +100,7 @@ class _InputCompiler:
             lines.extend(
                 (
                     "    try:",
-                    f"        {value} = data[{field.name!r}]",
+                    f"        {value} = data[{field.external_name!r}]",
                     f"    except {key_error}:",
                     f"        {value} = {missing}",
                     f"    if {value} is {missing}:",
@@ -150,7 +150,7 @@ class _InputCompiler:
             factory = emitter.bind("default_factory", field.default_factory)
             factory_error = names.allocate(f"factory_error_{index}")
             factory_failure = names.allocate(f"factory_failure_{index}")
-            context = emitter.bind("factory_error_context", (("field", field.name),))
+            context = emitter.bind("factory_error_context", (("field", field.external_name),))
             lines.extend(
                 (
                     f"    if {value} is {missing}:",
@@ -205,7 +205,7 @@ class _InputCompiler:
         emitter.emit(2, "try:")
         if values:
             for field, value in zip(schema.fields, values, strict=True):
-                emitter.emit(3, f"{value} = data[{field.name!r}]")
+                emitter.emit(3, f"{value} = data[{field.external_name!r}]")
         else:
             emitter.emit(3, "pass")
         emitter.emit(2, f"except {key_error}:")
@@ -305,7 +305,7 @@ class _InputCompiler:
         indentation: int,
     ) -> None:
         field = schema.fields[index]
-        field_name = emitter.bind("field_name", field.name)
+        field_name = emitter.bind("field_name", field.external_name)
         for hook in schema.hooks:
             if hook.kind == "transform" and hook.fields == (field.name,):
                 emitter.emit_transform(hook, value, (field_name,), indentation)

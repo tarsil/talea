@@ -7,6 +7,7 @@ from typing import Annotated, Literal, assert_type
 from uuid import UUID
 
 from talea import (
+    Alias,
     ErrorCode,
     ErrorData,
     Ge,
@@ -16,6 +17,7 @@ from talea import (
     ValidationError,
     check,
     field,
+    serialize,
     transform,
 )
 
@@ -36,6 +38,9 @@ assert_type(User(id=1, name="Tiago"), User)
 assert_type(User(id=1, name="Tiago", active=False, tags=["maintainer"]), User)
 assert_type(User.from_mapping({"id": 1, "name": "Tiago"}), User)
 assert_type(User.from_json('{"id": 1, "name": "Tiago"}'), User)
+assert_type(user.to_dict(), dict[str, object])
+assert_type(user.to_dict(include={"id"}, exclude_none=True), dict[str, object])
+assert_type(user.to_json(), str)
 assert (identifier, name, tags) == (1, "Tiago", [])
 
 
@@ -46,6 +51,35 @@ def custom_loads(data: str | bytes | bytearray) -> object:
 
 
 assert_type(User.from_json("encoded", loads=custom_loads), User)
+
+
+def custom_dumps(value: object) -> bytes:
+    """Exercise the external encoder callable contract."""
+
+    return b"{}"
+
+
+assert_type(user.to_json(dumps=custom_dumps), str)
+
+
+class Aliased(Spec):
+    internal_name: Annotated[str, Alias("externalName")]
+
+
+aliased = Aliased(internal_name="value")
+assert_type(aliased.internal_name, str)
+assert_type(aliased.to_dict(), dict[str, object])
+
+
+class Serialized(Spec):
+    value: int
+
+    @serialize("value")
+    def output(value: int) -> str:
+        return str(value)
+
+
+assert_type(Serialized.output(1), str)
 
 
 class Person(Spec):

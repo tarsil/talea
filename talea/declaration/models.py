@@ -57,6 +57,21 @@ class ValidationHook:
 
 
 @dataclass(frozen=True, slots=True)
+class SerializationHook:
+    """Describe one effective outbound field serializer.
+
+    The callback receives the validated Python field value and returns its
+    replacement output representation. Method names provide normal Python
+    inheritance and override identity; exactly one effective serializer may
+    target a field.
+    """
+
+    name: str
+    field: str
+    function: Callable[[object], object]
+
+
+@dataclass(frozen=True, slots=True)
 class SpecField:
     """Describe one named field in a Spec declaration.
 
@@ -66,6 +81,8 @@ class SpecField:
         default: The validated static default, or ``MISSING_DEFAULT``.
         default_factory: The zero-argument producer used when the field is
             omitted, or ``None``.
+        alias: The optional canonical external field name consumed by input,
+            output, and future schema projection.
 
     The value is immutable and contains no validator or original annotation.
     Exactly one instance owns the complete declaration truth for a field;
@@ -79,10 +96,13 @@ class SpecField:
     schema: Schema
     default: object = MISSING_DEFAULT
     default_factory: Callable[[], object] | None = None
+    alias: str | None = None
 
     def __post_init__(self) -> None:
         if self.default is not MISSING_DEFAULT and self.default_factory is not None:
             raise ValueError("a Spec field cannot have both a static default and a default factory")
+        if self.alias is not None and (not isinstance(self.alias, str) or not self.alias):
+            raise TypeError("a Spec field alias must be a non-empty string")
 
     @property
     def required(self) -> bool:
@@ -95,6 +115,12 @@ class SpecField:
         """Return whether this field owns a retained static default."""
 
         return self.default is not MISSING_DEFAULT
+
+    @property
+    def external_name(self) -> str:
+        """Return the one canonical name used by external data boundaries."""
+
+        return self.name if self.alias is None else self.alias
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +145,7 @@ class SpecSchema:
 
     fields: tuple[SpecField, ...]
     hooks: tuple[ValidationHook, ...] = ()
+    serializers: tuple[SerializationHook, ...] = ()
     instances_are_permanently_trusted: bool = field(init=False)
 
     def __post_init__(self) -> None:
@@ -133,6 +160,22 @@ class SpecSchema:
             unknown = tuple(name for name in hook.fields if name not in known_fields)
             if unknown:
                 raise TypeError(f"validation hook {hook.name!r} targets unknown field {unknown[0]!r}")
+        external_names = tuple(field.external_name for field in self.fields)
+        canonical_names = frozenset(names)
+        for spec_field in self.fields:
+            if spec_field.alias is not None and spec_field.alias in canonical_names:
+                raise ValueError(f"field alias {spec_field.alias!r} conflicts with a canonical field name")
+        if len(external_names) != len(set(external_names)):
+            raise ValueError("a Spec schema requires unique external field names")
+        serializer_names = tuple(serializer.name for serializer in self.serializers)
+        if len(serializer_names) != len(set(serializer_names)):
+            raise ValueError("a Spec schema requires unique serializer names")
+        serializer_fields = tuple(serializer.field for serializer in self.serializers)
+        if len(serializer_fields) != len(set(serializer_fields)):
+            raise ValueError("a Spec field can have only one serialization hook")
+        for serializer in self.serializers:
+            if serializer.field not in known_fields:
+                raise TypeError(f"serialization hook {serializer.name!r} targets unknown field {serializer.field!r}")
         object.__setattr__(
             self,
             "instances_are_permanently_trusted",
@@ -146,6 +189,8 @@ class SpecSchema:
         declared: tuple[SpecField, ...],
         declared_hooks: tuple[ValidationHook, ...] = (),
         shadowed_hook_names: frozenset[str] = frozenset(),
+        declared_serializers: tuple[SerializationHook, ...] = (),
+        shadowed_serializer_names: frozenset[str] = frozenset(),
     ) -> "SpecSchema":
         """Create one effective declaration from bases and local contributions.
 
@@ -163,11 +208,14 @@ class SpecSchema:
 
         fields: dict[str, SpecField] = {}
         hooks: dict[str, ValidationHook] = {}
+        serializers: dict[str, SerializationHook] = {}
         for schema in inherited:
             for inherited_field in schema.fields:
                 fields.setdefault(inherited_field.name, inherited_field)
             for inherited_hook in schema.hooks:
                 hooks.setdefault(inherited_hook.name, inherited_hook)
+            for inherited_serializer in schema.serializers:
+                serializers.setdefault(inherited_serializer.name, inherited_serializer)
         for declared_field in declared:
             inherited_field = fields.get(declared_field.name)
             if inherited_field is not None and not schema_is_covariant_override(
@@ -179,4 +227,8 @@ class SpecSchema:
             hooks.pop(hook_name, None)
         for declared_hook in declared_hooks:
             hooks[declared_hook.name] = declared_hook
-        return cls(tuple(fields.values()), tuple(hooks.values()))
+        for serializer_name in shadowed_serializer_names:
+            serializers.pop(serializer_name, None)
+        for declared_serializer in declared_serializers:
+            serializers[declared_serializer.name] = declared_serializer
+        return cls(tuple(fields.values()), tuple(hooks.values()), tuple(serializers.values()))

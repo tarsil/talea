@@ -1,8 +1,8 @@
 """Emit schema-aware boundary conversion before canonical validation."""
 
 from collections.abc import Mapping
-from datetime import date, datetime, time
-from decimal import Decimal
+from datetime import date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from ipaddress import (
     IPv4Address,
@@ -18,6 +18,7 @@ from typing import Literal, assert_never
 from uuid import UUID
 
 from talea.errors import ErrorCode
+from talea.json.representations import decode_bytes, encode_bytes, parse_timedelta
 from talea.schema.nodes import (
     ConstrainedSchema,
     EnumSchema,
@@ -43,6 +44,7 @@ _JSON_STRING_TYPES = frozenset(
         date,
         datetime,
         time,
+        timedelta,
         PurePath,
         Path,
         PurePosixPath,
@@ -67,13 +69,15 @@ def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
     if isinstance(schema, SpecReferenceSchema):
         return True
     if isinstance(schema, PrimitiveSchema):
-        return mode == "json" and schema.kind == "float"
+        return mode == "json" and schema.kind in ("float", "bytes")
     if isinstance(schema, TypeSchema):
         return mode == "json" and (schema.python_type in _JSON_STRING_TYPES or schema.python_type is Decimal)
     if isinstance(schema, EnumSchema):
         return mode == "json" and bool(_json_enum_members(schema))
     if isinstance(schema, LiteralSchema):
-        return mode == "json" and any(isinstance(item.value, Enum) for item in schema.values)
+        return mode == "json" and any(
+            isinstance(item.value, Enum) or type(item.value) is bytes for item in schema.values
+        )
     if isinstance(schema, SequenceSchema):
         return (mode == "json" and schema.kind != "list") or schema_needs_conversion(schema.item, mode)
     if isinstance(schema, MappingSchema):
@@ -108,14 +112,17 @@ def schema_may_construct_spec(schema: Schema) -> bool:
     return False
 
 
-def _json_enum_members(schema: EnumSchema | LiteralSchema) -> dict[tuple[type[object], object], Enum]:
-    members: dict[tuple[type[object], object], Enum] = {}
+def _json_enum_members(schema: EnumSchema | LiteralSchema) -> dict[tuple[type[object], object], object]:
+    members: dict[tuple[type[object], object], object] = {}
     values = (
         (item.value for item in schema.members)
         if isinstance(schema, EnumSchema)
         else (item.value for item in schema.values)
     )
     for value in values:
+        if type(value) is bytes:
+            members.setdefault((str, encode_bytes(value)), value)
+            continue
         if not isinstance(value, Enum):
             continue
         representation = value.value
@@ -193,8 +200,11 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         elif isinstance(schema, SpecReferenceSchema):
             self.emit_spec_conversion(schema, value, location, indentation)
         elif isinstance(schema, PrimitiveSchema):
-            if self.mode == "json" and schema.kind == "float":
-                self.emit_json_float_conversion(value, location, indentation)
+            if self.mode == "json":
+                if schema.kind == "float":
+                    self.emit_json_float_conversion(value, location, indentation)
+                elif schema.kind == "bytes":
+                    self.emit_json_bytes_conversion(value, indentation)
         elif isinstance(schema, TypeSchema):
             if self.mode == "json":
                 self.emit_json_type_conversion(schema, value, location, indentation)
@@ -395,6 +405,23 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         self.emit(indentation, f"elif {type_name}({value}) is {float_type} and not {finite}({value}):")
         self.emit_json_invalid(value, location, indentation + 1, "non_finite_number")
 
+    def emit_json_bytes_conversion(
+        self,
+        value: str,
+        indentation: int,
+    ) -> None:
+        """Decode strict canonical base64 text for a bytes contract."""
+
+        type_name = self.runtime("type", type)
+        string_type = self.runtime("str", str)
+        decoder = self.bind("base64_decoder", decode_bytes)
+        error = self.variable("base64_error")
+        self.emit(indentation, f"if {type_name}({value}) is {string_type}:")
+        self.emit(indentation + 1, "try:")
+        self.emit(indentation + 2, f"{value} = {decoder}({value})")
+        self.emit(indentation + 1, f"except {self.runtime('value_error', ValueError)} as {error}:")
+        self.emit(indentation + 2, "pass")
+
     def emit_json_type_conversion(
         self,
         schema: TypeSchema,
@@ -410,12 +437,21 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             decimal_type = self.bind("decimal_type", Decimal)
             self.emit(indentation, f"if {type_name}({value}) is {self.runtime('int', int)}:")
             self.emit(indentation + 1, f"{value} = {decimal_type}({value})")
-            self.emit(indentation, f"elif {type_name}({value}) is {decimal_type} and not {value}.is_finite():")
+            error = self.variable("decimal_error")
+            self.emit(indentation, f"elif {type_name}({value}) is {self.runtime('str', str)}:")
+            self.emit(indentation + 1, "try:")
+            self.emit(indentation + 2, f"{value} = {decimal_type}({value})")
+            decimal_errors = self.bind("decimal_error_types", (ValueError, InvalidOperation))
+            self.emit(indentation + 1, f"except {decimal_errors} as {error}:")
+            self.emit(indentation + 2, "pass")
+            self.emit(indentation, f"if {type_name}({value}) is {decimal_type} and not {value}.is_finite():")
             self.emit_json_invalid(value, location, indentation + 1, "non_finite_number")
             return
         if python_type not in _JSON_STRING_TYPES:
             return
-        if python_type is date:
+        if python_type is timedelta:
+            parser = parse_timedelta
+        elif python_type is date:
             parser = date.fromisoformat
         elif python_type is datetime:
             parser = datetime.fromisoformat
@@ -519,6 +555,9 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             if schema.kind == "float":
                 types = self.bind("json_number_types", (int, float, Decimal))
                 return f"{type_name}({value}) in {types}"
+            if schema.kind == "bytes":
+                existing = self.top_level_condition(schema, value)
+                return f"({existing}) or {type_name}({value}) is {self.runtime('str', str)}"
             return self.top_level_condition(schema, value)
         if isinstance(schema, TypeSchema):
             existing = self.top_level_condition(schema, value)
