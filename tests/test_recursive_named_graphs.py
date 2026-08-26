@@ -5,6 +5,7 @@ from dataclasses import FrozenInstanceError
 from typing import Annotated, Literal, NotRequired, TypedDict
 
 import pytest
+from hypothesis import given, strategies as st
 
 from talea import Contract, Discriminator, Sensitive, Spec, create_spec
 from talea.declaration.policies import (
@@ -96,6 +97,34 @@ class BrokenTypedDict(TypedDict):
     unsupported: object
 
 
+_JSON_VALUES = st.recursive(
+    st.one_of(st.none(), st.booleans(), st.integers(), st.text(max_size=12)),
+    lambda child: st.one_of(
+        st.lists(child, max_size=3),
+        st.dictionaries(st.text(max_size=8), child, max_size=3),
+    ),
+    max_leaves=20,
+)
+_NODE_VALUES = st.recursive(
+    st.integers().map(lambda value: {"value": value, "children": []}),
+    lambda child: st.builds(
+        lambda value, children: {"value": value, "children": children},
+        st.integers(),
+        st.lists(child, max_size=3),
+    ),
+    max_leaves=20,
+)
+_EXPRESSION_VALUES = st.recursive(
+    st.integers().map(lambda value: {"kind": "literal", "value": value}),
+    lambda child: st.builds(
+        lambda left, right: {"kind": "add", "left": left, "right": right},
+        child,
+        child,
+    ),
+    max_leaves=20,
+)
+
+
 def _references(schema: Schema) -> tuple[NamedReferenceSchema, ...]:
     if isinstance(schema, NamedReferenceSchema):
         return (schema,)
@@ -145,6 +174,18 @@ def test_recursive_alias_contract_supports_every_boundary_and_exact_errors() -> 
         contract.validate({"items": [1, {"nested": [object()]}]})
     assert captured.value.location == ()
     assert captured.value.errors()[0]["code"] == "union"
+
+
+@given(_JSON_VALUES, _NODE_VALUES, _EXPRESSION_VALUES)
+def test_bounded_recursive_named_values_round_trip(
+    json_value: object,
+    node: object,
+    expression: object,
+) -> None:
+    for annotation, value in ((JSONValue, json_value), (Node, node), (Expr, expression)):
+        contract = Contract(annotation)
+        assert contract.validate(value) is value
+        assert contract.from_json(contract.to_json(value)) == value
 
 
 def test_recursive_typed_dict_and_mutual_typed_dict_round_trip() -> None:
