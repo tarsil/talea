@@ -125,5 +125,6 @@ strings, and base64 bytes. See [Input boundaries](input-boundaries.md) and
 nested declarations, containers, unions, constraints on child fields, and
 concrete generic specialization. `ReadOnly` metadata is retained but has no
 runtime mutation semantics. Recursive type aliases and recursive TypedDict
-graphs currently fail explicitly because Talea has not yet introduced a finite
-canonical alias-reference node. See [Arbitrary contracts](contracts.md).
+graphs resolve through finite declaration-identity back-edges, including
+mutual and concrete generic recursion. See [Recursive aliases and TypedDict
+graphs](recursive-named-graphs.md).

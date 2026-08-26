@@ -55,6 +55,7 @@ nav:
   - Validation errors: "error-experience.md"
   - Composition and inheritance: "composition-inheritance.md"
   - Forward references, recursion, and generics: "recursive-generics.md"
+  - Recursive aliases and TypedDict graphs: "recursive-named-graphs.md"
   - Arbitrary contracts: "contracts.md"
   - Dynamic Specs, introspection, and replacement: "dynamic-utilities.md"
   - Remaining release ledger: "release-ledger.md"

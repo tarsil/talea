@@ -4,6 +4,14 @@
 
 ### Added
 
+- Finite canonical named-reference graphs for self-recursive and mutually
+  recursive PEP 695 aliases, TypedDict declarations, concrete generic
+  specializations, and mixed alias/TypedDict graphs.
+- Complete Contract and Spec validation, Mapping/JSON input, Python/JSON
+  output, exact recursive locations, cycle safety, sensitive redaction, and
+  immutable introspection for recursive named graphs.
+- Direct tagged-union dispatch inside recursive TypedDict ASTs plus dedicated
+  typing, concurrency, adversarial, memory, and depth benchmarks.
 - First-class `Discriminator` declarations and finite immutable tagged-union
   schema truth derived from required single-value Literal fields.
 - Direct tagged branch selection for strict Spec values, Mapping and JSON

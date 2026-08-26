@@ -142,9 +142,11 @@ assert Contract[UserId](UserId).validate(1) == 1
 assert Contract[LegacyId](LegacyId).validate(1) == 1
 ```
 
-Recursive PEP 695 aliases and recursive TypedDict graphs are rejected with
-`AnnotationResolutionError` in this release because the canonical schema does
-not yet own finite alias-reference nodes. Recursive Specs are supported.
+Recursive PEP 695 aliases and TypedDict declarations use finite canonical
+named-reference graphs. Self recursion, mutual recursion, mixed graphs,
+concrete generic specializations, and recursive tagged TypedDict ASTs support
+every Contract boundary. See [Recursive aliases and TypedDict
+graphs](recursive-named-graphs.md).
 
 ## Generic and recursive Specs
 
@@ -210,4 +212,3 @@ This is a static typing limitation, not a runtime limitation.
 - Use `Contract(list[T])` for a materialized batch. Streaming, JSONL, per-item
   failure isolation, callable decoration, and partial/presence contracts are
   separate owners recorded in the [release ledger](release-ledger.md).
-

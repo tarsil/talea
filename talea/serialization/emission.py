@@ -40,7 +40,12 @@ from talea.schema.nodes import (
     VariadicTupleSchema,
 )
 from talea.serialization.errors import SerializationError
-from talea.serialization.references import OutputMode, ValueProjector, _NamedOutputReference, _NamedOutputRoot
+from talea.serialization.references import (
+    OutputMode,
+    ValueProjector,
+    _NamedOutputReference,
+    _NamedOutputRoot,
+)
 from talea.tagged.dispatch import nominal_dispatch
 from talea.validation import ValidationError, compile_validator
 from talea.validation.failure_contracts import schema_order_key
