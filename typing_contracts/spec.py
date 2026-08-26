@@ -12,6 +12,7 @@ from talea import (
     Contract,
     Deprecated,
     Description,
+    Discriminator,
     ErrorCode,
     ErrorData,
     Examples,
@@ -93,6 +94,51 @@ class MetadataPayload(Spec):
 
 assert_type(MetadataPayload(secret="value").secret, str)
 assert_type(Contract[int](Annotated[int, Sensitive()]).validate(1), int)
+
+
+class TypedCard(Spec):
+    kind: Literal["card"]
+    number: str
+
+
+class TypedBank(Spec):
+    kind: Literal["bank"]
+    iban: str
+
+
+type TypedPayment = Annotated[TypedCard | TypedBank, Discriminator("kind")]
+payment_contract: Contract[TypedPayment] = Contract(TypedPayment)
+typed_card = TypedCard(kind="card", number="1")
+
+assert_type(payment_contract.validate(typed_card), TypedCard | TypedBank)
+assert_type(payment_contract.from_python({"kind": "card", "number": "1"}), TypedCard | TypedBank)
+assert_type(payment_contract.from_json('{"kind":"bank","iban":"CH1"}'), TypedCard | TypedBank)
+
+
+class PaymentEnvelope(Spec):
+    payment: TypedPayment
+    optional_payment: TypedPayment | None = None
+
+
+assert_type(PaymentEnvelope(payment=typed_card).payment, TypedCard | TypedBank)
+assert_type(PaymentEnvelope(payment=typed_card).optional_payment, TypedCard | TypedBank | None)
+
+
+class TypedSuccess[T](Spec):
+    kind: Literal["success"]
+    value: T
+
+
+class TypedFailure[T](Spec):
+    kind: Literal["failure"]
+    error: T
+
+
+type TypedResult = Annotated[TypedSuccess[User] | TypedFailure[str], Discriminator("kind")]
+assert_type(
+    Contract[TypedResult](TypedResult).validate(TypedSuccess[User](kind="success", value=user)),
+    TypedSuccess[User] | TypedFailure[str],
+)
 
 
 class DynamicBase(Spec):

@@ -23,6 +23,7 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TaggedUnionSchema,
     TypedDictSchema,
     TypeSchema,
     UnionSchema,
@@ -34,6 +35,7 @@ from talea.serialization.artifacts import _OutputArtifacts
 from talea.spec.construction import _ConstructorCompiler
 from talea.spec.fields import _FactoryDeclaration
 from talea.spec.generics import substitute_annotation, validate_annotation_strings
+from talea.tagged import Discriminator
 from talea.validation.compilation import (
     Validator,
     compile_current_state_validator,
@@ -133,6 +135,8 @@ def _referenced_specs(schema: Schema) -> tuple[type[object], ...]:
         return (*_referenced_specs(schema.key), *_referenced_specs(schema.value))
     if isinstance(schema, TypedDictSchema):
         return tuple(target for field in schema.fields for target in _referenced_specs(field.schema))
+    if isinstance(schema, TaggedUnionSchema):
+        return tuple(target for branch in schema.branches for target in _referenced_specs(branch.schema))
     if isinstance(schema, VariadicTupleSchema):
         return _referenced_specs(schema.item)
     if isinstance(schema, FixedTupleSchema):
@@ -198,8 +202,16 @@ def _prepare_declaration(cls: type[object]) -> None:
             raise _UnresolvedReference(cls, field_name, unresolved) from None
     else:
         resolved_annotations = declaration.annotations
-    fields = []
-    for field_name in declaration.annotations:
+    fields: dict[str, SpecField] = {}
+    ordered_names = tuple(declaration.annotations)
+    resolution_order = (
+        *(name for name in ordered_names if not _contains_discriminator(resolved_annotations[name])),
+        *(name for name in ordered_names if _contains_discriminator(resolved_annotations[name])),
+    )
+    # Recursive tagged fields may inspect an inherited discriminator before
+    # this declaration contributes any local non-tagged field.
+    declaration.prepared_fields = ()
+    for field_name in resolution_order:
         field_declaration = declaration.declarations.get(field_name, MISSING_DEFAULT)
         annotation = resolved_annotations[field_name]
         if declaration.generic_origin is not None:
@@ -215,26 +227,31 @@ def _prepare_declaration(cls: type[object]) -> None:
         resolved = resolve_annotation(annotation)
         alias, metadata = _field_declaration_metadata(annotation)
         if isinstance(field_declaration, _FactoryDeclaration):
-            fields.append(
-                SpecField(
-                    field_name,
-                    resolved,
-                    default_factory=field_declaration.default_factory,
-                    alias=alias,
-                    metadata=metadata,
-                )
+            fields[field_name] = SpecField(
+                field_name,
+                resolved,
+                default_factory=field_declaration.default_factory,
+                alias=alias,
+                metadata=metadata,
             )
         else:
-            fields.append(
-                SpecField(
-                    field_name,
-                    resolved,
-                    default=field_declaration,
-                    alias=alias,
-                    metadata=metadata,
-                )
+            fields[field_name] = SpecField(
+                field_name,
+                resolved,
+                default=field_declaration,
+                alias=alias,
+                metadata=metadata,
             )
-    declaration.prepared_fields = tuple(fields)
+        declaration.prepared_fields = tuple(fields[name] for name in ordered_names if name in fields)
+    declaration.prepared_fields = tuple(fields[name] for name in ordered_names)
+
+
+def _contains_discriminator(annotation: object) -> bool:
+    """Return whether one annotation graph contains tagged-union metadata."""
+
+    return isinstance(annotation, Discriminator) or any(
+        _contains_discriminator(argument) for argument in get_args(annotation)
+    )
 
 
 def _prepare_graph(cls: type[object], visiting: set[type[object]]) -> None:

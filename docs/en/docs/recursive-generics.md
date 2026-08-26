@@ -34,8 +34,10 @@ published before the declaration graph is resolved, so a stale partial artifact
 cannot survive later resolution.
 
 Explicit annotation strings are accepted only when their syntax is structural:
-names, attributes, subscriptions, tuples, and `|` unions. Function calls and
-other executable expressions are rejected before Python evaluates them. Prefer
+names, attributes, subscriptions, tuples, and `|` unions. The exact
+`Discriminator("field")` metadata call is also accepted for recursive tagged
+Spec graphs. Other function calls and executable expressions are rejected
+before Python evaluates them. Prefer
 normal Python 3.14 annotations and use string references only where a pending
 name requires one.
 

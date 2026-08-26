@@ -32,12 +32,14 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TaggedUnionSchema,
     TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
 from talea.serialization.errors import SerializationError
+from talea.tagged.dispatch import nominal_dispatch
 from talea.validation import ValidationError, compile_validator
 from talea.validation.failure_contracts import schema_order_key
 
@@ -86,6 +88,46 @@ class _UnionProjector:
             return projector(value, location)
         raise SerializationError(
             "current value no longer satisfies any declared union alternative",
+            location,
+            sensitive=self.sensitive,
+        )
+
+
+class _TaggedUnionProjector:
+    """Select a validated branch by nominal identity or its canonical tag."""
+
+    __slots__ = ("discriminator", "projectors", "spec_dispatch", "spec_types", "tags", "sensitive")
+
+    def __init__(
+        self,
+        discriminator: str,
+        projectors: tuple[ValueProjector, ...],
+        *,
+        spec_types: tuple[type[object], ...] = (),
+        tags: dict[tuple[type[object], object], int] | None = None,
+        sensitive: bool = False,
+    ) -> None:
+        self.discriminator = discriminator
+        self.projectors = projectors
+        self.spec_types = spec_types
+        self.spec_dispatch = {branch_type: index for index, branch_type in enumerate(spec_types)}
+        self.tags = tags
+        self.sensitive = sensitive
+
+    def __call__(self, value: object, location: tuple[object, ...]) -> object:
+        if self.spec_types:
+            direct = nominal_dispatch(value, self.spec_dispatch)
+            if direct is not None:
+                return self.projectors[direct](value, location)
+        else:
+            assert self.tags is not None and type(value) is dict
+            dictionary = cast(dict[object, object], value)
+            tag = dictionary[self.discriminator]
+            index = self.tags.get((type(tag), tag))
+            if index is not None:
+                return self.projectors[index](value, location)
+        raise SerializationError(
+            "current value no longer identifies a declared tagged-union branch",
             location,
             sensitive=self.sensitive,
         )
@@ -274,6 +316,36 @@ class _ValueProjectionCompiler:
             return self._mapping_expression(schema, value, location, names, namespace)
         if isinstance(schema, TypedDictSchema):
             return self._typed_dict_expression(schema, value, location, names, namespace)
+        if isinstance(schema, TaggedUnionSchema):
+            projectors = tuple(
+                _ValueProjectionCompiler(self.mode, self.by_alias).compile(
+                    branch.schema,
+                    sensitive=self.sensitive or schema.sensitive,
+                )
+                for branch in schema.branches
+            )
+            first = schema.branches[0].schema
+            if isinstance(first, SpecReferenceSchema):
+                spec_types = tuple(cast(SpecReferenceSchema, branch.schema).spec_type for branch in schema.branches)
+                tags = None
+            else:
+                spec_types = ()
+                tags = {
+                    (branch.tag.python_type, branch.tag.value): index for index, branch in enumerate(schema.branches)
+                }
+            projector = self._bind(
+                names,
+                namespace,
+                "tagged_union_projector",
+                _TaggedUnionProjector(
+                    schema.discriminator,
+                    projectors,
+                    spec_types=spec_types,
+                    tags=tags,
+                    sensitive=self.sensitive or schema.sensitive,
+                ),
+            )
+            return f"{projector}({value}, {location})"
         if isinstance(schema, VariadicTupleSchema):
             return self._variadic_tuple_expression(schema, value, location, names, namespace)
         if isinstance(schema, FixedTupleSchema):
@@ -423,6 +495,8 @@ class _ValueProjectionCompiler:
             return all(self._python_key_supported(item) for item in schema.items)
         if isinstance(schema, UnionSchema):
             return all(self._python_key_supported(option) for option in schema.options)
+        if isinstance(schema, TaggedUnionSchema):
+            return False
         return False
 
     @staticmethod

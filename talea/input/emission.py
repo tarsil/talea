@@ -31,11 +31,14 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TaggedUnionSchema,
     TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
+from talea.tagged.dispatch import nominal_member
+from talea.tagged.validation import _TaggedValidationEmission
 from talea.validation.emission import _ValidationEmitter
 from talea.validation.failure_contracts import describe_schema, schema_order_key
 
@@ -89,6 +92,8 @@ def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
         return schema_needs_conversion(schema.value, mode)
     if isinstance(schema, TypedDictSchema):
         return True
+    if isinstance(schema, TaggedUnionSchema):
+        return True
     if isinstance(schema, VariadicTupleSchema):
         return mode == "json" or schema_needs_conversion(schema.item, mode)
     if isinstance(schema, FixedTupleSchema):
@@ -114,6 +119,8 @@ def schema_may_construct_spec(schema: Schema) -> bool:
         return schema_may_construct_spec(schema.value)
     if isinstance(schema, TypedDictSchema):
         return any(schema_may_construct_spec(field.schema) for field in schema.fields)
+    if isinstance(schema, TaggedUnionSchema):
+        return any(schema_may_construct_spec(branch.schema) for branch in schema.branches)
     if isinstance(schema, VariadicTupleSchema):
         return schema_may_construct_spec(schema.item)
     if isinstance(schema, FixedTupleSchema):
@@ -186,6 +193,21 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         finally:
             self.sensitive = previous
 
+    def tagged_branch_operation(self, schema: Schema, *, json: bool):
+        """Compile one selected large-union boundary converter."""
+
+        if self._validating:
+            return super().tagged_branch_operation(schema, json=False)
+        assert json is (self.mode == "json")
+        from talea.input.value import compile_value_input
+
+        return compile_value_input(
+            schema,
+            self.mode,
+            describe_schema(schema),
+            sensitive=self.sensitive,
+        )
+
     def _emit_boundary_schema(
         self,
         schema: Schema,
@@ -199,6 +221,9 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             super().emit_schema(schema, value, location, indentation)
             return
         base = schema.schema if isinstance(schema, ConstrainedSchema) else schema
+        if isinstance(base, TaggedUnionSchema):
+            self.emit_boundary_tagged_union(base, value, location, indentation)
+            return
         if isinstance(base, UnionSchema):
             if schema_needs_conversion(base, self.mode):
                 self.emit_boundary_union(base, value, location, indentation)
@@ -277,6 +302,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             self.emit_mapping_conversion(schema, value, location, indentation)
         elif isinstance(schema, TypedDictSchema):
             self.emit_typed_dict_conversion(schema, value, location, indentation)
+        elif isinstance(schema, TaggedUnionSchema):
+            self.emit_boundary_tagged_union(schema, value, location, indentation)
         elif isinstance(schema, VariadicTupleSchema):
             self.emit_variadic_tuple_conversion(schema, value, location, indentation)
         elif isinstance(schema, FixedTupleSchema):
@@ -328,6 +355,57 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                 indentation + 1,
                 f"{self.trusted_instances}.add({self.runtime('id', id)}({value}))",
             )
+
+    def emit_boundary_tagged_union(
+        self,
+        schema: TaggedUnionSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Dispatch a boundary mapping before converting only its selected branch."""
+
+        first = schema.branches[0].schema
+        if isinstance(first, SpecReferenceSchema):
+            branch_types = tuple(
+                branch.schema.spec_type for branch in schema.branches if isinstance(branch.schema, SpecReferenceSchema)
+            )
+            bound_branch_types = self.bind(
+                "tagged_branch_types",
+                branch_types,
+            )
+            if len(branch_types) > 4:
+                branches = self.bind("tagged_branch_set", frozenset(branch_types))
+                member = self.bind("nominal_member", nominal_member)
+                existing = f"{member}({value}, {branches})"
+            else:
+                existing = f"{self.runtime('isinstance', isinstance)}({value}, {bound_branch_types})"
+        else:
+            existing = "False"
+        if self.mode == "mapping":
+            boundary = f"{self.runtime('isinstance', isinstance)}({value}, {self.runtime('mapping', Mapping)})"
+        else:
+            boundary = f"{self.runtime('type', type)}({value}) is {self.runtime('dict', dict)}"
+        self.emit(indentation, f"if {existing}:")
+        self._validating = True
+        try:
+            super().emit_schema(schema, value, location, indentation + 1)
+        finally:
+            self._validating = False
+        self.emit(indentation, f"elif {boundary}:")
+        _TaggedValidationEmission(self).emit_dispatch(
+            schema,
+            value,
+            location,
+            indentation + 1,
+            json=self.mode == "json",
+        )
+        self.emit(indentation, "else:")
+        self._validating = True
+        try:
+            super().emit_schema(schema, value, location, indentation + 1)
+        finally:
+            self._validating = False
 
     def emit_sequence_conversion(
         self,
@@ -650,6 +728,10 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                     f"{self.runtime('isinstance', isinstance)}({value}, {self.bind('spec_type', schema.spec_type)}) "
                     f"or {self.runtime('isinstance', isinstance)}({value}, {self.runtime('mapping', Mapping)})"
                 )
+            if isinstance(schema, TaggedUnionSchema):
+                existing = self.top_level_condition(schema, value)
+                mapping = self.runtime("mapping", Mapping)
+                return f"({existing}) or {self.runtime('isinstance', isinstance)}({value}, {mapping})"
             return self.top_level_condition(schema, value)
         type_name = self.runtime("type", type)
         if isinstance(schema, PrimitiveSchema):
@@ -679,6 +761,17 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             return self.top_level_condition(schema, value)
         if isinstance(schema, TypedDictSchema):
             return self.top_level_condition(schema, value)
+        if isinstance(schema, TaggedUnionSchema):
+            first = schema.branches[0].schema
+            if isinstance(first, SpecReferenceSchema):
+                existing = self.top_level_condition(schema, value)
+                mapping = self.runtime("mapping", Mapping) if self.mode == "mapping" else self.runtime("dict", dict)
+                check = self.runtime("isinstance", isinstance) if self.mode == "mapping" else self.runtime("type", type)
+                relation = (
+                    f"{check}({value}, {mapping})" if self.mode == "mapping" else f"{check}({value}) is {mapping}"
+                )
+                return f"({existing}) or {relation}"
+            return f"{self.runtime('isinstance', isinstance)}({value}, {self.runtime('mapping', Mapping)})"
         if isinstance(schema, (VariadicTupleSchema, FixedTupleSchema)):
             existing = self.top_level_condition(schema, value)
             return f"({existing}) or {type_name}({value}) is {self.runtime('list', list)}"

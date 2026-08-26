@@ -8,12 +8,14 @@ from talea.metadata import Deprecated, Description, Examples, ReadOnly, Sensitiv
 from talea.serialization import SerializationError, serialize
 from talea.spec import Spec, check, field, transform
 from talea.spec.dynamic import create_spec
+from talea.tagged import Discriminator
 
 __all__ = [
     "Alias",
     "Contract",
     "Deprecated",
     "Description",
+    "Discriminator",
     "Ge",
     "Gt",
     "ErrorCode",

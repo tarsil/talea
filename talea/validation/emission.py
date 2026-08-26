@@ -7,6 +7,7 @@ retain neither the source schema nor the annotation that produced it, and
 successful validation creates no error metadata.
 """
 
+from collections.abc import Callable
 from contextvars import ContextVar
 from decimal import Decimal
 from math import isclose, isfinite, remainder
@@ -30,11 +31,13 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TaggedUnionSchema,
     TypedDictSchema,
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
 )
+from talea.tagged.validation import _TaggedValidationEmission
 from talea.validation.failure_contracts import (
     constraint_code,
     constraint_context,
@@ -181,6 +184,9 @@ class _ValidationEmitter:
             return
         if isinstance(base, TypedDictSchema):
             self.emit_typed_dict(base, value, location, indentation)
+            return
+        if isinstance(base, TaggedUnionSchema):
+            _TaggedValidationEmission(self).emit_union(base, value, location, indentation)
             return
         if isinstance(base, VariadicTupleSchema):
             self.emit_variadic_tuple(base, value, location, indentation, constraints)
@@ -500,6 +506,14 @@ class _ValidationEmitter:
             f"{self.sensitive_argument()}) from None",
         )
 
+    def tagged_branch_operation(self, schema: Schema, *, json: bool) -> Callable[[object], object]:
+        """Compile one large-union branch operation for direct table dispatch."""
+
+        assert not json
+        from talea.validation.compilation import compile_validator
+
+        return compile_validator(schema, sensitive=self.sensitive)
+
     def emit_variadic_tuple(
         self,
         schema: VariadicTupleSchema,
@@ -798,6 +812,18 @@ class _ValidationEmitter:
             dictionary_type = self.runtime("dict", dict)
             return f"{type_name}({value}) is {dictionary_type}"
         if isinstance(schema, TypedDictSchema):
+            type_name = self.runtime("type", type)
+            dictionary_type = self.runtime("dict", dict)
+            return f"{type_name}({value}) is {dictionary_type}"
+        if isinstance(schema, TaggedUnionSchema):
+            first = schema.branches[0].schema
+            if isinstance(first, SpecReferenceSchema):
+                instance_check = self.runtime("isinstance", isinstance)
+                branch_types = self.bind(
+                    "tagged_branch_types",
+                    tuple(cast(SpecReferenceSchema, branch.schema).spec_type for branch in schema.branches),
+                )
+                return f"{instance_check}({value}, {branch_types})"
             type_name = self.runtime("type", type)
             dictionary_type = self.runtime("dict", dict)
             return f"{type_name}({value}) is {dictionary_type}"

@@ -14,6 +14,8 @@ from talea.schema.nodes import (
     SequenceKind,
     SequenceSchema,
     SpecReferenceSchema,
+    TaggedUnionBranch,
+    TaggedUnionSchema,
     TypeCheckMode,
     TypedDictField,
     TypedDictSchema,
@@ -24,6 +26,7 @@ from talea.schema.nodes import (
 from talea.schema.resolution import (
     AnnotationResolutionError,
     ConstraintDeclarationError,
+    TaggedUnionDeclarationError,
     resolve_annotation,
 )
 
@@ -32,6 +35,7 @@ __all__ = [
     "AnnotationResolutionError",
     "ConstrainedSchema",
     "ConstraintDeclarationError",
+    "TaggedUnionDeclarationError",
     "EnumSchema",
     "FixedTupleSchema",
     "LiteralSchema",
@@ -43,6 +47,8 @@ __all__ = [
     "SequenceKind",
     "SequenceSchema",
     "SpecReferenceSchema",
+    "TaggedUnionBranch",
+    "TaggedUnionSchema",
     "TypeCheckMode",
     "TypeSchema",
     "TypedDictField",

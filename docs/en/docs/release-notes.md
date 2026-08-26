@@ -4,6 +4,16 @@
 
 ### Added
 
+- First-class `Discriminator` declarations and finite immutable tagged-union
+  schema truth derived from required single-value Literal fields.
+- Direct tagged branch selection for strict Spec values, Mapping and JSON
+  input, TypedDict contracts, Python output, and JSON output, including aliases,
+  optional values, concrete generics, recursive Spec graphs, and introspection.
+- Stable `discriminator_missing` and `discriminator_unknown` errors with exact
+  nested locations, machine-readable discriminator/tag context, and sensitive
+  tag redaction.
+- Dedicated tagged-union typing contracts, security and declaration tests, and
+  branch-count/input/output performance benchmarks.
 - Canonical immutable field, Spec, Contract, TypedDict, and type-alias metadata
   for title, description, examples, deprecation, read-only, write-only, and
   sensitive classification.

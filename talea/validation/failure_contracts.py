@@ -23,6 +23,7 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TaggedUnionSchema,
     TypedDictSchema,
     TypeSchema,
     UnionSchema,
@@ -57,6 +58,8 @@ def describe_schema(schema: Schema) -> str:
         return f"dict[{describe_schema(schema.key)}, {describe_schema(schema.value)}]"
     if isinstance(schema, TypedDictSchema):
         return schema.name
+    if isinstance(schema, TaggedUnionSchema):
+        return " | ".join(describe_schema(branch.schema) for branch in schema.branches)
     if isinstance(schema, VariadicTupleSchema):
         return f"tuple[{describe_schema(schema.item)}, ...]"
     if isinstance(schema, FixedTupleSchema):
@@ -153,4 +156,6 @@ def schema_order_key(schema: Schema) -> tuple[int, str]:
         return 6, f"{schema.spec_type.__module__}.{schema.spec_type.__qualname__}"
     if isinstance(schema, TypedDictSchema):
         return 7, f"{schema.module}.{schema.name}"
+    if isinstance(schema, TaggedUnionSchema):
+        return 8, describe_schema(schema)
     return 10, describe_schema(schema)

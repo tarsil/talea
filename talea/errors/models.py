@@ -47,6 +47,8 @@ class ErrorData(TypedDict):
     stage: NotRequired[CustomStage]
     locations: NotRequired[list[list[JsonScalar]]]
     branches: NotRequired[list[ErrorBranchData]]
+    discriminator: NotRequired[str]
+    expected_tags: NotRequired[list[JsonScalar]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +72,8 @@ class _ErrorDetail:
     related_locations: tuple[ErrorLocation, ...] = ()
     branches: tuple[_UnionBranch, ...] = ()
     sensitive: bool = False
+    discriminator: str | None = None
+    expected_tags: tuple[JsonScalar, ...] = ()
     projected_location: tuple[JsonScalar, ...] = field(init=False, repr=False)
     projected_related_locations: tuple[tuple[JsonScalar, ...], ...] = field(init=False, repr=False)
 
@@ -126,6 +130,11 @@ class _ErrorDetail:
             return "Duplicate JSON object key"
         if self.code is ErrorCode.CYCLE:
             return "Cyclic input is not supported"
+        if self.code is ErrorCode.DISCRIMINATOR_MISSING:
+            return f"Required discriminator {self.discriminator!r} is missing"
+        if self.code is ErrorCode.DISCRIMINATOR_UNKNOWN:
+            expected = ", ".join(snapshot_input(item).rendered for item in self.expected_tags)
+            return f"Unknown discriminator {self.discriminator!r}; expected one of {expected}"
         raise AssertionError("unknown canonical Talea error code")
 
 
@@ -163,6 +172,10 @@ def _project_detail(detail: _ErrorDetail) -> ErrorData:
             ErrorBranchData(label=branch.label, errors=[_project_detail(item) for item in branch.details])
             for branch in detail.branches
         ]
+    if detail.discriminator is not None:
+        projected["discriminator"] = detail.discriminator
+    if detail.expected_tags:
+        projected["expected_tags"] = list(detail.expected_tags)
     return projected
 
 
@@ -239,6 +252,71 @@ class ValidationError(TypeError):
             (None,),
             title,
             (type(None),),
+        )
+        return error
+
+    @classmethod
+    def discriminator_missing(
+        cls,
+        discriminator: str,
+        location: ErrorLocation,
+        *,
+        title: str | None = None,
+        sensitive: bool = False,
+    ) -> "ValidationError":
+        """Build one missing-discriminator failure without a synthetic value."""
+
+        name = REDACTED if sensitive else safe_text(discriminator, 96)
+        error = cls.__new__(cls)
+        error._initialize(
+            (
+                _ErrorDetail(
+                    ErrorCode.DISCRIMINATOR_MISSING,
+                    location,
+                    None,
+                    None,
+                    None,
+                    sensitive=sensitive,
+                    discriminator=name,
+                ),
+            ),
+            (REDACTED if sensitive else None,),
+            title,
+            (type(None),),
+        )
+        return error
+
+    @classmethod
+    def discriminator_unknown(
+        cls,
+        discriminator: str,
+        value: object,
+        location: ErrorLocation,
+        expected_tags: tuple[object, ...],
+        *,
+        title: str | None = None,
+        sensitive: bool = False,
+    ) -> "ValidationError":
+        """Build one unknown exact tag failure with machine-readable choices."""
+
+        name = REDACTED if sensitive else safe_text(discriminator, 96)
+        tags = (REDACTED,) if sensitive else tuple(snapshot_input(item).projection for item in expected_tags)
+        detail = _ErrorDetail(
+            ErrorCode.DISCRIMINATOR_UNKNOWN,
+            location,
+            None,
+            safe_type_name(value),
+            redacted_input() if sensitive else snapshot_input(value),
+            sensitive=sensitive,
+            discriminator=name,
+            expected_tags=tags,
+        )
+        error = cls.__new__(cls)
+        error._initialize(
+            (detail,),
+            (REDACTED if sensitive else value,),
+            title,
+            (type(value),),
         )
         return error
 
@@ -476,6 +554,8 @@ def _prefix_detail(detail: _ErrorDetail, prefix: ErrorLocation) -> _ErrorDetail:
             for branch in detail.branches
         ),
         detail.sensitive,
+        detail.discriminator,
+        detail.expected_tags,
     )
 
 
@@ -497,6 +577,8 @@ def _redact_detail(detail: _ErrorDetail) -> _ErrorDetail:
             for branch in detail.branches
         ),
         True,
+        REDACTED if detail.discriminator is not None else None,
+        (REDACTED,) if detail.expected_tags else (),
     )
 
 

@@ -158,3 +158,8 @@ tasks:
     desc: Benchmarks canonical metadata and sensitive failure redaction
     cmds:
       - hatch run test:benchmark_metadata
+
+  benchmark_tagged:
+    desc: Benchmarks tagged dispatch, boundaries, output, failure, and branch scaling
+    cmds:
+      - hatch run test:benchmark_tagged

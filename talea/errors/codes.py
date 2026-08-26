@@ -33,3 +33,5 @@ class ErrorCode(StrEnum):
     JSON_INVALID = "json_invalid"
     JSON_DUPLICATE = "json_duplicate"
     CYCLE = "cycle"
+    DISCRIMINATOR_MISSING = "discriminator_missing"
+    DISCRIMINATOR_UNKNOWN = "discriminator_unknown"

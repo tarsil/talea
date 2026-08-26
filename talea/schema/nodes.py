@@ -27,6 +27,8 @@ __all__ = [
     "SequenceKind",
     "SequenceSchema",
     "SpecReferenceSchema",
+    "TaggedUnionBranch",
+    "TaggedUnionSchema",
     "TypeCheckMode",
     "TypeSchema",
     "TypedDictField",
@@ -181,6 +183,12 @@ class TypedDictField:
     read_only: bool = False
     metadata: DeclarationMetadata = EMPTY_METADATA
 
+    @property
+    def external_name(self) -> str:
+        """Return the TypedDict key used by every boundary."""
+
+        return self.name
+
 
 @dataclass(frozen=True, slots=True)
 class TypedDictSchema:
@@ -199,6 +207,40 @@ class TypedDictSchema:
         names = tuple(field.name for field in self.fields)
         if len(names) != len(set(names)):
             raise ValueError("a TypedDict schema requires unique field names")
+
+
+@dataclass(frozen=True, slots=True)
+class TaggedUnionBranch:
+    """Bind one exact Python and JSON tag representation to one branch."""
+
+    tag: LiteralValue
+    json_tag: LiteralValue
+    schema: SpecReferenceSchema | TypedDictSchema
+
+
+@dataclass(frozen=True, slots=True)
+class TaggedUnionSchema:
+    """Canonical finite dispatch truth for an explicitly tagged union.
+
+    ``discriminator`` is the common Python field name and ``external_name`` is
+    its Alias-derived boundary key. Branch order is deterministic and no
+    mutable dispatch mapping is exposed to introspection consumers.
+    """
+
+    discriminator: str
+    external_name: str
+    branches: tuple[TaggedUnionBranch, ...]
+    sensitive: bool = False
+
+    def __post_init__(self) -> None:
+        if len(self.branches) < 2:
+            raise ValueError("a tagged union requires at least two branches")
+        tags = tuple(branch.tag for branch in self.branches)
+        if len(tags) != len(set(tags)):
+            raise ValueError("a tagged union requires unique Python tags")
+        json_tags = tuple(branch.json_tag for branch in self.branches)
+        if len(json_tags) != len(set(json_tags)):
+            raise ValueError("a tagged union requires unique JSON tags")
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +315,7 @@ type Schema = (
     | SequenceSchema
     | MappingSchema
     | TypedDictSchema
+    | TaggedUnionSchema
     | VariadicTupleSchema
     | FixedTupleSchema
     | UnionSchema

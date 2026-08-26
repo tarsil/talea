@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from types import GenericAlias, UnionType
 from typing import (
     Annotated,
+    Literal,
     NoDefault,
     TypeVar,
     Union,
@@ -131,6 +132,8 @@ def validate_annotation_strings(annotation: object) -> None:
     if isinstance(annotation, str):
         validate_annotation_expression(annotation)
         return
+    if get_origin(annotation) is Literal:
+        return
     for argument in get_args(annotation):
         validate_annotation_strings(argument)
 
@@ -161,6 +164,8 @@ def _collect_annotation_names(annotation: object, names: set[str]) -> None:
     elif isinstance(annotation, str):
         expression = annotation
     else:
+        if get_origin(annotation) is Literal:
+            return
         for argument in get_args(annotation):
             _collect_annotation_names(argument, names)
         return
@@ -171,6 +176,8 @@ def _collect_annotation_names(annotation: object, names: set[str]) -> None:
 def _contains_forward_reference(annotation: object) -> bool:
     if isinstance(annotation, (str, ForwardRef)):
         return True
+    if get_origin(annotation) is Literal:
+        return False
     return any(_contains_forward_reference(argument) for argument in get_args(annotation))
 
 
@@ -191,9 +198,19 @@ def validate_annotation_expression(expression: str) -> None:
         ast.Tuple,
         ast.Load,
         ast.Constant,
+        ast.Call,
     )
     for node in ast.walk(tree):
         if not isinstance(node, allowed):
             raise AnnotationResolutionError(expression)
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             validate_annotation_expression(node.value)
+        if isinstance(node, ast.Call) and not (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "Discriminator"
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Constant)
+            and type(node.args[0].value) is str
+            and not node.keywords
+        ):
+            raise AnnotationResolutionError(expression)

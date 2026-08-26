@@ -42,6 +42,7 @@ def test_root_package_exports_only_the_deliberate_public_api() -> None:
         "Contract",
         "Deprecated",
         "Description",
+        "Discriminator",
         "Ge",
         "Gt",
         "ErrorCode",

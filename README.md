@@ -125,7 +125,8 @@ bytes use strict base64.
 
 The canonical schema foundation covers built-in scalar types, homogeneous
 built-in containers, dictionaries, fixed and variadic tuples, PEP 604 unions,
-Literal, enums, UUIDs, dates and times, Decimal, pathlib paths, and IP address
+explicit Literal-backed tagged unions, Literal, enums, UUIDs, dates and times,
+Decimal, pathlib paths, and IP address
 families. `Annotated` carries Talea's immutable numeric, length, and pattern
 constraints. Schema and validator compiler internals are not exported from the
 root `talea` package.

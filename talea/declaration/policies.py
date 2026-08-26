@@ -15,6 +15,7 @@ from talea.schema.nodes import (
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
+    TaggedUnionSchema,
     TypedDictSchema,
     TypeSchema,
     UnionSchema,
@@ -42,6 +43,8 @@ def schema_values_are_immutable(schema: Schema, visiting: frozenset[type[object]
         return False
     if isinstance(schema, TypedDictSchema):
         return False
+    if isinstance(schema, TaggedUnionSchema):
+        return all(schema_values_are_immutable(branch.schema, visiting) for branch in schema.branches)
     if isinstance(schema, VariadicTupleSchema):
         return schema_values_are_immutable(schema.item, visiting)
     if isinstance(schema, FixedTupleSchema):
@@ -71,6 +74,8 @@ def schema_is_covariant_override(candidate: Schema, inherited: Schema) -> bool:
         )
     if isinstance(candidate, SpecReferenceSchema) and isinstance(inherited, SpecReferenceSchema):
         return issubclass(candidate.spec_type, inherited.spec_type)
+    if isinstance(candidate, TaggedUnionSchema) and isinstance(inherited, TaggedUnionSchema):
+        return candidate == inherited
     if isinstance(candidate, SequenceSchema) and isinstance(inherited, SequenceSchema):
         return candidate.kind == inherited.kind == "frozenset" and schema_is_covariant_override(
             candidate.item, inherited.item
@@ -122,6 +127,10 @@ def schema_contains_sensitive_metadata(
             bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema, visiting)
             for field in schema.fields
         )
+    if isinstance(schema, TaggedUnionSchema):
+        return schema.sensitive or any(
+            schema_contains_sensitive_metadata(branch.schema, visiting) for branch in schema.branches
+        )
     if isinstance(schema, VariadicTupleSchema):
         return schema_contains_sensitive_metadata(schema.item, visiting)
     if isinstance(schema, FixedTupleSchema):
@@ -129,6 +138,44 @@ def schema_contains_sensitive_metadata(
     if isinstance(schema, UnionSchema):
         return any(schema_contains_sensitive_metadata(option, visiting) for option in schema.options)
     assert_never(schema)
+
+
+def schema_contains_tagged_union(
+    schema: Schema,
+    visiting: frozenset[type[object]] = frozenset(),
+) -> bool:
+    """Return whether a serializer replacement could bypass tagged truth."""
+
+    if isinstance(schema, TaggedUnionSchema):
+        return True
+    if isinstance(schema, (PrimitiveSchema, TypeSchema, LiteralSchema, EnumSchema)):
+        return False
+    if isinstance(schema, SpecReferenceSchema):
+        if schema.spec_type in visiting:
+            return False
+        declaration = vars(schema.spec_type)["__talea_declaration__"]
+        artifacts = vars(schema.spec_type).get("__talea_artifacts__")
+        fields = artifacts.schema.fields if artifacts is not None else declaration.prepared_fields
+        if fields is None:
+            return False
+        return any(schema_contains_tagged_union(field.schema, visiting | {schema.spec_type}) for field in fields)
+    if isinstance(schema, (ConstrainedSchema, AliasSchema)):
+        return schema_contains_tagged_union(schema.schema, visiting)
+    if isinstance(schema, SequenceSchema):
+        return schema_contains_tagged_union(schema.item, visiting)
+    if isinstance(schema, MappingSchema):
+        return schema_contains_tagged_union(schema.key, visiting) or schema_contains_tagged_union(
+            schema.value,
+            visiting,
+        )
+    if isinstance(schema, TypedDictSchema):
+        return any(schema_contains_tagged_union(field.schema, visiting) for field in schema.fields)
+    if isinstance(schema, VariadicTupleSchema):
+        return schema_contains_tagged_union(schema.item, visiting)
+    if isinstance(schema, FixedTupleSchema):
+        return any(schema_contains_tagged_union(item, visiting) for item in schema.items)
+    assert isinstance(schema, UnionSchema)
+    return any(schema_contains_tagged_union(option, visiting) for option in schema.options)
 
 
 def _unwrap(schema: Schema) -> tuple[Schema, tuple[object, ...]]:

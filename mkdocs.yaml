@@ -46,6 +46,7 @@ nav:
   - Introduction: "index.md"
   - Field semantics: "field-semantics.md"
   - Supported types: "supported-types.md"
+  - Tagged unions: "tagged-unions.md"
   - Constraints: "constraints.md"
   - Metadata and sensitive fields: "metadata-security.md"
   - Custom validation: "custom-validation.md"

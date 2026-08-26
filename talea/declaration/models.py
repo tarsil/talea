@@ -10,7 +10,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Final, Literal
 
-from talea.declaration.policies import schema_is_covariant_override, schema_values_are_immutable
+from talea.declaration.policies import (
+    schema_contains_tagged_union,
+    schema_is_covariant_override,
+    schema_values_are_immutable,
+)
 from talea.metadata import EMPTY_METADATA, DeclarationMetadata
 from talea.schema.nodes import Schema
 
@@ -180,6 +184,11 @@ class SpecSchema:
         for serializer in self.serializers:
             if serializer.field not in known_fields:
                 raise TypeError(f"serialization hook {serializer.name!r} targets unknown field {serializer.field!r}")
+            target = next(field for field in self.fields if field.name == serializer.field)
+            if schema_contains_tagged_union(target.schema):
+                raise TypeError(
+                    f"serialization hook {serializer.name!r} cannot replace tagged-union field {serializer.field!r}"
+                )
         object.__setattr__(
             self,
             "instances_are_permanently_trusted",
