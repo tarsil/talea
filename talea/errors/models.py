@@ -497,7 +497,7 @@ class CustomValidationError(ValidationError):
 
     Custom failures use the same canonical details, ``errors()`` projection,
     and rendering as every :class:`ValidationError`. The subtype remains for
-    code written against Talea's Campaign 7 API; normal application handling
+    code written against Talea's early custom-validation API; normal application handling
     only needs to catch ``ValidationError``.
     """
 

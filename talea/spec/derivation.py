@@ -107,7 +107,25 @@ def derive_spec(
 
 
 def apply_patch[SourceSpecT: Spec](instance: SourceSpecT, patch: Spec) -> SourceSpecT:
-    """Apply present fields from a compatible partial contract via ``copy.replace``."""
+    """Apply present fields from a compatible partial Spec via ``copy.replace``.
+
+    Args:
+        instance: Complete source instance whose exact class owns the patch.
+        patch: Presence-aware Spec returned by ``derive_spec`` with
+            ``partial=True`` for ``type(instance)``.
+
+    Returns:
+        A new validated instance of the source's concrete type. Omitted patch
+        fields are not forwarded; a present ``None`` remains a real change.
+
+    Raises:
+        TypeError: If either value is not a Spec, the patch is not partial, or
+            its derivation source is not the instance's exact type.
+        ValidationError: If replacement values or whole-Spec checks fail.
+
+    Replacement reuses Talea's Python-native immutable update lifecycle.
+    Defaults and factories do not rerun, and no deep copy is implied.
+    """
 
     if not isinstance(instance, Spec) or not isinstance(patch, Spec):
         raise TypeError("apply_patch requires Spec instances")

@@ -51,7 +51,7 @@ class AliasSchema:
 
     Validation and projection compilers unwrap ``schema`` at compile time. The
     stable name and module remain available for errors, introspection, recursive
-    design, and future schema component naming without adding runtime dispatch.
+    design, and schema component naming without adding runtime dispatch.
     """
 
     name: str
@@ -102,7 +102,7 @@ class TypeSchema:
 
     ``mode`` records the deliberate exact-versus-nominal contract selected by
     Talea for the family. The original annotation is the runtime type itself,
-    so retaining it supplies compact validation and future projection truth
+    so retaining it supplies compact validation and projection truth
     without keeping a ``typing`` wrapper or registry key.
     """
 
@@ -139,7 +139,7 @@ class LiteralSchema:
 class EnumSchema:
     """Canonical exact-member contract for a declared Enum class.
 
-    Members are retained as Literal-like canonical values for future schema
+    Members are retained as Literal-like canonical values for schema
     projection; validation binds only ``enum_type`` and never reconstructs
     members from their primitive values.
     """

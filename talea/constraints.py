@@ -105,7 +105,14 @@ class MultipleOf[T: Numeric]:
 
 @dataclass(frozen=True, slots=True)
 class MinLength:
-    """Require a string, bytes value, or supported container to have at least ``value`` members."""
+    """Require a sized supported value to contain at least ``value`` members.
+
+    Args:
+        value: Non-negative exact integer length. Booleans are rejected.
+
+    The marker supports strings, bytes, and Talea's concrete container schemas.
+    Inapplicable annotations and contradictory ranges fail during resolution.
+    """
 
     value: int
 
@@ -118,7 +125,14 @@ class MinLength:
 
 @dataclass(frozen=True, slots=True)
 class MaxLength:
-    """Require a string, bytes value, or supported container to have at most ``value`` members."""
+    """Require a sized supported value to contain at most ``value`` members.
+
+    Args:
+        value: Non-negative exact integer length. Booleans are rejected.
+
+    The marker supports strings, bytes, and Talea's concrete container schemas.
+    Inapplicable annotations and contradictory ranges fail during resolution.
+    """
 
     value: int
 

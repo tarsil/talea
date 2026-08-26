@@ -84,7 +84,7 @@ class _NamedSchemaTarget:
 class NamedReferenceSchema:
     """Finite canonical back-edge to a named alias or TypedDict declaration.
 
-    Public identity is immutable and sufficient for introspection and future
+    Public identity is immutable and sufficient for introspection and
     definition naming. The private target is a finalize-once resolution owner;
     execution artifacts may consume it only after the root resolution call has
     completed.

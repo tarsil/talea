@@ -2,7 +2,7 @@
 
 Public marker values are immutable ``Annotated`` vocabulary. The internal
 ``DeclarationMetadata`` record is the single normalized owner consumed by Spec,
-Contract, introspection, error, and future schema-projection domains.
+Contract, introspection, error, and standards-projection domains.
 """
 
 from collections.abc import Iterable, Mapping
@@ -31,7 +31,7 @@ class Title:
     """Declare a human-facing title for a field, Spec, or Contract.
 
     A local marker replaces an inherited title of the same kind. Introspection
-    exposes the normalized value, and future JSON Schema generation can project
+    exposes the normalized value, and JSON Schema generation projects
     it without reading annotations again. Titles are cold documentation truth:
     they do not affect validation, errors, input conversion, serialization, or
     security policy.
@@ -49,7 +49,7 @@ class Description:
 
     A local marker replaces an inherited description; on a Spec it also takes
     precedence over the class-docstring fallback. Introspection exposes the
-    normalized value for documentation and future JSON Schema projection.
+    normalized value for documentation and JSON Schema projection.
     Descriptions are never inspected during validation or serialization and
     must not be used to communicate sensitive values.
     """
@@ -114,7 +114,7 @@ class Examples:
     Values use JSON-compatible scalars, sequences, and string-keyed mappings.
     Talea snapshots containers into recursively immutable values at declaration
     time. A local marker replaces inherited examples. Introspection exposes the
-    snapshot for documentation and future JSON Schema projection. Examples are
+    snapshot for documentation and JSON Schema projection. Examples are
     not executed or validated against hooks and factories, do not affect input
     or serialization, and must never contain credentials or other secrets.
     """
@@ -131,7 +131,7 @@ class Examples:
 class Deprecated:
     """Mark a field, Spec, or Contract as deprecated documentation truth.
 
-    Introspection and future JSON Schema projection consume the normalized
+    Introspection and JSON Schema projection consume the normalized
     flag. It does not affect validation, errors, or serialization, and Talea
     does not emit runtime warnings. A local value replaces inherited state;
     ``False`` is the explicit opt-out.
@@ -148,7 +148,7 @@ class Deprecated:
 class ReadOnly:
     """Classify a field or Contract as read-only boundary metadata.
 
-    Introspection and future framework or JSON Schema consumers can project the
+    Introspection and framework or JSON Schema consumers can project the
     normalized flag. It does not reject constructors, Mapping input, or JSON
     input, and has no error-redaction or serialization effect. A local value
     replaces inherited state; ``False`` explicitly clears the classification.
@@ -165,7 +165,7 @@ class ReadOnly:
 class WriteOnly:
     """Classify a field or Contract as write-only boundary metadata.
 
-    Introspection and future framework or JSON Schema consumers can project the
+    Introspection and framework or JSON Schema consumers can project the
     normalized flag. Talea does not omit write-only values from successful
     serialization; output policy remains separate from sensitive error
     redaction. A local value replaces inherited state, and ``False`` explicitly
@@ -186,7 +186,7 @@ class Sensitive:
     Talea-controlled validation and serialization failures redact values under
     this declaration and do not retain their raw rejected object or callback
     cause. Normal successful validation and serialization remain unchanged.
-    Introspection exposes the normalized flag for adapters and future schema
+    Introspection exposes the normalized flag for adapters and schema
     extensions. Field sensitivity persists through ordinary inheritance;
     ``False`` is the explicit field opt-out. Arbitrary user callbacks still
     receive raw values and therefore remain responsible for external logging or

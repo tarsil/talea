@@ -105,7 +105,7 @@ class SpecField:
         default_factory: The zero-argument producer used when the field is
             omitted, or ``None``.
         alias: The optional canonical external field name consumed by input,
-            output, and future schema projection.
+            output, and standards projection.
         metadata: Normalized documentation, boundary, and security truth.
 
     The value is immutable and contains no validator or original annotation.
@@ -162,7 +162,7 @@ class SpecSchema:
             derived once from ``fields`` and cannot be supplied independently.
 
     Field names must be unique.  The schema is reusable by validation,
-    introspection, serialization, and other future projections without any of
+    introspection, serialization, and standards projections without any of
     those consumers reconstructing declaration truth from annotations.
 
     Raises:
