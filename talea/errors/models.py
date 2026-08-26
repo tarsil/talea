@@ -4,7 +4,13 @@ from dataclasses import dataclass, field
 from typing import Literal, NotRequired, TypedDict, cast
 
 from talea.errors.codes import ErrorCode
-from talea.errors.safety import JsonScalar, _InputSnapshot, safe_text, safe_type_name, snapshot_input
+from talea.errors.safety import (
+    JsonScalar,
+    _InputSnapshot,
+    safe_text,
+    safe_type_name,
+    snapshot_input,
+)
 
 __all__ = ["ErrorBranchData", "ErrorData", "ErrorLocation", "ValidationError"]
 

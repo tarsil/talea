@@ -22,7 +22,11 @@ from talea.schema import (
 from talea.schema.resolution import _apply_constraints
 from talea.validation import ValidationError, compile_validator
 from talea.validation.emission import _GeneratedNames, _ValidationEmitter
-from talea.validation.failure_contracts import constraint_code, constraint_context, constraint_label
+from talea.validation.failure_contracts import (
+    constraint_code,
+    constraint_context,
+    constraint_label,
+)
 
 CONSTRAINT_TYPES = (Gt, Ge, Lt, Le, MultipleOf, MinLength, MaxLength, Pattern)
 
