@@ -112,3 +112,8 @@ fields. Unsupported Literal categories fail when the class is declared.
 Every supported type and Literal contract can appear inside Talea's existing
 containers, tuples, unions, nested Specs, defaults, and inherited fields. A
 failure retains the complete field and container location.
+
+These rows describe already-Python construction. JSON input and output have
+schema-specific representations, including exact Decimal strings, ISO duration
+strings, and base64 bytes. See [Input boundaries](input-boundaries.md) and
+[Serialization and JSON output](serialization.md).

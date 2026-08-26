@@ -58,9 +58,10 @@ user = User.from_mapping(
 ```
 
 The top level accepts `collections.abc.Mapping`, including `dict`, mapping
-proxies, and deliberate custom implementations. Keys must be exact field names.
-Aliases and silent extra-field ignoring are not available. A non-string key is
-an unexpected field.
+proxies, and deliberate custom implementations. Keys use the declared `Alias`
+when present and otherwise use the exact Python field name. Canonical and alias
+spellings are not both accepted, preserving one unambiguous external contract.
+Silent extra-field ignoring is not available. A non-string key is unexpected.
 
 Python values remain strict. For a field declared as `int`, the string `"20"`
 fails. A `list` does not become a `tuple`, `set`, or `frozenset`; UUID, date,
@@ -181,7 +182,8 @@ path.
 | --- | --- | --- |
 | `int`, `str`, `bool`, `None`, `Literal` primitives | Corresponding JSON primitive | Same strict primitive |
 | `float` | Finite JSON number | Python `float`; integer tokens are accepted |
-| `Decimal` | Finite JSON number | Exact `Decimal`; no float intermediate on the default path |
+| `Decimal` | Finite JSON number or Decimal string | Exact `Decimal`; no float intermediate on the default path |
+| `bytes` | Strict padded RFC 4648 base64 string | Bytes |
 | `list[T]` | Array | List |
 | `tuple[...]`, `tuple[T, ...]` | Array | Tuple |
 | `set[T]`, `frozenset[T]` | Array | Set or frozenset; duplicate members collapse normally |
@@ -192,8 +194,7 @@ path.
 | supported path types | String | Declared nominal path family |
 | supported IP address/network/interface | String | Exact declared IP family |
 | Enum with a JSON-compatible value | That exact value and primitive type | Declared Enum member |
-| `timedelta` | No representation frozen | Rejected |
-| `bytes` | No representation frozen | Rejected unless a transform explicitly supplies bytes |
+| `timedelta` | Exact ISO 8601 duration string | Timedelta at microsecond resolution |
 
 Boolean and integer identity remains distinct in Literals and Enum values. JSON
 object keys are not coerced to integer, UUID, or other dictionary key types.
@@ -246,9 +247,9 @@ Likewise, a decoder used with Decimal fields must preserve fractional values as
 Decimal rather than float.
 
 There is no global mutable codec registry or process-wide JSON setting. The
-callable is not stored on the Spec declaration or instance. A future outbound
-JSON API can use the symmetric per-call `dumps` shape without replacing this
-input abstraction; outbound serialization is not implemented here.
+callable is not stored on the Spec declaration or instance. Outbound JSON uses
+the symmetric per-call `dumps` shape without replacing this input abstraction.
+See [Serialization and JSON output](serialization.md).
 
 ## Malformed input and parser limits
 

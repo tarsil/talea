@@ -4,6 +4,16 @@
 
 ### Added
 
+- Lazy compiled `Spec.to_dict()` Python projection and `Spec.to_json()` strict
+  JSON encoding with detached container output and nested Spec serialization.
+- Precision-safe Decimal strings, exact ISO 8601 timedelta durations, strict
+  base64 bytes, standard-library/Enum/Literal symmetry, and per-call custom
+  `dumps` normalization to `str`.
+- Canonical `Alias` field metadata, top-level include/exclude/exclude-none
+  policies, and inherited `@serialize` field hooks with a separate
+  `SerializationError` domain.
+- Dedicated Python projection, JSON projection, codec, declaration, first-use,
+  allocation, and memory benchmarks plus production serialization docs.
 - Compiled `Spec.from_mapping` construction for untrusted Mapping input with
   nested Spec construction, strict Python container semantics, structured
   missing/unexpected fields, and deterministic independent-field aggregation.

@@ -49,6 +49,7 @@ nav:
   - Constraints: "constraints.md"
   - Custom validation: "custom-validation.md"
   - Input boundaries: "input-boundaries.md"
+  - Serialization and JSON output: "serialization.md"
   - Validation errors: "error-experience.md"
   - Composition and inheritance: "composition-inheritance.md"
   - Contributing: "contributing.md"

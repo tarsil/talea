@@ -85,8 +85,8 @@ class Interval(Spec):
 ```
 
 Transforms do not weaken unhooked fields and cannot bypass the canonical
-schema. Checks run before immutable slot commitment. Async and serialization
-hooks are intentionally outside this synchronous inbound lifecycle.
+schema. Checks run before immutable slot commitment. Outbound field serializers
+use a separate `@serialize("field")` lifecycle and never change validation.
 
 Subclass fields follow inherited fields, while an override keeps its inherited
 position. Each subclass has one flat keyword-only constructor for its complete
@@ -99,8 +99,11 @@ Specs, reports missing and unexpected fields, and aggregates independent field
 failures without changing ordinary construction. Serialized JSON uses
 `User.from_json(data)`. The standard-library decoder is strict about duplicate
 keys and non-standard numeric constants, while an explicit per-call `loads`
-callable can select another JSON implementation. Outbound serialization is not
-implemented yet.
+callable can select another JSON implementation. `user.to_dict()` returns a
+detached Python mapping, and `user.to_json()` applies Talea's compiled
+schema-aware JSON projection before an optional per-call `dumps` codec. Decimal
+output is precision-safe text, timedelta uses exact ISO 8601 duration text, and
+bytes use strict base64.
 
 The canonical schema foundation covers built-in scalar types, homogeneous
 built-in containers, dictionaries, fixed and variadic tuples, PEP 604 unions,
