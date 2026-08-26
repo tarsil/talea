@@ -167,7 +167,7 @@ def presence_mask(instance: object) -> int | None:
     """Return the compact supplied-field mask, or ``None`` for an ordinary Spec."""
 
     artifacts = vars(type(instance))["__talea_declaration__"].artifacts()
-    if artifacts.presence_setter is None:
+    if artifacts.inputs.presence_setter is None:
         return None
     return cast(int, object.__getattribute__(instance, "__talea_presence__"))
 
@@ -178,7 +178,7 @@ def present_field_names(instance: object) -> frozenset[str]:
     artifacts = vars(type(instance))["__talea_declaration__"].artifacts()
     mask = (
         None
-        if artifacts.presence_setter is None
+        if artifacts.inputs.presence_setter is None
         else cast(int, object.__getattribute__(instance, "__talea_presence__"))
     )
     if mask is None:

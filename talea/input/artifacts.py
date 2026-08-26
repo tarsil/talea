@@ -24,7 +24,12 @@ class _InputArtifacts:
     mapping_input: InputCallable | None = None
     json_input: InputCallable | None = None
     compiling: set[InputMode] | None = None
-    presence_setter: Callable[[object, object], None] | None = None
+
+    @property
+    def presence_setter(self) -> Callable[[object, object], None] | None:
+        """Return no presence storage for ordinary Spec declarations."""
+
+        return None
 
     def input_for(
         self,
@@ -72,6 +77,27 @@ class _InputArtifacts:
         if self.compiling is not None and mode in self.compiling:
             return _RecursiveInputReference(spec_type, mode)
         return self.input_for(schema, spec_type, mode)
+
+
+class _PresenceInputArtifacts(_InputArtifacts):
+    """Own the one extra slot required only by presence-aware declarations."""
+
+    __slots__ = ("_presence_setter",)
+
+    def __init__(
+        self,
+        slot_setters: tuple[Callable[[object, object], None], ...],
+        recursive: bool,
+        presence_setter: Callable[[object, object], None],
+    ) -> None:
+        super().__init__(slot_setters, recursive)
+        self._presence_setter = presence_setter
+
+    @property
+    def presence_setter(self) -> Callable[[object, object], None]:
+        """Return the class-bound compact presence-slot setter."""
+
+        return self._presence_setter
 
 
 class _RecursiveInputReference:

@@ -154,7 +154,7 @@ def replacement_for(spec_type: type[object], artifacts: _SpecArtifacts) -> Repla
                 artifacts.schema,
                 spec_type,
                 artifacts.inputs.slot_setters,
-                artifacts.presence_setter,
+                artifacts.inputs.presence_setter,
             )
             type.__setattr__(spec_type, "__talea_replacer__", replacer)
     return cast(Replacer, replacer)

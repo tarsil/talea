@@ -43,8 +43,9 @@ def _restore_spec_instance(
             if presence & (1 << field_index):
                 setter(restored, values[value_index])
                 value_index += 1
-        assert artifacts.presence_setter is not None
-        artifacts.presence_setter(restored, presence)
+        presence_setter = artifacts.inputs.presence_setter
+        assert presence_setter is not None
+        presence_setter(restored, presence)
     return restored
 
 
@@ -106,8 +107,9 @@ class Spec(metaclass=_SpecMeta):
             if presence is None or presence & (1 << index):
                 setter(copied, getattr(self, spec_field.name))
         if presence is not None:
-            assert artifacts.presence_setter is not None
-            artifacts.presence_setter(copied, presence)
+            presence_setter = artifacts.inputs.presence_setter
+            assert presence_setter is not None
+            presence_setter(copied, presence)
         return copied
 
     def __deepcopy__(self, memo: dict[int, object]) -> Self:
@@ -128,8 +130,9 @@ class Spec(metaclass=_SpecMeta):
             if presence is None or presence & (1 << index):
                 setter(copied, deepcopy(getattr(self, spec_field.name), memo))
         if presence is not None:
-            assert artifacts.presence_setter is not None
-            artifacts.presence_setter(copied, presence)
+            presence_setter = artifacts.inputs.presence_setter
+            assert presence_setter is not None
+            presence_setter(copied, presence)
         return copied
 
     def __replace__(self, /, **changes: object) -> Self:
