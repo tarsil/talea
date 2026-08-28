@@ -15,6 +15,7 @@ from talea import (
     SerializationError,
     Spec,
     WriteOnly,
+    apply_patch,
     create_spec,
     derive_spec,
     serialize,
@@ -66,6 +67,25 @@ def test_invalid_declared_result_is_a_field_serialization_failure() -> None:
         Payload(value=3).to_dict()
     assert caught.value.location == ("value",)
     assert calls == 1
+    with pytest.raises(SerializationError, match="outside its declared output contract"):
+        Payload(value=3).to_json()
+    assert calls == 2
+
+
+def test_declared_callback_failure_preserves_ordinary_cause() -> None:
+    failure = RuntimeError("application detail")
+
+    class Payload(Spec):
+        value: int
+
+        @serialize("value", output=str)
+        def output(value: int) -> str:
+            raise failure
+
+    with pytest.raises(SerializationError, match="hook 'output' failed") as caught:
+        Payload(value=1).to_dict()
+    assert caught.value.location == ("value",)
+    assert caught.value.__cause__ is failure
 
 
 def test_declared_constraints_and_sensitive_failures_do_not_leak() -> None:
@@ -88,9 +108,12 @@ def test_declared_constraints_and_sensitive_failures_do_not_leak() -> None:
         def output(token: str) -> str:
             raise RuntimeError(token)
 
+    Crashing.output.__name__ = "secret-value"
+
     with pytest.raises(SerializationError) as callback:
         Crashing(token="secret-value").to_dict()
     assert callback.value.__cause__ is None
+    assert "secret-value" not in str(callback.value)
 
 
 def test_structural_output_supports_aliases_and_nested_include_exclude() -> None:
@@ -245,7 +268,13 @@ def test_declared_output_drives_output_schema_only_and_openapi() -> None:
     output_properties = cast(dict[str, object], output_definition["properties"])
     assert output_properties["value"] == {"$ref": "#/$defs/Summary"}
     assert Payload.openapi_schema(mode="input")["schema"] == {"$ref": "#/components/schemas/Payload"}
-    assert Payload.openapi_schema(mode="output")["schema"] == {"$ref": "#/components/schemas/Payload"}
+    openapi_output = Payload.openapi_schema(mode="output")
+    assert openapi_output["schema"] == {"$ref": "#/components/schemas/Payload"}
+    components = cast(dict[str, object], openapi_output["components"])
+    schemas = cast(dict[str, object], components["schemas"])
+    payload_schema = cast(dict[str, object], schemas["Payload"])
+    properties = cast(dict[str, object], payload_schema["properties"])
+    assert properties["value"] == {"$ref": "#/components/schemas/Summary"}
 
 
 def test_introspection_exposes_declared_schema_but_not_callback() -> None:
@@ -280,12 +309,17 @@ def test_inheritance_dynamic_declaration_derivation_and_replacement() -> None:
         def output(value: int) -> int:
             return value + 1
 
+    class Shadowed(Base):
+        def output(self) -> None:
+            return None
+
     dynamic_output = serialize("value", output=str)(lambda value: str(value))
     Dynamic = create_spec("Dynamic", {"value": int}, namespace={"output": dynamic_output})
     Derived = derive_spec(Base, include={"value"})
     Omitted = derive_spec(Base, exclude={"value"})
 
     assert Child(value=1).to_dict() == {"value": 2}
+    assert Shadowed(value=1).to_dict() == {"value": 1}
     assert Dynamic(value=1).to_dict() == {"value": "1"}
     assert Derived(value=1).to_dict() == {"value": "1"}
     assert inspect_spec(Omitted).serializers == ()
@@ -303,6 +337,28 @@ def test_inheritance_dynamic_declaration_derivation_and_replacement() -> None:
     changed = replace(original, value=2)
     assert calls == 0
     assert changed.to_dict() == {"value": "2"}
+    assert calls == 1
+
+
+def test_partial_patch_retains_output_truth_without_executing_serializer() -> None:
+    calls = 0
+
+    class Source(Spec):
+        value: int
+        label: str
+
+        @serialize("value", output=str)
+        def output(value: int) -> str:
+            nonlocal calls
+            calls += 1
+            return str(value)
+
+    Patch = derive_spec(Source, include={"value"}, partial=True, mode="input")
+    source = Source(value=1, label="kept")
+    patch = Patch(value=2)
+    changed = apply_patch(source, patch)
+    assert calls == 0
+    assert changed.to_dict() == {"value": "2", "label": "kept"}
     assert calls == 1
 
 
