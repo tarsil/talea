@@ -22,7 +22,7 @@ from types import FunctionType, MethodType
 from typing import Annotated, Literal, TypedDict, cast
 from uuid import UUID
 
-from talea import Alias, Discriminator, Representation, SerializationError, Spec, serialize
+from talea import Alias, Discriminator, Representation, Sensitive, SerializationError, Spec, serialize
 from talea.serialization.compilation import compile_selected_serialization
 from talea.serialization.json import _default_dumps
 from talea.serialization.selection import SerializationSelection, normalize_selection
@@ -260,6 +260,30 @@ class FailingDeclaredScalar(Spec):
         raise ValueError(value)
 
 
+class InvalidDeclaredNested(Spec):
+    value: int
+
+    @serialize("value", output=SerializerDictionary)
+    def output(value: int) -> SerializerDictionary:
+        return cast(SerializerDictionary, {"name": value})
+
+
+class SensitiveInvalidDeclared(Spec):
+    value: Annotated[int, Sensitive()]
+
+    @serialize("value", output=str)
+    def output(value: int) -> int:
+        return value
+
+
+class SensitiveFailingDeclared(Spec):
+    value: Annotated[int, Sensitive()]
+
+    @serialize("value", output=str)
+    def output(value: int) -> str:
+        raise ValueError(value)
+
+
 class Aliased(Spec):
     identifier: Annotated[int, Alias("id")]
     name: str
@@ -372,6 +396,9 @@ DECLARED_MODELS = DeclaredModels(
 )
 INVALID_DECLARED_SCALAR = InvalidDeclaredScalar(value=1)
 FAILING_DECLARED_SCALAR = FailingDeclaredScalar(value=1)
+INVALID_DECLARED_NESTED = InvalidDeclaredNested(value=1)
+SENSITIVE_INVALID_DECLARED = SensitiveInvalidDeclared(value=1)
+SENSITIVE_FAILING_DECLARED = SensitiveFailingDeclared(value=1)
 ALIASED = Aliased(identifier=1, name="Ada")
 PROJECTION_PROFILE = ProjectionProfile(
     name="Ada",
@@ -408,6 +435,11 @@ NESTED_INCLUDE_5: SerializationSelection = {"child": {"child": {"child": {"child
 NESTED_EXCLUDE_5: SerializationSelection = {"child": {"child": {"child": {"child": {"sibling": True}}}}}
 DECLARED_INCLUDE: SerializationSelection = {"value": {"name": True}}
 DECLARED_EXCLUDE: SerializationSelection = {"value": {"score": True}}
+DECLARED_DATACLASS_ONLY: SerializationSelection = {"dataclass_value"}
+DECLARED_TYPED_DICT_ONLY: SerializationSelection = {"dictionary_value"}
+DECLARED_REPRESENTATION_ONLY: SerializationSelection = {"representation_value"}
+DECLARED_LIST_ONLY: SerializationSelection = {"list_value"}
+DECLARED_MAPPING_ONLY: SerializationSelection = {"mapping_value"}
 
 
 def project_account(value: ProjectionAccount) -> dict[str, object]:
@@ -500,6 +532,14 @@ def benchmark_python_projection() -> None:
         ("declared structured hook", DECLARED_STRUCTURED.to_dict),
         ("declared model outputs", DECLARED_MODELS.to_dict),
         ("declared tagged output", DECLARED_TAGGED.to_dict),
+        ("declared dataclass output", partial(DECLARED_MODELS.to_dict, include=DECLARED_DATACLASS_ONLY)),
+        ("declared TypedDict output", partial(DECLARED_MODELS.to_dict, include=DECLARED_TYPED_DICT_ONLY)),
+        (
+            "declared Representation output",
+            partial(DECLARED_MODELS.to_dict, include=DECLARED_REPRESENTATION_ONLY),
+        ),
+        ("declared list output", partial(DECLARED_MODELS.to_dict, include=DECLARED_LIST_ONLY)),
+        ("declared mapping output", partial(DECLARED_MODELS.to_dict, include=DECLARED_MAPPING_ONLY)),
         ("alias", ALIASED.to_dict),
         ("include", partial(INHERITED.to_dict, include={"identifier", "active"})),
         ("exclude", partial(INHERITED.to_dict, exclude={"name"})),
@@ -525,6 +565,21 @@ def benchmark_python_projection() -> None:
         "declared callback failure",
         "talea failure",
         measure(partial(ignore_serialization_error, FAILING_DECLARED_SCALAR.to_dict)),
+    )
+    print_measurement(
+        "declared invalid nested",
+        "talea failure",
+        measure(partial(ignore_serialization_error, INVALID_DECLARED_NESTED.to_dict)),
+    )
+    print_measurement(
+        "Sensitive invalid result",
+        "talea failure",
+        measure(partial(ignore_serialization_error, SENSITIVE_INVALID_DECLARED.to_dict)),
+    )
+    print_measurement(
+        "Sensitive callback failure",
+        "talea failure",
+        measure(partial(ignore_serialization_error, SENSITIVE_FAILING_DECLARED.to_dict)),
     )
 
 
