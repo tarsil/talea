@@ -38,8 +38,8 @@ are not public.
 | strict construction | `ConcreteSpec(**canonical_fields)` |
 | mapping input | `ConcreteSpec.from_mapping(mapping, *, policy=None)` |
 | JSON input | `ConcreteSpec.from_json(data, *, loads=None, policy=None)` |
-| Python output | `instance.to_dict(*, include=None, exclude=None, exclude_none=False)` |
-| JSON output | `instance.to_json(*, include=None, exclude=None, exclude_none=False, dumps=None)` |
+| Python output | `instance.to_dict(*, include=None, exclude=None, exclude_none=False)` with canonical-name sets or nested mappings |
+| JSON output | `instance.to_json(*, include=None, exclude=None, exclude_none=False, dumps=None)` with the same selection grammar |
 | JSON Schema | `ConcreteSpec.json_schema(*, mode="input" | "output")` |
 | OpenAPI | `ConcreteSpec.openapi_schema(*, mode="input" | "output")` |
 

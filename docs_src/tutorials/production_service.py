@@ -141,3 +141,53 @@ input_definitions = cast(dict[str, object], input_components["schemas"])
 output_definitions = cast(dict[str, object], output_components["schemas"])
 assert "UserCreate" in input_definitions
 assert "UserResponse" in output_definitions
+
+
+class Permission(Spec):
+    code: str
+    source: str
+
+
+class AccountProfile(Spec):
+    display_name: Annotated[str, Alias("displayName")]
+    address: Address
+    permissions: list[Permission]
+    internal_note: str
+
+
+class AccountSnapshot(Spec):
+    account_id: Annotated[UUID, Alias("id")]
+    profile: AccountProfile
+    revision: int
+
+
+snapshot = AccountSnapshot(
+    account_id=UUID("12345678-1234-5678-1234-567812345678"),
+    profile=AccountProfile(
+        display_name="Ada Lovelace",
+        address=Address(line_1="1 Engine Way", city="London", postcode="SW1A 1AA", country="GB"),
+        permissions=[Permission(code="account.read", source="role"), Permission(code="trade.read", source="grant")],
+        internal_note="operator-only",
+    ),
+    revision=7,
+)
+public_snapshot = json.loads(
+    snapshot.to_json(
+        include={
+            "account_id": True,
+            "profile": {
+                "display_name": True,
+                "address": {"city": True, "country": True},
+                "permissions": {"code": True},
+            },
+        }
+    )
+)
+assert public_snapshot == {
+    "id": "12345678-1234-5678-1234-567812345678",
+    "profile": {
+        "displayName": "Ada Lovelace",
+        "address": {"city": "London", "country": "GB"},
+        "permissions": [{"code": "account.read"}, {"code": "trade.read"}],
+    },
+}

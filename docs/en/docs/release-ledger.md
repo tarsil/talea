@@ -19,6 +19,7 @@ OpenAPI 3.1-compatible projection, and finite external-input resource policies.
 | --- | --- |
 | callable argument/return validation | Not implemented; requires signature, descriptor, async, and typing policy |
 | explicit ReadOnly/WriteOnly input/output Spec views | Implemented through declaration-time `derive_spec(mode=...)` selection |
+| nested runtime output projection | Implemented through finite canonical-name include/exclude trees on `Spec.to_dict()` and `Spec.to_json()`; schema/OpenAPI remain unchanged |
 | automatic runtime ReadOnly/WriteOnly enforcement | Deliberately absent; ordinary source-Spec behavior remains unchanged |
 | NamedTuple and ordinary-class mapping | Not implemented; core is not a general object mapper |
 | stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |

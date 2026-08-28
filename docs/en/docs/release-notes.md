@@ -4,6 +4,12 @@
 
 ### Added
 
+- `Spec.to_dict()` and `Spec.to_json()` accept finite nested canonical-name
+  include/exclude mappings. Direct schema-specialized projection covers nested
+  Specs, homogeneous containers, mapping values, compatible fixed tuples,
+  branch-specific unions, dataclasses, TypedDicts, partials, and directional
+  views while preserving aliases, recursive exclusion precedence, and the
+  serializer-hook leaf boundary.
 - `derive_spec(mode="input" | "output")` creates normal explicit request and
   response contract classes from canonical `ReadOnly`/`WriteOnly` metadata. It
   composes with include/exclude and partial presence, exposes immutable

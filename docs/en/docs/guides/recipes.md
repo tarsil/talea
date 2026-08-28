@@ -53,6 +53,32 @@ real event branches, generic envelopes, UUID/datetime/Decimal representations,
 Sensitive data, invalid and nested failures, JSON output, JSON Schema, and
 OpenAPI. Keep untagged unions when no genuine protocol tag exists.
 
+## Shape a nested API or event response
+
+Use the existing output methods with canonical-name mappings when an endpoint
+needs a finite subset of nested data:
+
+```python
+body = account.to_json(
+    include={
+        "account_id": True,
+        "profile": {
+            "display_name": True,
+            "address": {"city": True},
+            "permissions": {"code": True},
+        },
+    }
+)
+```
+
+The [production service example](../getting-started/production-service.md)
+executes account/profile/address/permission shaping. The [event
+example](../tagged-unions.md#production-event-stream) projects an envelope,
+actor, and tagged payload while retaining its discriminator. The [finance
+example](../supported-types.md#financial-composition-example) projects a trade,
+instrument, and counterparty. Selectors use canonical names even when these
+examples emit aliases. They are output policy, not authorization policy.
+
 ## Validate a TypedDict or arbitrary root
 
 Retain a `Contract` instead of inventing a wrapper Spec:

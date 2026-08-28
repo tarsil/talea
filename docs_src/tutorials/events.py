@@ -53,6 +53,12 @@ class EventEnvelope[T](Spec):
     payload: T
 
 
+class EventActor(Spec):
+    actor_id: Annotated[UUID, Alias("actorId")]
+    display_name: Annotated[str, Alias("displayName")]
+    internal_role: str
+
+
 events: Contract[Event] = Contract(Event)
 authorized_json = """{
   "type": "payment.authorized",
@@ -74,6 +80,52 @@ assert '"type":"payment.authorized"' in events.to_json(event)
 envelope = EventEnvelope[Event](stream="payments", sequence=42, payload=event)
 assert isinstance(envelope.payload, PaymentAuthorized)
 assert EventEnvelope[Event].from_json(envelope.to_json()).sequence == 42
+
+
+class DeliveryEnvelope(Spec):
+    stream: str
+    actor: EventActor
+    payload: Event
+
+
+delivery = DeliveryEnvelope(
+    stream="payments",
+    actor=EventActor(
+        actor_id=UUID("30000000-0000-0000-0000-000000000003"),
+        display_name="Payments gateway",
+        internal_role="service-account",
+    ),
+    payload=event,
+)
+projected_delivery = delivery.to_dict(
+    include={
+        "stream": True,
+        "actor": {"actor_id": True, "display_name": True},
+        "payload": {
+            "kind": True,
+            "event_id": True,
+            "payment_id": True,
+            "amount": True,
+            "reason_code": True,
+            "account_id": True,
+            "reason": True,
+            "changed_fields": True,
+        },
+    }
+)
+assert projected_delivery == {
+    "stream": "payments",
+    "actor": {
+        "actorId": UUID("30000000-0000-0000-0000-000000000003"),
+        "displayName": "Payments gateway",
+    },
+    "payload": {
+        "type": "payment.authorized",
+        "eventId": UUID("10000000-0000-0000-0000-000000000001"),
+        "paymentId": UUID("20000000-0000-0000-0000-000000000002"),
+        "amount": Decimal("42.50"),
+    },
+}
 
 try:
     events.from_json('{"type":"payment.refunded"}')

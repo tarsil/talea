@@ -19,8 +19,16 @@ This is the authoritative pre-1.0 limitations list.
   specialized before execution;
 - an arbitrary transform can make input schema projection unknowable;
 - an arbitrary serializer can make output schema projection unknowable;
-- `include`/`exclude` serialization accepts top-level Spec field names, not
-  nested selection trees;
+- nested serialization selection uses canonical field names only; aliases are
+  output keys, not selector identities;
+- nested selection has no per-index sequence selection, mapping-key selection,
+  wildcards, predicates, path expressions, or query-language callbacks;
+- custom serializer output is a leaf because no replacement-output contract is
+  declared;
+- recursive selection requires an explicitly finite selection tree;
+- heterogeneous fixed tuples require one subtree valid for every position;
+- structured `set`/`frozenset` member selection is JSON-only because projected
+  dictionaries cannot preserve hashability in Python output;
 - dynamic `create_spec()` and `derive_spec()` results type as `type[Spec]`
   because Python cannot infer runtime field mappings;
 - no automatic converters are provided for Pydantic, attrs, or foreign schema

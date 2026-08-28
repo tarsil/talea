@@ -15,6 +15,7 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | regex constraints | declaration-time compilation and safe binding | catastrophic backtracking; no timeout is provided |
 | output and schema tooling | cycle rejection and explicit projection failures | output size and tooling resource budgets |
 | dataclass Contract | declared stored fields, exact identity, structured boundaries | constructor, post-init, descriptors, generated repr |
+| nested output selection | canonical schema validation, immutable normalization, direct projection | authorization to request or disclose fields |
 
 The finite default policy is 8 MiB JSON transport, depth 64, 100,000 compiled
 node visits, and 100 aggregated errors. It reduces Talea-owned unbounded work;
@@ -27,6 +28,15 @@ globals. Dynamic class/module/qualified names are normalized and validated;
 pattern text and aliases are not inserted into source. Repository tests cover
 quotes, newlines, malicious-looking names, aliases, patterns, and callback
 identities.
+
+Nested selector keys are treated as data and validated against canonical field
+truth before compilation. Caller-owned dictionaries and sets are copied into
+an immutable tree before field access. There is no global selector cache; each
+Spec class retains at most 32 immutable compiled plans and evicts the oldest
+selected plan on overflow. Very broad or deep selectors can still consume
+caller-owned output CPU and memory under normal Python limits;
+`ResourcePolicy` intentionally governs hostile input, not application-owned
+output.
 
 Annotation resolution uses Python's supported annotation machinery and retained
 definition namespaces. Talea does not provide an API that evaluates arbitrary
@@ -51,6 +61,11 @@ that derived class. Input partials may patch their exact source; output partials
 are rejected by `apply_patch` so read-only values cannot re-enter through a
 read-oriented view. Nested Specs are not recursively rewritten, so applications
 must explicitly derive nested boundary shapes when required.
+
+`include` and `exclude` control output projection only. They do not establish
+the caller's identity, role, tenant, consent, or permission to see a field.
+Applications must authorize the chosen projection before serialization;
+`Sensitive` is failure-redaction metadata, not an output access-control rule.
 
 For dataclasses, Talea cannot control the class's own generated `repr` without
 mutating the application type. A sensitive dataclass field may therefore appear
