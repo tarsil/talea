@@ -20,8 +20,11 @@ from talea.declaration.policies import schema_contains_sensitive_metadata
 from talea.json.representations import standard_json_representation
 from talea.metadata import DeclarationMetadata, ExampleValue
 from talea.schema.nodes import (
+    DATACLASS_MISSING,
     AliasSchema,
     ConstrainedSchema,
+    DataclassField,
+    DataclassSchema,
     EnumSchema,
     FixedTupleSchema,
     LiteralSchema,
@@ -41,6 +44,7 @@ from talea.schema.nodes import (
 )
 from talea.schema.references import NamedSchemaIdentity
 from talea.serialization.emission import compile_value_projector
+from talea.validation.compilation import compile_validator
 from talea.validation.failure_contracts import literal_key, schema_order_key
 
 from .errors import SchemaProjectionError
@@ -145,6 +149,18 @@ class _StandardsProjector:
                 spec_type.__qualname__,
                 spec_type,
             )
+        if isinstance(schema, DataclassSchema):
+            identity = schema.identity
+            if identity is None:
+                return self._dataclass(schema)
+            dataclass_type = schema.dataclass_type
+            return self._named_reference(
+                identity,
+                dataclass_type.__name__,
+                dataclass_type.__module__,
+                dataclass_type.__qualname__,
+                schema,
+            )
         if isinstance(schema, SequenceSchema):
             projected = {"type": "array", "items": self._project(schema.item)}
             if self._mode == "output" and schema.kind in ("set", "frozenset"):
@@ -190,6 +206,8 @@ class _StandardsProjector:
             return projected
         if isinstance(value, TypedDictSchema):
             return self._typed_dict(value)
+        if isinstance(value, DataclassSchema):
+            return self._dataclass(value)
         return self._project(value)
 
     def _named_reference(
@@ -345,6 +363,38 @@ class _StandardsProjector:
             projected["readOnly"] = True
         return projected
 
+    def _dataclass(self, schema: DataclassSchema) -> dict[str, object]:
+        fields = tuple(field for field in schema.fields if self._mode == "output" or field.init)
+        properties = {field.external_name: self._dataclass_field(field) for field in fields}
+        projected: dict[str, object] = {
+            "type": "object",
+            "properties": properties,
+            "additionalProperties": False,
+        }
+        if self._mode == "input":
+            required = [field.external_name for field in fields if field.required]
+        else:
+            required = [field.external_name for field in fields]
+        if required:
+            projected["required"] = required
+        return projected
+
+    def _dataclass_field(self, field: DataclassField) -> dict[str, object]:
+        projected = self._project(field.schema)
+        self._apply_metadata(projected, field.metadata)
+        if self._mode == "output" and not field.init:
+            projected["readOnly"] = True
+        if (
+            field.default is not DATACLASS_MISSING
+            and not field.metadata.sensitive
+            and not schema_contains_sensitive_metadata(field.schema)
+            and not self._contains_serializer(field.schema)
+        ):
+            default = self._project_default(field.schema, field.default)
+            if default is not MISSING_DEFAULT:
+                projected["default"] = default
+        return projected
+
     def _spec(self, schema: SpecSchema, qualname: str) -> dict[str, object]:
         if self._mode == "input":
             transforms = tuple(hook.name for hook in schema.hooks if hook.kind == "transform")
@@ -390,6 +440,7 @@ class _StandardsProjector:
     @staticmethod
     def _project_default(schema: Schema, value: object) -> object:
         try:
+            compile_validator(schema)(value)
             projected = compile_value_projector(schema, "json", True)(value, ())
             json.dumps(projected, allow_nan=False)
         except (TypeError, ValueError):
@@ -412,6 +463,11 @@ class _StandardsProjector:
             return bool(target.serializers) or any(
                 self._contains_serializer(field.schema, visiting | {schema.spec_type}) for field in target.fields
             )
+        if isinstance(schema, DataclassSchema):
+            identity = schema.identity or schema.dataclass_type
+            if identity in visiting:
+                return False
+            return any(self._contains_serializer(field.schema, visiting | {identity}) for field in schema.fields)
         if isinstance(schema, SequenceSchema):
             return self._contains_serializer(schema.item, visiting)
         if isinstance(schema, MappingSchema):

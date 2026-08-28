@@ -12,13 +12,16 @@ from talea.serialization.compilation import (
     FilteredSpecSerializer,
     SpecSerializer,
     compile_plain_to_dict,
+    compile_selected_serialization,
     compile_serialization,
 )
 from talea.serialization.emission import OutputMode
 from talea.serialization.errors import SerializationError
+from talea.serialization.selection import _Selection
 
 _OUTPUT_COMPILATION_LOCK = RLock()
 _RECURSIVE_OUTPUT: ContextVar[set[int] | None] = ContextVar("talea_recursive_output", default=None)
+_SELECTED_OUTPUT_LIMIT = 32
 
 
 @dataclass(slots=True)
@@ -28,7 +31,7 @@ class _OutputArtifacts:
     recursive: bool = False
     python_alias: SpecSerializer | None = None
     json_alias: SpecSerializer | None = None
-    variants: dict[tuple[OutputMode, bool, bool], SpecSerializer | FilteredSpecSerializer] | None = None
+    variants: dict[tuple[object, ...], SpecSerializer | FilteredSpecSerializer] | None = None
     compiling: set[tuple[OutputMode, bool, bool]] | None = None
 
     def public_python_for(
@@ -103,6 +106,40 @@ class _OutputArtifacts:
         if self.compiling is not None and key in self.compiling:
             return cast(SpecSerializer, _RecursiveOutputReference(self, schema, mode, by_alias))
         return cast(SpecSerializer, self.output_for(schema, mode, by_alias, False))
+
+    def selected_for(
+        self,
+        schema: SpecSchema,
+        mode: OutputMode,
+        by_alias: bool,
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
+    ) -> SpecSerializer:
+        """Return one of at most 32 retained immutable nested projections."""
+
+        key = ("selected", mode, by_alias, include, exclude, exclude_none)
+        compiled = None if self.variants is None else self.variants.get(key)
+        if compiled is not None:
+            return cast(SpecSerializer, compiled)
+        with _OUTPUT_COMPILATION_LOCK:
+            compiled = None if self.variants is None else self.variants.get(key)
+            if compiled is None:
+                compiled = compile_selected_serialization(
+                    schema,
+                    mode,
+                    by_alias,
+                    include,
+                    exclude,
+                    exclude_none,
+                )
+                if self.variants is None:
+                    self.variants = {}
+                selected_keys = tuple(item for item in self.variants if item and item[0] == "selected")
+                if len(selected_keys) >= _SELECTED_OUTPUT_LIMIT:
+                    del self.variants[selected_keys[0]]
+                self.variants[key] = compiled
+        return cast(SpecSerializer, compiled)
 
 
 class _RecursiveOutputReference:

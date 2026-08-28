@@ -1,9 +1,11 @@
 # Serialization and JSON output
 
 `Sensitive()` does not omit a field from successful output, and `WriteOnly()`
-is classification rather than core serialization policy. Sensitive
-serialization-hook and codec failures drop callback causes and retain only safe
-locations. See [Metadata and sensitive fields](metadata-security.md).
+does not alter ordinary source-Spec serialization. An explicit
+`derive_spec(Source, mode="output")` class has no effective write-only fields,
+so its normal serializer cannot emit them. Sensitive serialization-hook and
+codec failures drop callback causes and retain only safe locations. See
+[Metadata and sensitive fields](metadata-security.md).
 
 Talea has two outbound operations with deliberately different representations:
 
@@ -55,6 +57,13 @@ same objects. Declared containers preserve their Python kind:
 | `set[T]` | New set with projected members |
 | `frozenset[T]` | New frozenset with projected members |
 | `dict[K, V]` | New dictionary with projected keys and values |
+| stdlib dataclass through `Contract.to_python()` | New dictionary with declared stored fields and aliases |
+
+Dataclass projection reads only canonical stored fields and never calls
+`dataclasses.asdict()`, the constructor, or `__post_init__`. Nested dataclasses
+project recursively; mutable containers detach according to their declared
+schemas. Strict `validate(existing)` still returns the original instance, while
+`to_python(existing)` intentionally returns its structural dictionary.
 
 Preserving tuple, set, and frozenset makes a Python round trip strict:
 
@@ -107,6 +116,7 @@ instead of retaining an alias to the nested object.
 | Enum | Supported member value |
 | Literal | Validated value's canonical representation |
 | nested `Spec` | JSON object |
+| nested stdlib dataclass | JSON object |
 | list, tuple, set, frozenset | JSON array |
 | `dict[str, T]` | JSON object |
 
@@ -209,26 +219,83 @@ there are no separate validation and serialization alias maps.
 
 ## Field selection
 
-Both methods accept top-level canonical-name sets:
+Both methods accept canonical-name sets and nested mappings:
 
 ```python
 public = user.to_dict(include={"first_name"})
 without_debug = user.to_json(exclude={"debug"}, exclude_none=True)
+response = account.to_dict(
+    include={
+        "account_id": True,
+        "profile": {
+            "display_name": True,
+            "address": {"city": True},
+        },
+    },
+    exclude={"profile": {"internal_note": True}},
+)
 ```
 
-`include` selects fields, then `exclude` removes fields, so exclusion wins.
-Unknown field names raise `ValueError`; non-set or non-string values raise
-`TypeError`. Selections always use canonical Python names even when output keys
-use aliases. This avoids policies changing meaning with `by_alias`.
+At any object level, a set selects complete fields. A mapping value of `True`
+also selects the complete serialized field; another set or mapping descends
+into that field's declared structure. `False`, empty nested trees, numeric
+indices, wildcards, predicates, path strings, and callback filters are not part
+of the grammar. Unknown fields and invalid descent raise `ValueError`; invalid
+container/key/value shapes raise `TypeError`.
+
+`include` permits fields before `exclude` removes them, so exclusion wins at
+every level. A leaf exclusion omits the complete field. A nested exclusion
+keeps the field and omits only the named descendants. `exclude_none` runs after
+selection at the root and at each explicitly descended object level; it does
+not remove sequence members or mapping values. A leaf selection keeps the
+existing complete-value behavior beneath that leaf.
+
+Selectors always use canonical Python field names. Aliases are rejected as
+selector keys even when `by_alias=True`; a successful canonical selection
+still emits the alias. This keeps selection identity independent of output key
+policy.
+
+Nested selection follows canonical structure:
+
+- one subtree applies uniformly to every `list` or variadic-tuple member;
+- one subtree applies uniformly to mapping values, never mapping keys;
+- a heterogeneous fixed tuple accepts only a subtree valid at every position;
+- ordinary and tagged unions compile branch-specific projections, while a name
+  unknown to every structural branch is rejected;
+- a tagged-union include must retain its canonical discriminator as a leaf,
+  and an exclude cannot remove it;
+- nested JSON selection works for `set` and `frozenset` members. Python output
+  rejects structured member selection because dictionaries cannot preserve the
+  declared hashable container shape;
+- dataclasses and TypedDict values use their existing canonical field owners;
+- constraints do not alter descendant structure;
+- partial Specs project only present fields, and directional derived Specs
+  expose only their actual derived shape;
+- finite selection trees bound recursive projection depth.
+
+An arbitrary `@serialize` result is a leaf because Talea has no declared schema
+for the callback's replacement. Selecting or excluding the whole field is
+valid; descending into the callback result fails before callback execution.
+`Sensitive` keeps its ordinary successful-output semantics and does not turn
+selection into redaction.
 
 Plain output pays no per-field selection branches. A separate filtered
-serializer is compiled lazily only when one of these options is used.
+serializer remains retained for legacy top-level sets. A nested selector is
+normalized to an immutable schema-validated tree and compiled into an
+direct projector. Each Spec class retains at most 32 selected projectors under
+a FIFO policy; arbitrary user shapes therefore cannot create unbounded class or
+process state. Normalization still copies caller input on every call before a
+cache lookup. Omitted siblings are not read or serialized, and plain
+`to_dict()`/`to_json()` never enter normalization.
 
-Nested include/exclude trees are not supported. Callers can serialize a
-nested Spec directly or use a field serializer when a nested public view is a
-domain contract. `exclude_defaults` is absent because default factories do not
-own one stable comparable default. `exclude_unset` is absent because Talea does
-not add per-instance provenance metadata to every Spec.
+Selection is response projection, not authorization. Applications must decide
+which selector a caller may use and whether the resulting fields are permitted.
+JSON Schema, OpenAPI, and introspection remain declaration truth and do not
+change after an operation-local selection.
+
+`exclude_defaults` is absent because default factories do not own one stable
+comparable default. `exclude_unset` is absent because Talea does not add
+per-instance input-provenance metadata to every Spec.
 
 ## Field serializers
 

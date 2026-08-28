@@ -1,5 +1,6 @@
 """Negative static-typing probes for Talea Spec declarations."""
 
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
@@ -23,6 +24,15 @@ from talea import (
 from talea.introspection import inspect_contract, inspect_spec
 
 
+@dataclass
+class DataclassUser:
+    id: int
+
+
+Contract(DataclassUser).to_python(object())  # ty: ignore[invalid-argument-type]
+Contract(DataclassUser).to_json("wrong")  # ty: ignore[invalid-argument-type]
+
+
 class User(Spec):
     id: int
     active: bool = True
@@ -40,6 +50,9 @@ User.from_json("{}", loads=lambda: {})  # ty: ignore[invalid-argument-type]
 User.from_mapping({"id": 1}, policy=object())  # ty: ignore[invalid-argument-type]
 User.from_json("{}", policy=object())  # ty: ignore[invalid-argument-type]
 User(id=1).to_dict(include=["id"])  # ty: ignore[invalid-argument-type]
+User(id=1).to_dict(include={"id": False})  # ty: ignore[invalid-argument-type]
+User(id=1).to_dict(include={"id": 1})  # ty: ignore[invalid-argument-type]
+User(id=1).to_dict(include={"id": ["nested"]})  # ty: ignore[invalid-argument-type]
 User(id=1).to_json(dumps=lambda value: 1)  # ty: ignore[invalid-argument-type]
 Contract[int](int).to_python("1")  # ty: ignore[invalid-argument-type]
 Contract[int](int).to_json("1")  # ty: ignore[invalid-argument-type]
@@ -56,6 +69,7 @@ create_spec("Invalid", {"value": int}, base=object)  # ty: ignore[no-matching-ov
 create_spec("Invalid", {"value": int}, metadata=1)  # ty: ignore[invalid-argument-type]
 derive_spec(object)  # ty: ignore[invalid-argument-type]
 derive_spec(User, partial=1)  # ty: ignore[invalid-argument-type]
+derive_spec(User, mode="request")  # ty: ignore[invalid-argument-type]
 apply_patch(User(id=1), object())  # ty: ignore[invalid-argument-type]
 inspect_spec(User(id=1))  # ty: ignore[invalid-argument-type]
 inspect_contract(int)  # ty: ignore[invalid-argument-type]

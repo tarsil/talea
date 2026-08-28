@@ -7,6 +7,7 @@ from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
+    DataclassSchema,
     EnumSchema,
     FixedTupleSchema,
     LiteralSchema,
@@ -44,6 +45,13 @@ def schema_values_are_immutable(schema: Schema, visiting: frozenset[object] = fr
         if schema.spec_type in visiting:
             return True
         return declaration.values_are_immutable(visiting | {schema.spec_type})
+    if isinstance(schema, DataclassSchema):
+        if not schema.frozen:
+            return False
+        identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return True
+        return all(schema_values_are_immutable(field.schema, visiting | {identity}) for field in schema.fields)
     if isinstance(schema, SequenceSchema):
         return schema.kind == "frozenset" and schema_values_are_immutable(schema.item, visiting)
     if isinstance(schema, MappingSchema):
@@ -126,6 +134,14 @@ def schema_contains_sensitive_metadata(
             or schema_contains_sensitive_metadata(field.schema, visiting | {schema.spec_type})
             for field in fields
         )
+    if isinstance(schema, DataclassSchema):
+        identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return False
+        return any(
+            bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema, visiting | {identity})
+            for field in schema.fields
+        )
     if isinstance(schema, SequenceSchema):
         return schema_contains_sensitive_metadata(schema.item, visiting)
     if isinstance(schema, MappingSchema):
@@ -170,6 +186,11 @@ def schema_contains_tagged_union(
         if fields is None:
             return False
         return any(schema_contains_tagged_union(field.schema, visiting | {schema.spec_type}) for field in fields)
+    if isinstance(schema, DataclassSchema):
+        identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return False
+        return any(schema_contains_tagged_union(field.schema, visiting | {identity}) for field in schema.fields)
     if isinstance(schema, NamedReferenceSchema):
         if schema.identity in visiting:
             return False
@@ -207,6 +228,8 @@ def schema_contains_named_reference(schema: Schema) -> bool:
     if isinstance(schema, MappingSchema):
         return schema_contains_named_reference(schema.key) or schema_contains_named_reference(schema.value)
     if isinstance(schema, TypedDictSchema):
+        return any(schema_contains_named_reference(field.schema) for field in schema.fields)
+    if isinstance(schema, DataclassSchema):
         return any(schema_contains_named_reference(field.schema) for field in schema.fields)
     if isinstance(schema, TaggedUnionSchema):
         return any(schema_contains_named_reference(branch.schema) for branch in schema.branches)

@@ -149,9 +149,11 @@ class ReadOnly:
     """Classify a field or Contract as read-only boundary metadata.
 
     Introspection and framework or JSON Schema consumers can project the
-    normalized flag. It does not reject constructors, Mapping input, or JSON
-    input, and has no error-redaction or serialization effect. A local value
-    replaces inherited state; ``False`` explicitly clears the classification.
+    normalized flag. Ordinary Specs do not reject constructors, Mapping input,
+    or JSON input because of it, and it has no error-redaction or serialization
+    effect. An explicitly derived ``mode="input"`` Spec excludes fields whose
+    effective value is true. A local value replaces inherited state; ``False``
+    explicitly clears the classification.
     """
 
     enabled: bool = True
@@ -166,10 +168,11 @@ class WriteOnly:
     """Classify a field or Contract as write-only boundary metadata.
 
     Introspection and framework or JSON Schema consumers can project the
-    normalized flag. Talea does not omit write-only values from successful
-    serialization; output policy remains separate from sensitive error
-    redaction. A local value replaces inherited state, and ``False`` explicitly
-    clears the classification.
+    normalized flag. Ordinary Specs do not omit write-only values from
+    successful serialization; output policy remains separate from sensitive
+    error redaction. An explicitly derived ``mode="output"`` Spec excludes
+    fields whose effective value is true. A local value replaces inherited
+    state, and ``False`` explicitly clears the classification.
     """
 
     enabled: bool = True

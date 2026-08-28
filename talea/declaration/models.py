@@ -29,6 +29,7 @@ MISSING_DEFAULT: Final = _MissingDefault()
 
 type HookKind = Literal["transform", "check"]
 type DerivationSelection = Literal["all", "include", "exclude"]
+type DerivationMode = Literal["input", "output"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +39,8 @@ class SpecDerivation:
     ``retained_fields`` and ``omitted_fields`` use the source's effective
     canonical order.  ``partial`` records whether instances retain supplied-key
     presence; requiredness itself remains owned by each resulting ``SpecField``.
+    ``mode`` records declaration-time input/output selection without imposing
+    per-instance or operation-specific runtime policy.
     """
 
     source: type[object]
@@ -46,6 +49,7 @@ class SpecDerivation:
     selection: DerivationSelection
     partial: bool
     explicit_name: str | None = None
+    mode: DerivationMode | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -54,6 +54,19 @@ class Trade(Spec):
     executed_at: Annotated[datetime, Alias("executedAt")]
 
 
+class Counterparty(Spec):
+    legal_name: Annotated[str, Alias("legalName")]
+    lei: str
+    internal_rating: str
+
+
+class TradeReport(Spec):
+    trade: Trade
+    instrument: Instrument
+    counterparty: Counterparty
+    reconciliation_note: str
+
+
 order = Order.from_json(
     """{
       "orderId": "12345678-1234-5678-1234-567812345678",
@@ -94,6 +107,31 @@ trade = Trade(
 )
 assert trade.to_dict()["executedQuantity"] == Decimal("5.125")
 assert '"executedQuantity":"5.125"' in trade.to_json()
+report = TradeReport(
+    trade=trade,
+    instrument=order.instrument,
+    counterparty=Counterparty(
+        legal_name="Analytical Engines AG",
+        lei="529900EXAMPLE000001",
+        internal_rating="A",
+    ),
+    reconciliation_note="operator-only",
+)
+assert report.to_dict(
+    include={
+        "trade": {"trade_id": True, "executed_quantity": True, "executed_price": {"amount": True}},
+        "instrument": {"isin": True, "symbol": True},
+        "counterparty": {"legal_name": True, "lei": True},
+    }
+) == {
+    "trade": {
+        "tradeId": UUID("87654321-4321-8765-4321-876543218765"),
+        "executedQuantity": Decimal("5.125"),
+        "executedPrice": {"amount": Decimal("42.40")},
+    },
+    "instrument": {"isin": "CH0000000001", "symbol": "TALEA"},
+    "counterparty": {"legalName": "Analytical Engines AG", "lei": "529900EXAMPLE000001"},
+}
 order_schema = Order.json_schema()
 assert order_schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
 order_definitions = cast(dict[str, object], order_schema["$defs"])

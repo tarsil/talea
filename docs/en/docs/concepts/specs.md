@@ -120,8 +120,10 @@ Declaration is cold work and the specialized constructor is reused. Features
 that are absent from a Spec should impose approximately zero hot-path cost.
 Nested mutable data and used hooks necessarily add their direct validation work.
 
-Use a dataclass or attrs when you need a plain internal record and no Talea
-boundary behavior. Use Contract when the useful root is already a container,
-union, alias, TypedDict, or primitive. Use direct Python when the contract is a
-small specialized predicate. Spec is most useful when nominal immutable record
-behavior and multiple boundary operations belong together.
+Use a dataclass or attrs when you need a plain internal record. A stdlib
+dataclass can also use `Contract(DataclassType)` for Talea boundary behavior
+without becoming a Spec. Use Contract when the useful root is already a
+container, union, alias, TypedDict, dataclass, or primitive. Use direct Python
+when the contract is a small specialized predicate. Spec is most useful when
+nominal immutable record behavior and multiple boundary operations belong
+together.

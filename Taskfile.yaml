@@ -188,3 +188,8 @@ tasks:
     desc: Benchmarks boundary resource enforcement, adversarial scaling, and retention
     cmds:
       - hatch run test:benchmark_resources
+
+  benchmark_dataclasses:
+    desc: Benchmarks stdlib dataclass Contract interoperability and zero-tax canaries
+    cmds:
+      - hatch run test:benchmark_dataclasses

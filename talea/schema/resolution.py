@@ -1,8 +1,10 @@
 """Resolve Python annotations into compact canonical Talea schema values."""
 
+from dataclasses import MISSING, Field, InitVar, fields as dataclass_fields, is_dataclass
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
+from inspect import Parameter, getattr_static, signature
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -11,13 +13,16 @@ from ipaddress import (
     IPv6Interface,
     IPv6Network,
 )
+from opcode import opmap
 from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
-from types import GenericAlias, NoneType, UnionType
+from types import FunctionType, GenericAlias, MemberDescriptorType, NoneType, UnionType
 from typing import (
     Annotated,
+    ClassVar,
     Literal,
     NewType,
     NotRequired,
+    Protocol,
     ReadOnly,
     Required,
     TypeAliasType,
@@ -32,11 +37,20 @@ from typing import (
 from uuid import UUID
 
 from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
+from talea.declaration.metadata import Alias
 from talea.declaration.models import SerializationHook, SpecField, SpecSchema
-from talea.metadata import annotation_metadata
+from talea.metadata import (
+    EMPTY_METADATA,
+    DeclarationMetadata,
+    annotation_metadata,
+    normalize_metadata,
+)
 from talea.schema.nodes import (
+    DATACLASS_MISSING,
     AliasSchema,
     ConstrainedSchema,
+    DataclassField,
+    DataclassSchema,
     EnumSchema,
     FixedTupleSchema,
     LiteralSchema,
@@ -66,6 +80,7 @@ __all__ = [
 ]
 
 _CONSTRAINT_TYPES = (Gt, Ge, Lt, Le, MultipleOf, MinLength, MaxLength, Pattern)
+_ABSENT_ATTRIBUTE = object()
 _EXACT_STANDARD_TYPES = frozenset(
     {
         date,
@@ -92,6 +107,19 @@ _NOMINAL_STANDARD_TYPES = frozenset(
         WindowsPath,
     }
 )
+
+
+class _DataclassParams(Protocol):
+    """Static view of the stdlib dataclass options consumed by resolution."""
+
+    frozen: bool
+
+
+class _DataclassInstance(Protocol):
+    """Static bridge for a runtime type proven by ``is_dataclass``."""
+
+    __dataclass_fields__: ClassVar[dict[str, Field[object]]]
+    __dataclass_params__: ClassVar[_DataclassParams]
 
 
 class AnnotationResolutionError(TypeError):
@@ -171,8 +199,15 @@ def _resolve_annotation(
         if getattr(annotation, "__talea_spec__", False) is True and "__talea_declaration__" in vars(annotation):
             return SpecReferenceSchema(annotation)
 
+    dataclass_type = annotation if isinstance(annotation, type) and is_dataclass(annotation) else None
+
     origin = get_origin(annotation)
     arguments = get_args(annotation)
+
+    if dataclass_type is not None:
+        return _resolve_dataclass(dataclass_type, arguments, targets)
+    if isinstance(origin, type) and is_dataclass(origin):
+        return _resolve_dataclass(origin, arguments, targets)
 
     if isinstance(annotation, TypeAliasType):
         return _resolve_alias(annotation, (), targets)
@@ -322,6 +357,206 @@ def _resolve_typed_dict(
     except BaseException:
         targets.pop(identity, None)
         raise
+
+
+def _resolve_dataclass(
+    dataclass_type: type[object],
+    arguments: tuple[object, ...],
+    targets: dict[NamedSchemaIdentity, _NamedSchemaTarget],
+) -> Schema:
+    """Resolve one stdlib dataclass through its effective stored fields."""
+
+    parameters = tuple(getattr(dataclass_type, "__type_params__", ()))
+    if len(parameters) != len(arguments):
+        raise AnnotationResolutionError(dataclass_type)
+    identity = NamedSchemaIdentity(
+        "dataclass",
+        dataclass_type.__name__,
+        dataclass_type.__module__,
+        dataclass_type,
+        arguments,
+    )
+    target = targets.get(identity)
+    if target is not None:
+        return target.schema if target.finalized else NamedReferenceSchema(target.identity, target)
+
+    declared_type = cast(type[_DataclassInstance], dataclass_type)
+    declared_fields = cast(tuple[Field[object], ...], dataclass_fields(declared_type))
+    hints = get_type_hints(dataclass_type, include_extras=True)
+    if any(isinstance(annotation, InitVar) for annotation in hints.values()):
+        raise TypeError(f"dataclass {dataclass_type.__qualname__!r} contains unsupported InitVar fields")
+    _validate_dataclass_constructor(dataclass_type, declared_fields)
+    target = _NamedSchemaTarget(identity)
+    targets[identity] = target
+    substitutions = dict(zip(parameters, arguments, strict=True))
+    params = declared_type.__dataclass_params__
+    try:
+        resolved_fields = []
+        for declared in declared_fields:
+            annotation = hints[declared.name]
+            if substitutions:
+                annotation = _substitute_alias(annotation, substitutions)
+            alias, metadata = _dataclass_field_metadata(annotation)
+            kw_only = cast(bool, declared.kw_only)
+            resolved_fields.append(
+                DataclassField(
+                    declared.name,
+                    _resolve_annotation(annotation, targets),
+                    declared.init,
+                    kw_only,
+                    DATACLASS_MISSING if declared.default is MISSING else declared.default,
+                    DATACLASS_MISSING if declared.default_factory is MISSING else declared.default_factory,
+                    alias,
+                    metadata,
+                )
+            )
+        resolved = DataclassSchema(
+            dataclass_type,
+            tuple(resolved_fields),
+            params.frozen,
+            identity,
+            _dataclass_constructor_preserves_validated_fields(
+                dataclass_type,
+                declared_fields,
+                params.frozen,
+            ),
+        )
+        target.finalize(resolved)
+        return resolved
+    except BaseException:
+        targets.pop(identity, None)
+        raise
+
+
+def _validate_dataclass_constructor(
+    dataclass_type: type[object],
+    fields: tuple[Field[object], ...],
+) -> None:
+    """Reject constructors that cannot implement canonical named field input."""
+
+    parameters = signature(dataclass_type).parameters
+    init_fields = tuple(field for field in fields if field.init)
+    expected_names = frozenset(field.name for field in init_fields)
+    if frozenset(parameters) != expected_names:
+        raise TypeError(f"dataclass {dataclass_type.__qualname__!r} has an incompatible constructor signature")
+    for field in init_fields:
+        parameter = parameters[field.name]
+        expected_kind = Parameter.KEYWORD_ONLY if field.kw_only else Parameter.POSITIONAL_OR_KEYWORD
+        has_default = field.default is not MISSING or field.default_factory is not MISSING
+        if parameter.kind is not expected_kind or (parameter.default is not Parameter.empty) is not has_default:
+            raise TypeError(f"dataclass {dataclass_type.__qualname__!r} has an incompatible constructor signature")
+
+
+def _dataclass_constructor_preserves_validated_fields(
+    dataclass_type: type[object],
+    fields: tuple[Field[object], ...],
+    frozen: bool,
+) -> bool:
+    """Prove that construction only stores already-validated required fields."""
+
+    if any(not field.init or field.default is not MISSING or field.default_factory is not MISSING for field in fields):
+        return False
+    initializer = dataclass_type.__init__
+    if not isinstance(initializer, FunctionType) or initializer.__code__.co_filename != "<string>":
+        return False
+    if dataclass_type.__new__ is not object.__new__ or type(dataclass_type).__call__ is not type.__call__:
+        return False
+    if dataclass_type.__getattribute__ is not object.__getattribute__:
+        return False
+    if not frozen and dataclass_type.__setattr__ is not object.__setattr__:
+        return False
+    for item in fields:
+        storage = getattr_static(dataclass_type, item.name, _ABSENT_ATTRIBUTE)
+        if storage is not _ABSENT_ATTRIBUTE and not isinstance(storage, MemberDescriptorType):
+            return False
+    return _matches_direct_dataclass_initializer(initializer, fields, frozen)
+
+
+def _matches_direct_dataclass_initializer(
+    initializer: FunctionType,
+    fields: tuple[Field[object], ...],
+    frozen: bool,
+) -> bool:
+    """Match the Python 3.14 dataclass initializer's direct-storage bytecode."""
+
+    code = initializer.__code__
+    cache = opmap["CACHE"]
+    instructions = tuple(
+        (code.co_code[offset], code.co_code[offset + 1])
+        for offset in range(0, len(code.co_code), 2)
+        if code.co_code[offset] != cache
+    )
+    index = 0
+
+    def consume(opname: str, argument: int) -> bool:
+        nonlocal index
+        if index == len(instructions):
+            return False
+        if instructions[index] != (opmap[opname], argument):
+            return False
+        index += 1
+        return True
+
+    if frozen:
+        if code.co_freevars != ("__dataclass_builtins_object__",) or code.co_names != ("__setattr__",):
+            return False
+        closure = initializer.__closure__
+        if closure is None or len(closure) != 1 or closure[0].cell_contents is not object:
+            return False
+        try:
+            none_constant = code.co_consts.index(None)
+        except ValueError:
+            return False
+        if not consume("COPY_FREE_VARS", 1):
+            return False
+    else:
+        if code.co_freevars or code.co_names != tuple(item.name for item in fields) or code.co_consts != (None,):
+            return False
+    if not consume("RESUME", 0):
+        return False
+    for item in fields:
+        try:
+            field_local = code.co_varnames.index(item.name)
+        except ValueError:
+            return False
+        if frozen:
+            try:
+                field_constant = code.co_consts.index(item.name)
+            except ValueError:
+                return False
+            matched = (
+                consume("LOAD_DEREF", code.co_nlocals)
+                and consume("LOAD_ATTR", 1)
+                and consume("LOAD_FAST_BORROW", 0)
+                and consume("LOAD_CONST", field_constant)
+                and consume("LOAD_FAST_BORROW", field_local)
+                and consume("CALL", 3)
+                and consume("POP_TOP", 0)
+            )
+        else:
+            if field_local > 15:
+                return False
+            matched = consume(
+                "LOAD_FAST_BORROW_LOAD_FAST_BORROW",
+                field_local << 4,
+            ) and consume("STORE_ATTR", code.co_names.index(item.name))
+        if not matched:
+            return False
+    if frozen:
+        return consume("LOAD_CONST", none_constant) and consume("RETURN_VALUE", 0) and index == len(instructions)
+    return consume("LOAD_CONST", 0) and consume("RETURN_VALUE", 0) and index == len(instructions)
+
+
+def _dataclass_field_metadata(annotation: object) -> tuple[str | None, DeclarationMetadata]:
+    """Extract Talea annotation metadata without reading dataclass metadata."""
+
+    if get_origin(annotation) is not Annotated:
+        return None, EMPTY_METADATA
+    extras = get_args(annotation)[1:]
+    aliases = tuple(item for item in extras if isinstance(item, Alias))
+    if len(aliases) > 1:
+        raise TypeError("a dataclass field can declare only one Alias")
+    return (aliases[0].name if aliases else None), normalize_metadata(extras)
 
 
 def _unwrap_typed_dict_qualifiers(

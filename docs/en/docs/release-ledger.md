@@ -1,16 +1,18 @@
 # Version, maturity, and support
 
-Talea is currently version 0.1.0 and remains pre-1.0. The implemented runtime is
-substantial, but compatibility, deprecation windows, long-term support, and
-formal vulnerability-reporting governance are not yet frozen.
+Talea is currently version 0.2.0 and deliberately remains in the 0.x release
+series. The implemented runtime is substantial, but compatibility, deprecation
+windows, long-term support, and formal vulnerability-reporting governance are
+not yet frozen. The 0.x series is an ongoing product stage, not an indication
+that a 1.0 compatibility freeze is imminent.
 
 ## Implemented product surface
 
 The release includes Specs, Contracts, strict validation, constraints,
 standard-library types, defaults/factories, inheritance, recursive and generic
-types, TypedDict and PEP 695 aliases, tagged unions, Mapping/JSON input,
+types, stdlib dataclass Contracts, TypedDict and PEP 695 aliases, tagged unions, Mapping/JSON input,
 serialization, structured errors, metadata and redaction, presence-aware
-derived/PATCH Specs, introspection, dynamic creation, JSON Schema Draft 2020-12,
+derived/PATCH Specs, explicit input/output derived views, introspection, dynamic creation, JSON Schema Draft 2020-12,
 OpenAPI 3.1-compatible projection, and finite external-input resource policies.
 
 ## Deliberate boundaries
@@ -18,8 +20,11 @@ OpenAPI 3.1-compatible projection, and finite external-input resource policies.
 | Capability | Current disposition |
 | --- | --- |
 | callable argument/return validation | Not implemented; requires signature, descriptor, async, and typing policy |
-| automatic runtime ReadOnly/WriteOnly enforcement | Not implemented; metadata and schema projection are available |
-| dataclass, NamedTuple, and ordinary-class mapping | Not implemented; core is not an object mapper |
+| explicit ReadOnly/WriteOnly input/output Spec views | Implemented through declaration-time `derive_spec(mode=...)` selection |
+| nested runtime output projection | Implemented through finite canonical-name include/exclude trees on `Spec.to_dict()` and `Spec.to_json()`; schema/OpenAPI remain unchanged |
+| automatic runtime ReadOnly/WriteOnly enforcement | Deliberately absent; ordinary source-Spec behavior remains unchanged |
+| NamedTuple and ordinary-class mapping | Not implemented; core is not a general object mapper |
+| stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |
 | settings/environment loading | Separate integration or package, not core |
 | streaming batches and JSONL | Not implemented; materialized batches use `Contract(list[T])` |
 | arbitrary annotation callbacks | Not implemented; transforms/checks own custom validation |

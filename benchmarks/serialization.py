@@ -17,18 +17,21 @@ from functools import partial
 from statistics import median
 from time import perf_counter_ns
 from timeit import Timer
-from types import MethodType
-from typing import Annotated, cast
+from types import FunctionType, MethodType
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
-from talea import Alias, Spec, serialize
+from talea import Alias, Discriminator, Spec, serialize
+from talea.serialization.compilation import compile_selected_serialization
 from talea.serialization.json import _default_dumps
+from talea.serialization.selection import SerializationSelection, normalize_selection
 
 _REPEATS = 7
 _SUCCESS_ITERATIONS = 50_000
 _DECLARATION_ITERATIONS = 500
 _FIRST_USE_SAMPLES = 100
 _ALLOCATION_SAMPLES = 500
+_SELECTION_ITERATIONS = 2_000
 
 type Operation = Callable[[], object]
 
@@ -158,6 +161,85 @@ class Aliased(Spec):
     name: str
 
 
+class ProjectionAddress(Spec):
+    city: str
+    country: str
+    internal_code: str
+
+
+class ProjectionProfile(Spec):
+    name: str
+    address: ProjectionAddress
+    internal_note: str
+
+
+class ProjectionAccount(Spec):
+    identifier: int
+    profile: ProjectionProfile
+    audit: str
+
+
+class ProjectionCollection(Spec):
+    members: list[ProjectionProfile]
+    indexed: dict[str, ProjectionProfile]
+
+
+class ProjectionPerson(Spec):
+    name: str
+    email: str
+
+
+class ProjectionAdmin(Spec):
+    name: str
+    level: int
+
+
+class ProjectionUnion(Spec):
+    subject: ProjectionPerson | ProjectionAdmin
+
+
+class ProjectionCard(Spec):
+    kind: Literal["card"]
+    number: str
+
+
+class ProjectionBank(Spec):
+    kind: Literal["bank"]
+    iban: str
+
+
+type ProjectionPayment = Annotated[ProjectionCard | ProjectionBank, Discriminator("kind")]
+
+
+class ProjectionTagged(Spec):
+    payment: ProjectionPayment
+
+
+class ProjectionDepth5(Spec):
+    value: int
+    sibling: int
+
+
+class ProjectionDepth4(Spec):
+    child: ProjectionDepth5
+    sibling: int
+
+
+class ProjectionDepth3(Spec):
+    child: ProjectionDepth4
+    sibling: int
+
+
+class ProjectionDepth2(Spec):
+    child: ProjectionDepth3
+    sibling: int
+
+
+class ProjectionDepth1(Spec):
+    child: ProjectionDepth2
+    sibling: int
+
+
 NESTED = Nested(identifier=1, address=Address(city="Zurich", postcode="8001"))
 CONTAINER = Container(values=[1, 2, 3], pair=(1, 2, 3))
 STANDARD = Standard(
@@ -168,6 +250,44 @@ STANDARD = Standard(
 INHERITED = Inherited(identifier=1, name="Ada", active=True)
 HOOKED = Hooked(value=1)
 ALIASED = Aliased(identifier=1, name="Ada")
+PROJECTION_PROFILE = ProjectionProfile(
+    name="Ada",
+    address=ProjectionAddress(city="Zurich", country="CH", internal_code="8001"),
+    internal_note="private",
+)
+PROJECTION_ACCOUNT = ProjectionAccount(
+    identifier=1,
+    profile=PROJECTION_PROFILE,
+    audit="internal",
+)
+PROJECTION_COLLECTION = ProjectionCollection(
+    members=[PROJECTION_PROFILE, PROJECTION_PROFILE],
+    indexed={"first": PROJECTION_PROFILE, "second": PROJECTION_PROFILE},
+)
+PROJECTION_UNION = ProjectionUnion(subject=ProjectionAdmin(name="Ada", level=3))
+PROJECTION_TAGGED = ProjectionTagged(payment=ProjectionCard(kind="card", number="4111"))
+PROJECTION_DEEP = ProjectionDepth1(
+    child=ProjectionDepth2(
+        child=ProjectionDepth3(
+            child=ProjectionDepth4(child=ProjectionDepth5(value=1, sibling=2), sibling=2),
+            sibling=2,
+        ),
+        sibling=2,
+    ),
+    sibling=2,
+)
+NESTED_INCLUDE_1: SerializationSelection = {"profile": {"name": True}}
+NESTED_INCLUDE_3: SerializationSelection = {"profile": {"address": {"city": True}}}
+NESTED_EXCLUDE_1: SerializationSelection = {"profile": {"internal_note": True}}
+NESTED_EXCLUDE_3: SerializationSelection = {"profile": {"address": {"internal_code": True}}}
+NESTED_INCLUDE_5: SerializationSelection = {"child": {"child": {"child": {"child": {"value": True}}}}}
+NESTED_EXCLUDE_5: SerializationSelection = {"child": {"child": {"child": {"child": {"sibling": True}}}}}
+
+
+def project_account(value: ProjectionAccount) -> dict[str, object]:
+    """Project the equivalent nested response shape directly by hand."""
+
+    return {"profile": {"address": {"city": value.profile.address.city}}}
 
 
 def measure_first_use(mode: str) -> Measurement:
@@ -219,6 +339,78 @@ def benchmark_python_projection() -> None:
     )
     for name, operation in cases:
         print_measurement(name, "talea", measure(operation))
+
+
+def benchmark_nested_selection() -> None:
+    """Measure operation-local normalization and direct nested projection."""
+
+    schema = vars(ProjectionAccount)["__talea_artifacts__"].schema
+    collection_include: SerializationSelection = {"members": {"name": True}}
+    mapping_include: SerializationSelection = {"indexed": {"address": {"city": True}}}
+    union_include: SerializationSelection = {"subject": {"name": True, "email": True, "level": True}}
+    tagged_include: SerializationSelection = {"payment": {"kind": True, "number": True, "iban": True}}
+    print(f"Nested selection ({_REPEATS} samples x {_SELECTION_ITERATIONS:,} operations)")
+    cases: tuple[tuple[str, Operation], ...] = (
+        ("nested include depth 1", partial(PROJECTION_ACCOUNT.to_dict, include=NESTED_INCLUDE_1)),
+        ("nested include depth 3", partial(PROJECTION_ACCOUNT.to_dict, include=NESTED_INCLUDE_3)),
+        ("nested include depth 5", partial(PROJECTION_DEEP.to_dict, include=NESTED_INCLUDE_5)),
+        ("nested exclude depth 1", partial(PROJECTION_ACCOUNT.to_dict, exclude=NESTED_EXCLUDE_1)),
+        ("nested exclude depth 3", partial(PROJECTION_ACCOUNT.to_dict, exclude=NESTED_EXCLUDE_3)),
+        ("nested exclude depth 5", partial(PROJECTION_DEEP.to_dict, exclude=NESTED_EXCLUDE_5)),
+        ("list[Spec] selection", partial(PROJECTION_COLLECTION.to_dict, include=collection_include)),
+        ("dict[str, Spec] selection", partial(PROJECTION_COLLECTION.to_dict, include=mapping_include)),
+        ("ordinary union selection", partial(PROJECTION_UNION.to_dict, include=union_include)),
+        ("tagged union selection", partial(PROJECTION_TAGGED.to_dict, include=tagged_include)),
+        ("normalization only", partial(normalize_selection, NESTED_INCLUDE_3, schema, "include")),
+        ("repeated equivalent selection", partial(PROJECTION_ACCOUNT.to_dict, include=NESTED_INCLUDE_3)),
+    )
+    for name, operation in cases:
+        print_measurement(name, "talea", measure(operation, _SELECTION_ITERATIONS))
+    print_measurement(
+        "nested include depth 3",
+        "handwritten",
+        measure(partial(project_account, PROJECTION_ACCOUNT), _SELECTION_ITERATIONS),
+    )
+
+    normalized = normalize_selection(NESTED_INCLUDE_3, schema, "include")
+    assert normalized is not None
+    print_measurement(
+        "selection compile miss",
+        "compile direct",
+        measure(
+            partial(
+                compile_selected_serialization,
+                schema,
+                "python",
+                True,
+                normalized,
+                None,
+                False,
+            ),
+            _DECLARATION_ITERATIONS,
+        ),
+    )
+
+    broad_type = make_spec(100)
+    broad_parent = cast(type[Spec], type("BroadProjection", (Spec,), {"__annotations__": {"child": broad_type}}))
+    broad = broad_parent.from_mapping({"child": broad_type(**values(100))})
+    broad_selection: SerializationSelection = {"child": dict.fromkeys(names(100), True)}
+    print_measurement(
+        "nested broad 100 fields",
+        "talea",
+        measure(partial(broad.to_dict, include=broad_selection), _SELECTION_ITERATIONS),
+    )
+
+    variants = vars(ProjectionAccount)["__talea_artifacts__"].outputs.variants
+    assert variants is not None
+    selected = tuple(value for key, value in variants.items() if key and key[0] == "selected")
+    selected_bytes = sys.getsizeof(variants) + sum(
+        sys.getsizeof(value) + sys.getsizeof(cast(FunctionType, value).__globals__) for value in selected
+    )
+    print(
+        "Selected cache retained shallow memory "
+        f"entries={len(selected)}/32 bytes={selected_bytes} policy=per-class FIFO"
+    )
 
 
 def benchmark_json_projection() -> None:
@@ -282,7 +474,9 @@ def benchmark_costs() -> None:
     for name, operation in (
         ("five-field to_dict", allocation_python.to_dict),
         ("nested to_dict", NESTED.to_dict),
+        ("selected nested to_dict", partial(PROJECTION_ACCOUNT.to_dict, include=NESTED_INCLUDE_3)),
         ("five-field to_json", allocation_json.to_json),
+        ("selected nested to_json", partial(PROJECTION_ACCOUNT.to_json, include=NESTED_INCLUDE_3)),
     ):
         result = measure_allocations(operation)
         print(f"{name:34} retained={result.retained:5} B peak={result.peak:5} B")
@@ -307,6 +501,7 @@ def main() -> None:
     """Run all Campaign 10 serialization benchmark families."""
 
     benchmark_python_projection()
+    benchmark_nested_selection()
     benchmark_json_projection()
     benchmark_costs()
 

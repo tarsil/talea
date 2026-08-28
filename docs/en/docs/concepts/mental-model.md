@@ -33,6 +33,13 @@ runtime responsibilities because their semantics differ.
 This separation explains why a string UUID fails strict construction but is a
 valid documented representation at a JSON boundary.
 
+Nested `include`/`exclude` is an operation-local output projection policy. It
+chooses canonical fields from the already-declared shape; it does not create a
+new contract, mutate schema truth, reinterpret annotations, authorize access,
+or query runtime objects. Finite selectors compile through the serialization
+owner, while JSON Schema, OpenAPI, and introspection continue to describe the
+complete declared class.
+
 ## Compile once, reuse
 
 Declaration work happens before the repeated hot path. Talea emits

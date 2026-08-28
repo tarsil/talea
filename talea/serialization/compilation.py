@@ -7,6 +7,7 @@ from typing import cast
 from talea.codegen import _GeneratedNames
 from talea.declaration.models import SerializationHook, SpecField, SpecSchema
 from talea.serialization.emission import OutputMode, _ValueProjectionCompiler, project_hook_value
+from talea.serialization.selection import _Selection
 
 type SpecSerializer = Callable[[object], dict[str, object]]
 type FilteredSpecSerializer = Callable[
@@ -108,6 +109,50 @@ class _SerializationCompiler:
             function.__dict__["__wrapped__"] = to_dict_fallback
         return function
 
+    def compile_selected(
+        self,
+        schema: SpecSchema,
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
+    ) -> FunctionType:
+        """Return one direct serializer specialized to a nested selection."""
+
+        names = _GeneratedNames(("instance",))
+        namespace: dict[str, object] = {"__name__": __name__}
+        lines = ["def serialize(instance):", "    result = {}"]
+        hook_by_field = {hook.field: hook for hook in schema.serializers}
+        compiler = _ValueProjectionCompiler(self.mode, self.by_alias)
+        for index, field, child_include, child_exclude in _selected_fields(schema.fields, include, exclude):
+            key = field.external_name if self.by_alias else field.name
+            value = f"instance.{field.name}"
+            conditions = []
+            if schema.presence_aware:
+                conditions.append(f"instance.__talea_presence__ & {1 << index}")
+            if exclude_none:
+                conditions.append(f"{value} is not None")
+            indent = "    "
+            if conditions:
+                lines.append(f"    if {' and '.join(conditions)}:")
+                indent = "        "
+            expression = self._field_expression(
+                field,
+                key,
+                hook_by_field,
+                compiler,
+                names,
+                namespace,
+                include=child_include,
+                exclude=child_exclude,
+                exclude_none=exclude_none and (child_include is not None or child_exclude is not None),
+            )
+            lines.append(f"{indent}result[{key!r}] = {expression}")
+        lines.append("    return result")
+        exec(compile("\n".join(lines), f"<talea selected {self.mode} Spec serialization>", "exec"), namespace)
+        function = cast(FunctionType, namespace["serialize"])
+        function.__doc__ = f"Project one Spec to its selected compiled {self.mode} representation."
+        return function
+
     def _field_expression(
         self,
         field: SpecField,
@@ -116,6 +161,10 @@ class _SerializationCompiler:
         compiler: _ValueProjectionCompiler,
         names: _GeneratedNames,
         namespace: dict[str, object],
+        *,
+        include: _Selection | None = None,
+        exclude: _Selection | None = None,
+        exclude_none: bool = False,
     ) -> str:
         """Emit one retained field projection for either storage policy."""
 
@@ -130,6 +179,9 @@ class _SerializationCompiler:
                 names,
                 namespace,
                 sensitive=bool(field.metadata.sensitive),
+                include=include,
+                exclude=exclude,
+                exclude_none=exclude_none,
             )
         projector = self._bind(names, namespace, "project_hook", project_hook_value)
         function = self._bind(names, namespace, "serialization_hook", hook.function)
@@ -161,3 +213,42 @@ def compile_plain_to_dict(
     """Compile the public no-option Python path with generic option fallback."""
 
     return _SerializationCompiler("python", True, False).compile(schema, fallback)
+
+
+def compile_selected_serialization(
+    schema: SpecSchema,
+    mode: OutputMode,
+    by_alias: bool,
+    include: _Selection | None,
+    exclude: _Selection | None,
+    exclude_none: bool,
+) -> SpecSerializer:
+    """Compile one nested selection for bounded retention by its Spec artifacts."""
+
+    return _SerializationCompiler(mode, by_alias, False).compile_selected(
+        schema,
+        include,
+        exclude,
+        exclude_none,
+    )
+
+
+def _selected_fields(
+    fields: tuple[SpecField, ...],
+    include: _Selection | None,
+    exclude: _Selection | None,
+) -> tuple[tuple[int, SpecField, _Selection | None, _Selection | None], ...]:
+    """Resolve compile-time field and descendant selection with exclusion precedence."""
+
+    include_by_name = None if include is None else dict(include.entries)
+    exclude_by_name = None if exclude is None else dict(exclude.entries)
+    selected = []
+    for index, field in enumerate(fields):
+        if include_by_name is not None and field.name not in include_by_name:
+            continue
+        if exclude_by_name is not None and field.name in exclude_by_name and exclude_by_name[field.name] is None:
+            continue
+        child_include = None if include_by_name is None else include_by_name.get(field.name)
+        child_exclude = None if exclude_by_name is None else exclude_by_name.get(field.name)
+        selected.append((index, field, child_include, child_exclude))
+    return tuple(selected)

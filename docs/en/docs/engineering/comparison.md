@@ -5,9 +5,10 @@ library wins a universal ranking.
 
 | Option | Best fit | Validation/conversion | Runtime footprint | Schemas/JSON | Maturity |
 | --- | --- | --- | --- | --- | --- |
-| dataclasses | typed Python storage | none unless written separately | standard library | manual | standard and mature |
+| dataclasses alone | typed Python storage | none unless written separately | standard library | manual | standard and mature |
+| dataclass + Talea Contract | stdlib domain record with explicit boundaries | exact current state; Mapping/JSON construction | pure Python, zero required runtime dependencies | built in | Talea 0.x; evolving API |
 | TypedDict | static dictionary shapes | static only | standard library | manual | standard and mature |
-| Talea | strict contracts with explicit external boundaries | strict Python; schema-aware Mapping/JSON conversion | pure Python, zero required runtime dependencies | built in | pre-1.0, smaller ecosystem |
+| Talea | strict contracts with explicit external boundaries | strict Python; schema-aware Mapping/JSON conversion | pure Python, zero required runtime dependencies | built in | 0.x, smaller ecosystem |
 | Pydantic | broad validation/coercion ecosystem and integrations | configurable; coercive by default with strict modes | Python plus `pydantic-core` | built in | large mature ecosystem |
 | msgspec | high-throughput serialization and structured decoding | library-specific strict/conversion semantics | native extension | built in | mature focused ecosystem |
 | manually written Python | narrow bespoke hot path or unusual semantics | exactly what is implemented | no framework dependency | manual | maintenance owned by application |
@@ -79,8 +80,9 @@ class User:
             raise TypeError("invalid User")
 ```
 
-The dataclass owns record mechanics; the application still owns boundary
-conversion, structured errors, JSON, and schemas.
+The dataclass owns record mechanics. When those boundaries are needed without
+rewriting the domain type, `Contract(User)` can own conversion, structured
+errors, JSON, and schemas while preserving this class and its lifecycle.
 
 ### Pydantic
 

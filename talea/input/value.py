@@ -48,7 +48,7 @@ def compile_value_input(
         trusted_instances=trusted,
         resource_state=state,
     )
-    emitter.emit_schema(schema, "value", (), 1, sensitive=sensitive)
+    emitter.emit_root_schema(schema, "value", (), 1, sensitive=sensitive)
     emitter.emit(1, "return value")
     exec(compile("\n".join(lines), f"<talea {mode} value input>", "exec"), namespace)
     compiled = cast(ValueInput, namespace["convert"])

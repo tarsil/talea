@@ -127,9 +127,16 @@ For ordinary Specs:
   omit absent fields;
 - TypedDict requiredness is identical in both modes and comes from its
   canonical `total`, `Required`, and `NotRequired` truth.
+- dataclass input contains only `init=True` constructor fields, while output
+  contains every stored field; `init=False` output properties are required and
+  marked `readOnly`.
 
-`ReadOnly` and `WriteOnly` remain annotations in both modes. Talea does not use
-them to change runtime input or output behavior.
+For an ordinary source Spec, `ReadOnly` and `WriteOnly` remain annotations in
+both schema modes and do not change runtime input or output behavior. An
+explicit `derive_spec(..., mode="input" | "output")` first changes which fields
+exist in the derived class. Schema mode then projects that existing shape and
+never restores a directionally omitted source field. These are independent
+dimensions despite sharing the input/output vocabulary.
 
 ### Callback-defined domains
 
@@ -155,7 +162,8 @@ Spec schemas use the canonical external field name. An `Alias` replaces the
 Python attribute name in `properties`, `required`, nested paths, and
 discriminator `propertyName`. Talea does not emit both names.
 
-Spec and TypedDict boundaries reject unknown keys, so their schemas use:
+Spec, TypedDict, and dataclass boundaries reject unknown keys, so their schemas
+use:
 
 ```json
 {"additionalProperties": false}
@@ -173,9 +181,10 @@ that JSON object keys have a Python representation they cannot have.
 ## Defaults and metadata
 
 A validated static default is emitted as `default` only when Talea can project
-it to JSON without executing an application callback. Default factories are
-never called during schema generation because a factory does not declare one
-stable default value.
+it to JSON without executing an application callback. Dataclass static defaults
+are checked before projection because the stdlib constructor itself is not a
+validation owner. Default factories are never called during schema generation
+because a factory does not declare one stable default value.
 
 Sensitive defaults are omitted. A static default is also omitted when its
 nested graph contains sensitive metadata or a serializer callback. This
@@ -190,8 +199,8 @@ Canonical metadata maps as follows:
 | `Description` | `description` | Normalized precedence is already resolved |
 | `Examples` | `examples` | Fresh JSON-compatible arrays and objects |
 | `Deprecated` | `deprecated` | Boolean annotation |
-| `ReadOnly` | `readOnly` | Annotation only |
-| `WriteOnly` | `writeOnly` | Annotation only |
+| `ReadOnly` | `readOnly` | Annotation on retained fields; input derivation can omit the field |
+| `WriteOnly` | `writeOnly` | Annotation on retained fields; output derivation can omit the field |
 | `Sensitive` | omitted | No public security-classification extension |
 
 Talea does not invent `x-sensitive`. Titles, descriptions, examples, aliases,

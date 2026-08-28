@@ -55,7 +55,7 @@ memory, and allocations. Comparisons call out semantic differences. See
 
 ## Maturity and support
 
-The current version is pre-1.0. Public behavior is tested with enforced 100%
+The current version is in Talea's ongoing 0.x series. Public behavior is tested with enforced 100%
 line coverage and static typing gates in the repository, but 1.0 compatibility
 and support governance are not yet frozen. No compliance certification,
 service-level agreement, or bank approval is claimed.

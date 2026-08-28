@@ -94,7 +94,8 @@ including nested list and mapping segments.
 Unknown-tag error projection includes `discriminator` and `expected_tags` as
 machine-readable fields. If any branch marks the discriminator `Sensitive`,
 tag failures redact the discriminator identity, received input, and expected
-tag set. `ReadOnly` and `WriteOnly` remain metadata only.
+tag set. A directional derivation of the containing Spec may omit the entire
+tagged field based on that field's metadata, but it does not rewrite branches.
 
 ## TypedDict, recursion, and introspection
 

@@ -18,7 +18,10 @@ except ValidationError as error:
     return invalid_request(error.errors())
 ```
 
-Do application work only after conversion succeeds, then construct an explicit
+When one source Spec carries read/write metadata, derive the request and
+response shapes once with `derive_spec(..., mode="input")` and
+`derive_spec(..., mode="output")`; normal source behavior remains unchanged.
+Do application work only after conversion succeeds, then construct the explicit
 response Spec and call `to_json()`. The [production service
 boundary](../getting-started/production-service.md) owns a complete asserted
 account flow with nested address/credentials, aliases, constraints, redaction,
@@ -26,10 +29,10 @@ invalid input, oversized transport, output, and OpenAPI fragments.
 
 ## Apply a REST PATCH
 
-Derive the update contract once, normally excluding server-owned fields:
+Derive the update contract once from the writable/input direction:
 
 ```python
-UserPatch = derive_spec(User, exclude=("user_id",), partial=True)
+UserPatch = derive_spec(User, mode="input", partial=True)
 patch = UserPatch.from_json(body)
 updated = apply_patch(existing, patch)
 ```
@@ -49,6 +52,32 @@ The [tagged event guide](../tagged-unions.md#production-event-stream) owns four
 real event branches, generic envelopes, UUID/datetime/Decimal representations,
 Sensitive data, invalid and nested failures, JSON output, JSON Schema, and
 OpenAPI. Keep untagged unions when no genuine protocol tag exists.
+
+## Shape a nested API or event response
+
+Use the existing output methods with canonical-name mappings when an endpoint
+needs a finite subset of nested data:
+
+```python
+body = account.to_json(
+    include={
+        "account_id": True,
+        "profile": {
+            "display_name": True,
+            "address": {"city": True},
+            "permissions": {"code": True},
+        },
+    }
+)
+```
+
+The [production service example](../getting-started/production-service.md)
+executes account/profile/address/permission shaping. The [event
+example](../tagged-unions.md#production-event-stream) projects an envelope,
+actor, and tagged payload while retaining its discriminator. The [finance
+example](../supported-types.md#financial-composition-example) projects a trade,
+instrument, and counterparty. Selectors use canonical names even when these
+examples emit aliases. They are output policy, not authorization policy.
 
 ## Validate a TypedDict or arbitrary root
 

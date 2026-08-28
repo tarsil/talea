@@ -137,8 +137,9 @@ direct, and supports Python-native `copy.replace()` for controlled updates.
 Talea does not pretend nested mutable lists or dictionaries are deeply frozen;
 their current state is revalidated at later contract boundaries.
 
-Use a dataclass or another record type when mutation is central and boundary
-validation is not needed.
+Use a dataclass or another record type when mutation is central. If that
+dataclass later needs Talea boundary validation without changing its domain
+representation, retain it through `Contract(DataclassType)`.
 
 ## Why Contract?
 
@@ -237,8 +238,8 @@ manually written validation. Different systems need different tradeoffs.
 - msgspec has an extremely fast native implementation, mature serialization,
   and different representation and performance tradeoffs. Its supported
   workflow may already be the ideal fit.
-- dataclasses and attrs are excellent when typed records are sufficient and a
-  full boundary contract would add unnecessary machinery.
+- dataclasses and attrs are excellent when typed records are sufficient; stdlib
+  dataclasses can opt into Talea boundaries through `Contract` when needed.
 - manually written Python remains appropriate for a small or highly specialized
   contract where direct code is clearer to review and maintain.
 
@@ -263,12 +264,13 @@ Talea is likely a poor fit when:
   attrs simpler;
 - the contract is small or specialized enough that manually written Python is
   clearer;
-- pre-1.0 API maturity, a small ecosystem, or the current limitations do not
+- 0.x API maturity, a small ecosystem, or the current limitations do not
   meet organizational support requirements.
 
 ## Maturity and evidence
 
-Talea is pre-1.0 and its ecosystem is much smaller than Pydantic's or msgspec's.
+Talea deliberately remains in the 0.x series, and its ecosystem is much smaller
+than Pydantic's or msgspec's.
 Adopters accept that compatibility, deprecation, support, and release governance
 are not yet frozen. The [known limitations](../engineering/limitations.md) page
 is the authoritative boundary.

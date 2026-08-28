@@ -6,21 +6,32 @@ semantics are explicit.
 
 ## From dataclasses
 
-Keep dataclasses when you need typed mutable or immutable storage but no runtime
-boundary contract. Move to a `Spec` when strict construction, mapping/JSON
-input, structured errors, serialization, or schema projection justify it.
+Keep dataclasses when their standard mutable or immutable record semantics are
+the intended domain representation. Add `Contract(DomainType)` when the same
+object needs strict current-state validation, Mapping/JSON construction,
+structured errors, detached output, resource policy, introspection, or schema
+projection.
 
 ```python
-from talea import Spec
+from dataclasses import dataclass
+
+from talea import Contract
 
 
-class Customer(Spec):
+@dataclass(slots=True)
+class Customer:
     customer_id: int
     name: str
+
+
+customers = Contract(Customer)
+customer = customers.from_json('{"customer_id":1,"name":"Ada"}')
 ```
 
-Defaults remain class declarations; mutable defaults move to
-`field(default_factory=...)`. Spec instances are immutable and slotted.
+The dataclass stays unchanged and its constructor/default/post-init lifecycle
+remains authoritative. Choose a `Spec` instead when Talea should own immutable
+construction, transforms, checks, serializers, or derived PATCH declarations.
+See [Standard-library dataclasses](../dataclasses.md) for the complete boundary.
 
 ## From TypedDict
 
@@ -106,7 +117,7 @@ does not provide, or produces mostly msgspec-native codec workloads already
 served well. Also stop if the new declaration is less clear than a tiny manual
 validator and none of Contract's additional boundaries are useful.
 
-Pre-1.0 adoption should pin versions, review release notes, keep boundary tests
+Adoption during the evolving 0.x series should pin versions, review release notes, keep boundary tests
 in the application repository, and assign an owner for compatibility decisions.
 The absence of required runtime dependencies reduces deployment surface; it
 does not remove the normal operational cost of adopting a young library.

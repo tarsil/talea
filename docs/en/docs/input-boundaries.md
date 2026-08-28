@@ -26,6 +26,30 @@ The decoder owns JSON syntax only. Talea's canonical schema and validation
 emitter continue to own types, constraints, hooks, error locations, nested
 trust, and immutable slot commitment.
 
+An application may explicitly derive a narrower input contract from normalized
+field metadata:
+
+```python
+from typing import Annotated
+
+from talea import ReadOnly, Spec, derive_spec
+
+
+class User(Spec):
+    id: Annotated[int, ReadOnly()]
+    name: str
+
+
+UserInput = derive_spec(User, mode="input")
+request = UserInput.from_json('{"name":"Ada"}')
+```
+
+The derived class has no effective `ReadOnly` fields, so canonical names and
+aliases for those fields are both unexpected at Mapping and JSON boundaries.
+This does not change `User.from_mapping()`, `User.from_json()`, or trusted
+`User(...)` construction. Directional derivation is shallow; nested contracts
+must be selected explicitly when an endpoint needs nested input views.
+
 ## Constructing from a Mapping
 
 `from_mapping` is the one Python external-data API:
@@ -81,6 +105,14 @@ Boundary conversion may rebuild a container when one of its members must become
 a nested Spec. Applications should not use `from_mapping` to establish container
 identity; direct `Spec(...)` construction remains the identity-preserving
 already-Python path.
+
+A Mapping supplied for a dataclass Contract follows the same structural
+conversion rules and calls the original dataclass constructor exactly once.
+Only `init=True` fields are accepted. Stdlib defaults and factories remain
+constructor-owned, `__post_init__` runs normally, and Talea then validates all
+stored state including `init=False` fields. Existing exact dataclass instances
+preserve identity; arbitrary attribute-bearing objects and subclasses are not
+treated as mappings. See [Standard-library dataclasses](dataclasses.md).
 
 ## Missing, unexpected, and aggregated errors
 
@@ -189,6 +221,7 @@ path.
 | `set[T]`, `frozenset[T]` | Array | Set or frozenset; duplicate members collapse normally |
 | `dict[str, T]` | Object | Dictionary; object keys remain strings |
 | nested `Spec` | Object | Nested Spec |
+| nested stdlib dataclass | Object | Original dataclass instance after its constructor lifecycle |
 | `UUID` | String | `UUID` |
 | `datetime`, `date`, `time` | ISO string accepted by the corresponding `fromisoformat` | Temporal value |
 | supported path types | String | Declared nominal path family |

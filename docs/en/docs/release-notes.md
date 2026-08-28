@@ -1,4 +1,25 @@
- # Release Notes
+# Release Notes
+
+## 0.2.0 — Python interoperability and boundary productivity
+
+### Added
+
+- `Spec.to_dict()` and `Spec.to_json()` accept finite nested canonical-name
+  include/exclude mappings. Direct schema-specialized projection covers nested
+  Specs, homogeneous containers, mapping values, compatible fixed tuples,
+  branch-specific unions, dataclasses, TypedDicts, partials, and directional
+  views while preserving aliases, recursive exclusion precedence, and the
+  serializer-hook leaf boundary.
+- `derive_spec(mode="input" | "output")` creates normal explicit request and
+  response contract classes from canonical `ReadOnly`/`WriteOnly` metadata. It
+  composes with include/exclude and partial presence, exposes immutable
+  directional provenance, and permits only input-derived partials through the
+  source patch path.
+- Standard-library dataclasses can be consumed directly through `Contract`
+  across exact current-state validation, Mapping and JSON construction,
+  detached Python/JSON output, resource policy, introspection, JSON Schema, and
+  OpenAPI. The original dataclass, constructor lifecycle, defaults,
+  `__post_init__`, equality, hashing, and pickle behavior remain unchanged.
 
 ## 0.1.0 — First Public Release
 
@@ -83,8 +104,9 @@ release gates.
 - Python 3.14 or newer is required.
 - Talea is implemented in pure Python and declares zero required runtime
   dependencies.
-- This is a pre-1.0 release. Public APIs, compatibility policy, deprecation
-  windows, and long-term support policy may evolve prior to 1.0.
+- Talea deliberately remains in the 0.x release series. Public APIs,
+  compatibility policy, deprecation windows, and long-term support policy may
+  evolve between 0.x releases.
 - The ecosystem and integration surface are new; Talea deliberately does not
   include settings management, ORM extraction, or callable-signature validation
   in core.

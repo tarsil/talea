@@ -146,8 +146,8 @@ ids = identifiers.from_json(
 amounts = balances.from_json('{"CHF":"42.50"}')
 ```
 
-`Contract` also covers TypedDicts, tagged unions, PEP 695 aliases, recursive
-graphs, and concrete generic specializations. It exposes `validate`,
+`Contract` also covers stdlib dataclasses, TypedDicts, tagged unions, PEP 695
+aliases, recursive graphs, and concrete generic specializations. It exposes `validate`,
 `from_python`, `from_json`, `to_python`, `to_json`, `json_schema`, and
 `openapi_schema` without requiring a wrapper class. See [Arbitrary
 contracts](contracts.md) for the full boundary matrix and production examples.
@@ -174,7 +174,7 @@ technical consequences in detail.
 | Records | strict keyword-only immutable slotted Specs, defaults/factories, inheritance, generics, recursion |
 | Validation | exact Python types, constraints, transforms, field and whole-Spec checks, structured errors |
 | Boundaries | trusted Python, external Mapping, strict JSON, arbitrary Contract roots |
-| Composition | nested Specs, TypedDict, aliases, unions, canonical tagged dispatch, recursive named graphs |
+| Composition | nested Specs, stdlib dataclasses, TypedDict, aliases, unions, canonical tagged dispatch, recursive named graphs |
 | Updates | `copy.replace`, `derive_spec`, presence-aware partials, `apply_patch` |
 | Output | detached Python projection, JSON representations, per-call codec boundaries |
 | Security | Sensitive-aware failure redaction; finite transport, depth, work, and error budgets |
@@ -191,8 +191,8 @@ manually written validation. Different projects make different tradeoffs.
   and coercive/parsing workflows many applications actively want.
 - msgspec brings an extremely fast native implementation, mature serialization,
   and representation/performance choices that may already fit a workload.
-- dataclasses and attrs remain excellent for internal records when runtime
-  boundary behavior is unnecessary.
+- dataclasses and attrs remain excellent for internal records; a stdlib
+  dataclass can also retain that role behind a Talea `Contract` boundary.
 - direct Python remains the clearest answer for a sufficiently small or
   specialized contract.
 
@@ -216,7 +216,9 @@ on older Python, wants broad coercion, needs settings/ORM ecosystems in one
 package, already has an ideal msgspec workflow, needs only a tiny internal
 record, or can express a specialized check more clearly by hand.
 
-Talea is pre-1.0 and has a much smaller ecosystem than mature alternatives.
+Talea deliberately remains in the 0.x series and has a much smaller ecosystem
+than mature alternatives. Its compatibility and support policy may continue to
+evolve across 0.x releases.
 The [limitations](engineering/limitations.md) and [maturity/support
 page](release-ledger.md) make that cost explicit.
 

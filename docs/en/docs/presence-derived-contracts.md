@@ -2,7 +2,8 @@
 
 Talea can project a concrete `Spec` into an independent data contract with
 `derive_spec()`. The same primitive owns all-fields-omittable PATCH contracts,
-field selection, field omission, and their composition.
+field selection, explicit input/output views, field omission, and their
+composition.
 
 ```python
 from talea import Spec, apply_patch, derive_spec
@@ -28,6 +29,49 @@ assert updated.to_dict() == {"id": 1, "name": "Grace", "active": True}
 The derived class follows the normal Spec declaration, validation, input,
 serialization, copy, and introspection lifecycle. It is not a subclass of the
 source and has no patch-specific interpreter.
+
+## Explicit input and output views
+
+`mode="input"` excludes fields whose effective canonical metadata is
+`ReadOnly(True)`. `mode="output"` excludes `WriteOnly(True)` fields. Ordinary
+fields remain in both directions:
+
+```python
+from typing import Annotated
+
+from talea import ReadOnly, Sensitive, WriteOnly
+
+
+class Account(Spec):
+    id: Annotated[int, ReadOnly()]
+    email: str
+    password: Annotated[str, WriteOnly(), Sensitive()]
+    created_at: Annotated[str, ReadOnly()]
+
+
+AccountInput = derive_spec(Account, mode="input")
+AccountOutput = derive_spec(Account, mode="output")
+AccountPatch = derive_spec(Account, mode="input", partial=True)
+```
+
+`AccountInput` contains `email` and `password`; `AccountOutput` contains `id`,
+`email`, and `created_at`. A field marked both read-only and write-only is
+excluded from both views, which permits an explicitly internal-only field.
+`ReadOnly(False)` and `WriteOnly(False)` are effective false states, so those
+fields remain selectable. A source without directional metadata still produces
+a distinct equivalent derived class, consistent with all other derivations.
+
+The mode determines class shape once at derivation time. It does not install an
+operation guard: an input view can serialize, and an output view can be
+constructed or parsed. Both are normal Specs with ordinary slots, compiled
+boundaries, copying, introspection, and schema projection. The source Spec's
+constructor, Mapping/JSON input, and serialization remain unchanged.
+
+This is contract direction, not authorization. `ReadOnly` does not mean that an
+actor may not change a database value, and `WriteOnly` does not itself make a
+value secret. Use `Sensitive` for Talea-owned failure and repr redaction, and
+apply authentication, authorization, persistence, and logging policy in the
+application.
 
 ## Absence is not `None`
 
@@ -141,6 +185,13 @@ names, non-string members, and simultaneous include/exclude fail at derivation
 time. Selection does not rename fields. Aliases remain boundary metadata and do
 not become accepted selection names.
 
+Directional mode constrains the selectable universe before ordinary selection.
+`exclude` removes additional retained fields. `include` intersects with the
+direction, but explicitly requesting a directionally excluded field raises
+`ValueError`; this catches a mistaken contract policy instead of silently
+changing the requested shape. Include and exclude remain mutually exclusive.
+Neither can resurrect a read-only input field or write-only output field.
+
 Retained fields preserve their canonical schema, constraints, alias, metadata,
 Sensitive policy, static default or factory under the selected partial policy,
 field validation hooks, and serialization hook. Arbitrary application methods
@@ -222,8 +273,10 @@ apply normally. A serializer runs only when its field is present.
 
 1. the second value must be a partial class produced by `derive_spec()`;
 2. its canonical source must be the exact concrete type of the source instance;
-3. only present canonical fields become replacement changes;
-4. Talea delegates to `copy.replace()` and the source's compiled replacer.
+3. an output-derived partial is rejected because it may contain read-only
+   source fields;
+4. only present canonical fields become replacement changes;
+5. Talea delegates to `copy.replace()` and the source's compiled replacer.
 
 The operation does not serialize, merge dictionaries, call `from_mapping()`,
 or replay boundary conversion. Changed fields run normal transforms,
@@ -235,15 +288,23 @@ A patch derived from `User` cannot apply to an unrelated `Account` merely
 because their names overlap. Concrete generic identity is also exact: a patch
 for `Page[User]` is not compatible with `Page[Account]`.
 
+An input-derived partial is patch-compatible with its exact source because its
+shape cannot contain effective read-only fields. A legacy partial without a
+mode retains the existing metadata-only source semantics. An output-derived
+partial is never patch-compatible, even if a particular instance happens not
+to contain a read-only value; provenance, not field-name coincidence, owns the
+decision.
+
 An empty patch still goes through the source replacement owner. This preserves
 mutable current-state and whole-Spec invariant guarantees rather than treating
 an empty change set as unconditional trust.
 
 ## Inheritance, generics, recursion, and tagged unions
 
-Derivation consumes the source's effective canonical fields. Inherited order
-and overrides are already settled before projection; derivation does not repeat
-MRO selection.
+Derivation consumes the source's effective canonical fields and normalized
+metadata. Inherited order, metadata overrides, and explicit false states are
+already settled before projection; derivation does not repeat MRO or
+`Annotated` interpretation.
 
 Concrete generic specializations are supported:
 
@@ -264,6 +325,10 @@ schemas. A present recursive field performs its normal graph validation; an
 absent field triggers no traversal. A present tagged union performs normal
 discriminator dispatch; an absent field performs no discriminator lookup.
 Derivation does not recursively derive nested contracts.
+Thus deriving `Envelope` in output mode does not silently replace an existing
+`User` field with `derive_spec(User, mode="output")`. Nested Specs, tagged
+unions, and dataclasses retain their declared contract. Derive and annotate a
+nested directional view explicitly when that is the intended boundary.
 
 ## Copy, pickle, and class identity
 
@@ -295,9 +360,14 @@ assert info.derivation.retained_fields == ("id", "name", "active")
 
 Each `FieldInfo` reports `required` and `omittable`. `SpecInfo.derivation`
 reports the source, retained and omitted fields, selection policy, partial
-policy, and explicit name. JSON Schema projection therefore produces
-required-key truth directly from the canonical declaration; it does not need
-to inspect runtime instances or infer semantics from class names.
+policy, directional mode, and explicit name. JSON Schema projection therefore
+produces required-key truth directly from the canonical declaration; it does
+not need to inspect runtime instances or infer semantics from class names.
+
+Derivation mode and schema projection mode are separate dimensions. Derivation
+mode decides which fields exist; `json_schema(mode=...)` and
+`openapi_schema(mode=...)` project the already-derived shape. Schema mode never
+restores a source field removed by derivation.
 
 TypedDict remains its own canonical structural contract. Its `Required` and
 `NotRequired` keys already distinguish presence from value nullability. Talea
@@ -314,7 +384,8 @@ contract crosses a typed boundary. `apply_patch()` preserves the concrete type
 of its complete source argument.
 
 There is no direct `field(omittable=True)` syntax, `contract.partial()`,
-automatic runtime read/write enforcement, field renaming, or open-generic
+automatic enforcement on ordinary source Specs, recursive directional
+rewriting, TypedDict directional derivation, field renaming, or open-generic
 derivation. JSON Schema/OpenAPI projection and external-input resource limits
 apply to the resulting concrete Spec through their normal owners.
 
@@ -331,11 +402,15 @@ current-state validation, and replacement functions for presence-aware derived
 classes. The permanent `benchmark_presence` task covers cold derivation,
 0/1/5/all-present construction and serialization, `present_fields`, patch
 application, memory, weak collection, and ordinary Spec zero-tax canaries.
+It also covers input/output derivation at 1/5/10/50 fields, directional
+include/exclude and partial composition, equivalent manual class execution,
+Mapping/JSON boundaries, Python/JSON output, and instance-size equivalence.
 
 ## Complete REST PATCH example
 
-The executable example below combines an excluded server-owned identifier,
-aliases, a source default, an optional field, a Sensitive token, empty and
+The executable example below derives request, response, and PATCH Specs from
+read/write metadata. It combines a server-owned identifier, write-only
+Sensitive token, aliases, a source default, an optional field, empty and
 one-field patches, explicit `None`, a default-equal value, omitted
 `AttributeError`, Python/JSON projection, `apply_patch`, a failed field
 constraint, a failed complete-object invariant, `copy.replace`, and input JSON

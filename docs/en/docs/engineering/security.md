@@ -14,6 +14,8 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | custom codecs | Talea projection after/before codec boundary | codec safety, CPU, memory, exceptions |
 | regex constraints | declaration-time compilation and safe binding | catastrophic backtracking; no timeout is provided |
 | output and schema tooling | cycle rejection and explicit projection failures | output size and tooling resource budgets |
+| dataclass Contract | declared stored fields, exact identity, structured boundaries | constructor, post-init, descriptors, generated repr |
+| nested output selection | canonical schema validation, immutable normalization, direct projection | authorization to request or disclose fields |
 
 The finite default policy is 8 MiB JSON transport, depth 64, 100,000 compiled
 node visits, and 100 aggregated errors. It reduces Talea-owned unbounded work;
@@ -27,6 +29,15 @@ pattern text and aliases are not inserted into source. Repository tests cover
 quotes, newlines, malicious-looking names, aliases, patterns, and callback
 identities.
 
+Nested selector keys are treated as data and validated against canonical field
+truth before compilation. Caller-owned dictionaries and sets are copied into
+an immutable tree before field access. There is no global selector cache; each
+Spec class retains at most 32 immutable compiled plans and evicts the oldest
+selected plan on overflow. Very broad or deep selectors can still consume
+caller-owned output CPU and memory under normal Python limits;
+`ResourcePolicy` intentionally governs hostile input, not application-owned
+output.
+
 Annotation resolution uses Python's supported annotation machinery and retained
 definition namespaces. Talea does not provide an API that evaluates arbitrary
 untrusted annotation strings. Application class bodies and imported modules are
@@ -36,9 +47,33 @@ trusted Python code, as they are for any annotation-driven library.
 
 `Sensitive` redacts Talea-owned validation and serialization failures, Spec
 representation, and retained callback causes under the marked boundary. It does
-not omit values from successful serialization. `WriteOnly` is descriptive
-boundary metadata and remains distinct: it projects to standards schemas but is
-not runtime output enforcement.
+not omit values from successful serialization. `WriteOnly` remains distinct:
+ordinary source Specs still serialize it, while an explicitly derived output
+Spec structurally excludes it. Likewise, an input-derived Spec structurally
+excludes `ReadOnly` fields. The derived classes are contract shapes, not access
+control: the application still owns authentication, authorization, persistence
+permissions, and output selection at each endpoint.
+
+Directional selection uses normalized canonical field metadata during class
+derivation. Removed fields have no constructor slot, alias, Mapping/JSON input
+path, serializer hook, repr entry, introspection field, or schema property on
+that derived class. Input partials may patch their exact source; output partials
+are rejected by `apply_patch` so read-only values cannot re-enter through a
+read-oriented view. Nested Specs are not recursively rewritten, so applications
+must explicitly derive nested boundary shapes when required.
+
+`include` and `exclude` control output projection only. They do not establish
+the caller's identity, role, tenant, consent, or permission to see a field.
+Applications must authorize the chosen projection before serialization;
+`Sensitive` is failure-redaction metadata, not an output access-control rule.
+
+For dataclasses, Talea cannot control the class's own generated `repr` without
+mutating the application type. A sensitive dataclass field may therefore appear
+in ordinary `repr(instance)` even though Talea-owned failures redact it. Use
+`dataclasses.field(repr=False)` when the application representation must omit
+that value. Dataclass constructors, `__post_init__`, custom `__getattribute__`,
+and declared descriptors are trusted application execution, not sandboxed
+input machinery.
 
 ## Supply chain
 

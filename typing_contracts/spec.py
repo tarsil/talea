@@ -1,6 +1,7 @@
 """Positive static-typing contract for Talea Spec declarations."""
 
 from copy import replace
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
@@ -39,6 +40,26 @@ from talea import (
 from talea.introspection import ContractInfo, SpecInfo, inspect_contract, inspect_spec
 
 
+@dataclass
+class DataclassUser:
+    id: int
+    name: str
+
+
+@dataclass
+class DataclassPage[T]:
+    items: list[T]
+
+
+dataclass_contract = Contract(DataclassUser)
+generic_dataclass_contract: Contract[DataclassPage[int]] = Contract(DataclassPage[int])
+
+assert_type(dataclass_contract.validate(DataclassUser(1, "Ada")), DataclassUser)
+assert_type(dataclass_contract.from_python({"id": 1, "name": "Ada"}), DataclassUser)
+assert_type(dataclass_contract.from_json('{"id":1,"name":"Ada"}'), DataclassUser)
+assert_type(generic_dataclass_contract.from_python({"items": [1]}), DataclassPage[int])
+
+
 class User(Spec):
     id: int
     name: str
@@ -62,6 +83,11 @@ assert_type(User.json_schema(mode="output"), dict[str, object])
 assert_type(User.openapi_schema(), dict[str, object])
 assert_type(user.to_dict(), dict[str, object])
 assert_type(user.to_dict(include={"id"}, exclude_none=True), dict[str, object])
+assert_type(
+    user.to_dict(include={"id": True, "tags": {"unused": True}}),
+    dict[str, object],
+)
+assert_type(user.to_dict(exclude=frozenset({"active"})), dict[str, object])
 assert_type(user.to_json(), str)
 assert_type(replace(user, name="Grace"), User)
 assert_type(inspect_spec(User), SpecInfo)
@@ -96,8 +122,12 @@ assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), Cont
 assert_type(Contract[User](User).validate(user), User)
 assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
 UserPatch = derive_spec(User, partial=True)
+UserInput = derive_spec(User, mode="input")
+UserOutputPatch = derive_spec(User, mode="output", partial=True)
 user_patch: Spec = UserPatch.from_mapping({"name": "Grace"})
 assert_type(UserPatch, type[Spec])
+assert_type(UserInput, type[Spec])
+assert_type(UserOutputPatch, type[Spec])
 assert_type(user_patch.present_fields, frozenset[str])
 assert_type(apply_patch(user, user_patch), User)
 assert_type(

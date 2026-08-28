@@ -31,6 +31,7 @@ approximately zero cost when unused.
 | `benchmark_presence` | derived declarations, partials, patching, memory |
 | `benchmark_json_schema` | standards projection, scaling, output size |
 | `benchmark_resources` | policy overhead and adversarial scaling |
+| `benchmark_dataclasses` | dataclass boundaries, cold work, memory, generated code, and zero-tax canaries |
 
 Run one task from the repository root, for example:
 
@@ -38,6 +39,7 @@ Run one task from the repository root, for example:
 task benchmark_spec
 task benchmark_json
 task benchmark_resources
+task benchmark_dataclasses
 ```
 
 For release review, run every permanent benchmark task listed in
@@ -62,6 +64,23 @@ Cold declaration/schema projection and warm validation/construction are
 reported separately. Memory and allocation measurements are separate from
 latency. Talea does not claim to be fastest in every workload or to have zero
 overhead.
+
+### Dataclass 0.2 boundary baseline
+
+The accepted 0.2 same-run benchmark measured common dataclass external
+boundaries close to semantically equivalent handwritten Python:
+
+| Operation | Talea median | Equivalent handwritten median | Residual |
+| --- | ---: | ---: | ---: |
+| Mapping to dataclass | 420.3 ns | 370.1 ns | 1.14x |
+| full strict JSON to dataclass | 1.843 µs | 1.814 µs | 1.02x |
+
+The strict JSON comparator decodes, rejects duplicate keys and non-finite
+numbers, validates the complete shape, constructs the dataclass, and enforces
+the same resource semantics. Bare `json.loads()` was rejected as an
+inequivalent comparator because it performs only decoding. These values are a
+reproducible release baseline for the permanent `benchmark_dataclasses` task,
+not a universal machine-independent performance claim.
 
 ## Cold work and warm work
 

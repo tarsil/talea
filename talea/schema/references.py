@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, Callable, Literal, cast
 if TYPE_CHECKING:
     from talea.schema.nodes import Schema
 
-type NamedSchemaKind = Literal["alias", "typed_dict"]
+type NamedSchemaKind = Literal["alias", "dataclass", "typed_dict"]
 
 
 @dataclass(frozen=True, slots=True)
 class NamedSchemaIdentity:
-    """Identify one alias or TypedDict declaration and concrete specialization.
+    """Identify one named declaration and concrete specialization.
 
     Python declaration identity, rather than display text, is canonical. Generic
     arguments complete the identity because Python may create a fresh but equal
@@ -82,7 +82,7 @@ class _NamedSchemaTarget:
 
 @dataclass(frozen=True, slots=True)
 class NamedReferenceSchema:
-    """Finite canonical back-edge to a named alias or TypedDict declaration.
+    """Finite canonical back-edge to a named canonical declaration.
 
     Public identity is immutable and sufficient for introspection and
     definition naming. The private target is a finalize-once resolution owner;

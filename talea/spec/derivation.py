@@ -3,7 +3,7 @@
 from collections.abc import Iterable
 from copy import replace
 from sys import _getframe
-from typing import TypeVar, cast
+from typing import Literal, TypeVar, cast
 
 from talea.declaration.models import MISSING_DEFAULT, DerivationSelection, SpecDerivation
 from talea.spec.declaration import _DerivedSpecPlan, _SpecDeclaration
@@ -20,6 +20,7 @@ def derive_spec(
     include: Iterable[str] | None = None,
     exclude: Iterable[str] | None = None,
     partial: bool = False,
+    mode: Literal["input", "output"] | None = None,
     name: str | None = None,
     module: str | None = None,
     qualname: str | None = None,
@@ -27,10 +28,13 @@ def derive_spec(
     """Create a normal Spec projection from one concrete source declaration.
 
     ``include`` and ``exclude`` are mutually exclusive canonical field-name
-    selections.  Source order, field schemas, aliases, metadata, field-local
-    validation hooks, and serializers are retained.  ``partial=True`` makes
-    every retained field omittable without admitting ``None`` and without
-    running source defaults or factories for absent fields.
+    selections. ``mode="input"`` removes fields whose normalized metadata is
+    ``ReadOnly(True)``; ``mode="output"`` removes ``WriteOnly(True)`` fields.
+    An explicit include cannot request a field excluded by the mode. Source
+    order, field schemas, aliases, metadata, field-local validation hooks, and
+    serializers are retained. ``partial=True`` makes every retained field
+    omittable without admitting ``None`` and without running source defaults
+    or factories for absent fields.
 
     Dynamic field changes cannot be represented precisely by Python's static
     type system, so the result is typed as ``type[Spec]``.  Repeated calls
@@ -41,6 +45,10 @@ def derive_spec(
         raise TypeError("derive_spec source must be a Spec class")
     if type(partial) is not bool:
         raise TypeError("derive_spec partial must be bool")
+    if mode is not None and not isinstance(mode, str):
+        raise TypeError("derive_spec mode must be 'input', 'output', or None")
+    if mode not in (None, "input", "output"):
+        raise ValueError("derive_spec mode must be 'input', 'output', or None")
     if include is not None and exclude is not None:
         raise TypeError("derive_spec include and exclude are mutually exclusive")
     declaration = cast(_SpecDeclaration, vars(source)["__talea_declaration__"])
@@ -48,6 +56,17 @@ def derive_spec(
     source_fields = artifacts.schema.fields
     source_names = tuple(field.name for field in source_fields)
     selected, selection = _selection(source_names, include, exclude)
+    directionally_excluded = frozenset(
+        field.name
+        for field in source_fields
+        if (mode == "input" and field.metadata.read_only is True)
+        or (mode == "output" and field.metadata.write_only is True)
+    )
+    requested_excluded = selected & directionally_excluded if include is not None else frozenset()
+    if requested_excluded:
+        field_name = min(requested_excluded)
+        raise ValueError(f"derive_spec include field {field_name!r} is excluded by {mode} mode")
+    selected -= directionally_excluded
     retained = tuple(field for field in source_fields if field.name in selected)
     if partial:
         retained = tuple(
@@ -69,7 +88,9 @@ def derive_spec(
     )
     serializers = tuple(serializer for serializer in artifacts.schema.serializers if serializer.field in retained_set)
     source_name = (declaration.generic_origin or source).__name__
-    resolved_name = name or f"{source_name}{'Partial' if partial else 'Projection'}"
+    suffix = mode.title() if mode is not None else ""
+    suffix += "Partial" if partial else "Projection" if mode is None else ""
+    resolved_name = name or f"{source_name}{suffix}"
     from talea.spec.dynamic import _validate_class_name, _validate_module, _validate_qualname
 
     _validate_class_name(resolved_name)
@@ -85,6 +106,7 @@ def derive_spec(
         selection,
         partial,
         name,
+        mode,
     )
     plan = _DerivedSpecPlan(
         annotations,
@@ -120,7 +142,8 @@ def apply_patch[SourceSpecT: Spec](instance: SourceSpecT, patch: Spec) -> Source
 
     Raises:
         TypeError: If either value is not a Spec, the patch is not partial, or
-            its derivation source is not the instance's exact type.
+            its derivation source is not the instance's exact type. Output-mode
+            partials are rejected because they can retain read-only fields.
         ValidationError: If replacement values or whole-Spec checks fail.
 
     Replacement reuses Talea's Python-native immutable update lifecycle.
@@ -133,6 +156,8 @@ def apply_patch[SourceSpecT: Spec](instance: SourceSpecT, patch: Spec) -> Source
     provenance = patch_artifacts.schema.derivation
     if provenance is None or not provenance.partial:
         raise TypeError("apply_patch requires a partial derived Spec")
+    if provenance.mode == "output":
+        raise TypeError("apply_patch rejects output-derived partial Specs")
     if provenance.source is not type(instance):
         raise TypeError(f"patch for {provenance.source.__qualname__} cannot apply to {type(instance).__qualname__}")
     from copy import replace as copy_replace

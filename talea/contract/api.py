@@ -41,9 +41,10 @@ class Contract(Generic[T]):
     No process-global Contract cache or codec registry is created.
 
     Python 3.14 cannot express the type of every runtime type form. Class
-    annotations infer naturally; container, union, Literal, Annotated, alias,
-    and TypedDict forms should use an explicit ``Contract[T]`` annotation when
-    static output precision is required.
+    annotations, including stdlib dataclass classes, infer naturally;
+    container, union, Literal, Annotated, alias, and TypedDict forms should use
+    an explicit ``Contract[T]`` annotation when static output precision is
+    required.
     """
 
     __slots__ = ("_annotation", "_artifacts", "_policy", "validate")
@@ -130,11 +131,13 @@ class Contract(Generic[T]):
     ) -> T:
         """Convert and validate one untrusted external Python representation.
 
-        Primitive values remain strict. Mappings may construct nested Specs;
-        TypedDict boundaries accept ``Mapping`` and return detached exact
-        dictionaries; containers recursively use the existing Talea input
-        semantics. ``policy`` replaces the Contract's retained policy for this
-        call; it is not merged with it.
+        Primitive values remain strict. Mappings may construct nested Specs or
+        stdlib dataclasses; TypedDict boundaries accept ``Mapping`` and return
+        detached exact dictionaries; containers recursively use the existing
+        Talea input semantics. Dataclass construction calls the original
+        constructor lifecycle once and then validates retained state.
+        ``policy`` replaces the Contract's retained policy for this call; it is
+        not merged with it.
 
         Raises:
             ResourceLimitError: If compiled input exceeds a selected depth or
@@ -185,8 +188,8 @@ class Contract(Generic[T]):
     def to_python(self, value: T, /) -> object:
         """Validate and return a detached Python representation of ``value``.
 
-        Mutable containers and TypedDict values are rebuilt. Nested Specs become
-        dictionaries using their declared aliases.
+        Mutable containers and TypedDict values are rebuilt. Nested Specs and
+        stdlib dataclasses become dictionaries using their declared aliases.
 
         Raises:
             ValidationError: If the current value violates this contract.
