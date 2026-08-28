@@ -72,7 +72,8 @@ structural consumers. `talea.schema` exposes immutable nodes:
 `Schema`, `AliasSchema`, `ConstrainedSchema`, `PrimitiveSchema`,
 `SpecReferenceSchema`, `TypeSchema`, `LiteralValue`, `LiteralSchema`,
 `EnumSchema`, `SequenceSchema`, `MappingSchema`, `FixedTupleSchema`,
-`VariadicTupleSchema`, `UnionSchema`, `TypedDictField`, `TypedDictSchema`,
+`VariadicTupleSchema`, `UnionSchema`, `DataclassField`, `DataclassSchema`,
+`TypedDictField`, `TypedDictSchema`,
 `NamedReferenceSchema`, `NamedSchemaIdentity`, `TaggedUnionBranch`, and
 `TaggedUnionSchema`; tags `PrimitiveKind`, `SequenceKind`, and `TypeCheckMode`;
 and declaration functions/errors `resolve_annotation`,

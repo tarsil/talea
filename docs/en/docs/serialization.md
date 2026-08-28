@@ -55,6 +55,13 @@ same objects. Declared containers preserve their Python kind:
 | `set[T]` | New set with projected members |
 | `frozenset[T]` | New frozenset with projected members |
 | `dict[K, V]` | New dictionary with projected keys and values |
+| stdlib dataclass through `Contract.to_python()` | New dictionary with declared stored fields and aliases |
+
+Dataclass projection reads only canonical stored fields and never calls
+`dataclasses.asdict()`, the constructor, or `__post_init__`. Nested dataclasses
+project recursively; mutable containers detach according to their declared
+schemas. Strict `validate(existing)` still returns the original instance, while
+`to_python(existing)` intentionally returns its structural dictionary.
 
 Preserving tuple, set, and frozenset makes a Python round trip strict:
 
@@ -107,6 +114,7 @@ instead of retaining an alias to the nested object.
 | Enum | Supported member value |
 | Literal | Validated value's canonical representation |
 | nested `Spec` | JSON object |
+| nested stdlib dataclass | JSON object |
 | list, tuple, set, frozenset | JSON array |
 | `dict[str, T]` | JSON object |
 

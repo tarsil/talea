@@ -31,6 +31,7 @@ approximately zero cost when unused.
 | `benchmark_presence` | derived declarations, partials, patching, memory |
 | `benchmark_json_schema` | standards projection, scaling, output size |
 | `benchmark_resources` | policy overhead and adversarial scaling |
+| `benchmark_dataclasses` | dataclass boundaries, cold work, memory, generated code, and zero-tax canaries |
 
 Run one task from the repository root, for example:
 
@@ -38,6 +39,7 @@ Run one task from the repository root, for example:
 task benchmark_spec
 task benchmark_json
 task benchmark_resources
+task benchmark_dataclasses
 ```
 
 For release review, run every permanent benchmark task listed in

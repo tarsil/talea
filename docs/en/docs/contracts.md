@@ -23,7 +23,8 @@ change runtime behavior.
 
 Use a `Spec` when the contract is a named immutable domain object with fields,
 methods, validation hooks, and inheritance. Use a `Contract` at a boundary
-whose root may be a scalar, container, union, `TypedDict`, alias, or `Spec`.
+whose root may be a scalar, container, union, `TypedDict`, dataclass, alias, or
+`Spec`.
 
 | Need | Owner |
 | --- | --- |
@@ -31,6 +32,7 @@ whose root may be a scalar, container, union, `TypedDict`, alias, or `Spec`.
 | Validate `list[User]` without a box class | `Contract[list[User]]` |
 | Convert an external mapping into `User` | `User.from_mapping` |
 | Convert an external list of mappings into users | `Contract[list[User]].from_python` |
+| Keep a stdlib dataclass and add external boundaries | `Contract(DomainDataclass)` |
 | Validate an existing value without conversion | `Contract.validate` |
 | JSON for an arbitrary root | `Contract.from_json` / `Contract.to_json` |
 
@@ -68,6 +70,33 @@ assert isinstance(converted[0], User)
 
 Strict primitive rules remain in force at this boundary. Conversion is
 structural, not a global coercion policy.
+
+## Standard-library dataclass domains
+
+`Contract` can retain an exact stdlib dataclass type as the runtime result.
+Strict validation preserves an existing instance and checks its current stored
+state. Mapping and JSON objects construct the original dataclass through its
+normal constructor, defaults, factory, and `__post_init__` lifecycle; detached
+output becomes a dictionary.
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass(slots=True)
+class Customer:
+    name: str
+
+
+customers = Contract(Customer)
+ada = customers.from_python({"name": "Ada"})
+assert type(ada) is Customer
+assert customers.to_python(ada) == {"name": "Ada"}
+```
+
+Dataclasses remain unchanged and are not copied into Specs. See
+[Standard-library dataclasses](dataclasses.md) for lifecycle, trust, generics,
+recursion, schema modes, and security boundaries.
 
 ## JSON input and output
 
@@ -142,10 +171,11 @@ assert Contract[UserId](UserId).validate(1) == 1
 assert Contract[LegacyId](LegacyId).validate(1) == 1
 ```
 
-Recursive PEP 695 aliases and TypedDict declarations use finite canonical
-named-reference graphs. Self recursion, mutual recursion, mixed graphs,
-concrete generic specializations, and recursive tagged TypedDict ASTs support
-every Contract boundary. See [Generics and recursion](recursive-generics.md).
+Recursive PEP 695 aliases, TypedDict declarations, and dataclasses use finite
+canonical named-reference graphs. Self recursion, mutual recursion, mixed
+graphs, concrete generic specializations, and recursive tagged TypedDict ASTs
+support their documented Contract boundaries. See [Generics and
+recursion](recursive-generics.md).
 
 ## Generic and recursive Specs
 

@@ -1,4 +1,14 @@
- # Release Notes
+# Release Notes
+
+## Unreleased
+
+### Added
+
+- Standard-library dataclasses can be consumed directly through `Contract`
+  across exact current-state validation, Mapping and JSON construction,
+  detached Python/JSON output, resource policy, introspection, JSON Schema, and
+  OpenAPI. The original dataclass, constructor lifecycle, defaults,
+  `__post_init__`, equality, hashing, and pickle behavior remain unchanged.
 
 ## 0.1.0 — First Public Release
 

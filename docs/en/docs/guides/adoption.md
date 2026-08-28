@@ -6,21 +6,32 @@ semantics are explicit.
 
 ## From dataclasses
 
-Keep dataclasses when you need typed mutable or immutable storage but no runtime
-boundary contract. Move to a `Spec` when strict construction, mapping/JSON
-input, structured errors, serialization, or schema projection justify it.
+Keep dataclasses when their standard mutable or immutable record semantics are
+the intended domain representation. Add `Contract(DomainType)` when the same
+object needs strict current-state validation, Mapping/JSON construction,
+structured errors, detached output, resource policy, introspection, or schema
+projection.
 
 ```python
-from talea import Spec
+from dataclasses import dataclass
+
+from talea import Contract
 
 
-class Customer(Spec):
+@dataclass(slots=True)
+class Customer:
     customer_id: int
     name: str
+
+
+customers = Contract(Customer)
+customer = customers.from_json('{"customer_id":1,"name":"Ada"}')
 ```
 
-Defaults remain class declarations; mutable defaults move to
-`field(default_factory=...)`. Spec instances are immutable and slotted.
+The dataclass stays unchanged and its constructor/default/post-init lifecycle
+remains authoritative. Choose a `Spec` instead when Talea should own immutable
+construction, transforms, checks, serializers, or derived PATCH declarations.
+See [Standard-library dataclasses](../dataclasses.md) for the complete boundary.
 
 ## From TypedDict
 

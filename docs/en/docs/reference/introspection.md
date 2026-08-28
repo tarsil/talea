@@ -25,6 +25,12 @@ contract_info = inspect_contract(Contract(list[User]))
 | `SpecInfo` | fields, generic identity/arguments, recursion, hooks, serializers, metadata, trust, derivation |
 | `ContractInfo` | annotation, canonical `Schema`, metadata, supported operation names |
 
+For `Contract(UserDataclass)`, `ContractInfo.schema` is a frozen
+`DataclassSchema`. It exposes exact dataclass type identity, immutable canonical
+fields, `init`/keyword-only/default lifecycle truth, frozen transitive trust,
+generic specialization identity, and finite recursive references without
+exposing mutable stdlib `Field` objects.
+
 `inspect_spec()` accepts a Spec class, including an open generic declaration.
 Concrete declarations return a cached immutable `SpecInfo`; open generics expose
 the declaration truth available before specialization. `inspect_contract()`

@@ -137,8 +137,9 @@ direct, and supports Python-native `copy.replace()` for controlled updates.
 Talea does not pretend nested mutable lists or dictionaries are deeply frozen;
 their current state is revalidated at later contract boundaries.
 
-Use a dataclass or another record type when mutation is central and boundary
-validation is not needed.
+Use a dataclass or another record type when mutation is central. If that
+dataclass later needs Talea boundary validation without changing its domain
+representation, retain it through `Contract(DataclassType)`.
 
 ## Why Contract?
 
@@ -237,8 +238,8 @@ manually written validation. Different systems need different tradeoffs.
 - msgspec has an extremely fast native implementation, mature serialization,
   and different representation and performance tradeoffs. Its supported
   workflow may already be the ideal fit.
-- dataclasses and attrs are excellent when typed records are sufficient and a
-  full boundary contract would add unnecessary machinery.
+- dataclasses and attrs are excellent when typed records are sufficient; stdlib
+  dataclasses can opt into Talea boundaries through `Contract` when needed.
 - manually written Python remains appropriate for a small or highly specialized
   contract where direct code is clearer to review and maintain.
 

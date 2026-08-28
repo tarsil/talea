@@ -49,6 +49,7 @@ contract for JSON strings. Talea provides no global coercion policy. See
 | `PurePath` and `Path` families | Nominal Python path relationships | Strings are rejected; concrete availability remains platform-specific |
 | IPv4/IPv6 addresses, networks, and interfaces | Exact declared IP class | Versions and address/network/interface families never cross-match |
 | `TypedDict` | Exact `dict` for strict validation; `Mapping` at external input | Required/optional keys and unknown-key rejection follow structural declaration truth |
+| stdlib dataclass | Exact declared class with current stored state | Mapping/JSON constructs the original class; `init=False` is output-only |
 | PEP 695 `type` aliases and `NewType` | Underlying supported contract | Named identity is retained without runtime alias dispatch |
 | `Annotated[A | B, Discriminator(name)]` | Required single-Literal Spec or TypedDict branches | Direct tag selection; see [Tagged unions](tagged-unions.md) |
 
@@ -139,6 +140,7 @@ recursion](recursive-generics.md).
 | list/set/frozenset/dict/tuple | exact concrete container | recursively converts nested mappings/Specs | JSON array/object where representable | detached concrete Python containers | arrays/objects | array/object shapes |
 | Spec | instance of the declared nominal type | Mapping constructs a Spec | object constructs a Spec | aliased detached mapping | object | named object definition |
 | TypedDict | exact dict with closed keys | Mapping becomes a detached dict | object becomes a detached dict | detached dict | object | named closed object definition |
+| stdlib dataclass | exact declared instance | Mapping constructs the original dataclass | object constructs the original dataclass | aliased detached dictionary | object | directional named object definition |
 | untagged union | first strict branch that succeeds | branches attempted in canonical order | branches attempted in canonical order | selected runtime branch | selected branch representation | `anyOf` |
 | tagged union | nominal Spec or exact tagged dict | direct discriminator dispatch | direct external-tag dispatch | selected branch | selected branch | `oneOf`; OpenAPI discriminator |
 | recursive named graph | strict acyclic/cycle-aware graph | resource-governed traversal | resource-governed traversal | detached acyclic graph | acyclic JSON | finite definitions and references |

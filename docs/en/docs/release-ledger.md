@@ -8,7 +8,7 @@ formal vulnerability-reporting governance are not yet frozen.
 
 The release includes Specs, Contracts, strict validation, constraints,
 standard-library types, defaults/factories, inheritance, recursive and generic
-types, TypedDict and PEP 695 aliases, tagged unions, Mapping/JSON input,
+types, stdlib dataclass Contracts, TypedDict and PEP 695 aliases, tagged unions, Mapping/JSON input,
 serialization, structured errors, metadata and redaction, presence-aware
 derived/PATCH Specs, introspection, dynamic creation, JSON Schema Draft 2020-12,
 OpenAPI 3.1-compatible projection, and finite external-input resource policies.
@@ -19,7 +19,8 @@ OpenAPI 3.1-compatible projection, and finite external-input resource policies.
 | --- | --- |
 | callable argument/return validation | Not implemented; requires signature, descriptor, async, and typing policy |
 | automatic runtime ReadOnly/WriteOnly enforcement | Not implemented; metadata and schema projection are available |
-| dataclass, NamedTuple, and ordinary-class mapping | Not implemented; core is not an object mapper |
+| NamedTuple and ordinary-class mapping | Not implemented; core is not a general object mapper |
+| stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |
 | settings/environment loading | Separate integration or package, not core |
 | streaming batches and JSONL | Not implemented; materialized batches use `Contract(list[T])` |
 | arbitrary annotation callbacks | Not implemented; transforms/checks own custom validation |

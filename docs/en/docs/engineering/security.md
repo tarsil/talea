@@ -14,6 +14,7 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | custom codecs | Talea projection after/before codec boundary | codec safety, CPU, memory, exceptions |
 | regex constraints | declaration-time compilation and safe binding | catastrophic backtracking; no timeout is provided |
 | output and schema tooling | cycle rejection and explicit projection failures | output size and tooling resource budgets |
+| dataclass Contract | declared stored fields, exact identity, structured boundaries | constructor, post-init, descriptors, generated repr |
 
 The finite default policy is 8 MiB JSON transport, depth 64, 100,000 compiled
 node visits, and 100 aggregated errors. It reduces Talea-owned unbounded work;
@@ -39,6 +40,14 @@ representation, and retained callback causes under the marked boundary. It does
 not omit values from successful serialization. `WriteOnly` is descriptive
 boundary metadata and remains distinct: it projects to standards schemas but is
 not runtime output enforcement.
+
+For dataclasses, Talea cannot control the class's own generated `repr` without
+mutating the application type. A sensitive dataclass field may therefore appear
+in ordinary `repr(instance)` even though Talea-owned failures redact it. Use
+`dataclasses.field(repr=False)` when the application representation must omit
+that value. Dataclass constructors, `__post_init__`, custom `__getattribute__`,
+and declared descriptors are trusted application execution, not sandboxed
+input machinery.
 
 ## Supply chain
 
