@@ -16,6 +16,8 @@ from talea.schema.references import NamedReferenceSchema, NamedSchemaIdentity
 
 __all__ = [
     "AliasSchema",
+    "DataclassField",
+    "DataclassSchema",
     "FixedTupleSchema",
     "ConstrainedSchema",
     "EnumSchema",
@@ -43,6 +45,15 @@ __all__ = [
 type PrimitiveKind = Literal["int", "float", "str", "bool", "bytes", "none"]
 type SequenceKind = Literal["list", "set", "frozenset"]
 type TypeCheckMode = Literal["exact", "nominal"]
+
+
+class _DataclassMissing:
+    """Represent the absence of a retained dataclass static default."""
+
+    __slots__ = ()
+
+
+DATACLASS_MISSING = _DataclassMissing()
 
 
 @dataclass(frozen=True, slots=True)
@@ -215,6 +226,92 @@ class TypedDictSchema:
 
 
 @dataclass(frozen=True, slots=True)
+class DataclassField:
+    """Canonical stored-field and constructor-participation truth.
+
+    ``init`` controls whether external Mapping and JSON boundaries may supply
+    the field. Every field remains part of strict current-state validation and
+    output. Defaults and factories are retained only so the original dataclass
+    constructor can remain their sole lifecycle owner.
+    """
+
+    name: str
+    schema: "Schema"
+    init: bool
+    kw_only: bool
+    default: object = DATACLASS_MISSING
+    default_factory: object = DATACLASS_MISSING
+    alias: str | None = None
+    metadata: DeclarationMetadata = EMPTY_METADATA
+
+    def __post_init__(self) -> None:
+        if self.default is not DATACLASS_MISSING and self.default_factory is not DATACLASS_MISSING:
+            raise ValueError("a dataclass field cannot have both a static default and a default factory")
+        if self.alias is not None and (not isinstance(self.alias, str) or not self.alias):
+            raise TypeError("a dataclass field alias must be a non-empty string")
+
+    @property
+    def required(self) -> bool:
+        """Return whether external construction requires this field."""
+
+        return self.init and self.default is DATACLASS_MISSING and self.default_factory is DATACLASS_MISSING
+
+    @property
+    def has_static_default(self) -> bool:
+        """Return whether stdlib construction owns a static default."""
+
+        return self.default is not DATACLASS_MISSING
+
+    @property
+    def has_default_factory(self) -> bool:
+        """Return whether stdlib construction owns a default factory."""
+
+        return self.default_factory is not DATACLASS_MISSING
+
+    @property
+    def external_name(self) -> str:
+        """Return the one canonical external boundary name."""
+
+        return self.name if self.alias is None else self.alias
+
+
+@dataclass(frozen=True, slots=True)
+class DataclassSchema:
+    """Canonical structural and lifecycle truth for one stdlib dataclass.
+
+    The original class remains the runtime representation. This immutable node
+    records only the effective stored fields, constructor participation,
+    frozen binding policy, and recursive declaration identity needed by Talea
+    consumers; no dataclass class or instance is mutated.
+    """
+
+    dataclass_type: type[object]
+    fields: tuple[DataclassField, ...]
+    frozen: bool
+    identity: NamedSchemaIdentity | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        names = tuple(item.name for item in self.fields)
+        if len(names) != len(set(names)):
+            raise ValueError("a dataclass schema requires unique field names")
+        external_names = tuple(item.external_name for item in self.fields)
+        canonical_names = frozenset(names)
+        for item in self.fields:
+            if item.alias is not None and item.alias in canonical_names:
+                raise ValueError(f"field alias {item.alias!r} conflicts with a canonical field name")
+        if len(external_names) != len(set(external_names)):
+            raise ValueError("a dataclass schema requires unique external field names")
+
+    @property
+    def instances_are_permanently_trusted(self) -> bool:
+        """Return whether validated instances cannot later leave the contract."""
+
+        from talea.declaration.policies import schema_values_are_immutable
+
+        return schema_values_are_immutable(self)
+
+
+@dataclass(frozen=True, slots=True)
 class TaggedUnionBranch:
     """Bind one exact Python and JSON tag representation to one branch."""
 
@@ -314,6 +411,7 @@ type Schema = (
     AliasSchema
     | PrimitiveSchema
     | SpecReferenceSchema
+    | DataclassSchema
     | NamedReferenceSchema
     | TypeSchema
     | LiteralSchema

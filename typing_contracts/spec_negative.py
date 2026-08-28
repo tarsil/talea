@@ -1,5 +1,6 @@
 """Negative static-typing probes for Talea Spec declarations."""
 
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated, Literal
 from uuid import UUID
@@ -21,6 +22,15 @@ from talea import (
     transform,
 )
 from talea.introspection import inspect_contract, inspect_spec
+
+
+@dataclass
+class DataclassUser:
+    id: int
+
+
+Contract(DataclassUser).to_python(object())  # ty: ignore[invalid-argument-type]
+Contract(DataclassUser).to_json("wrong")  # ty: ignore[invalid-argument-type]
 
 
 class User(Spec):

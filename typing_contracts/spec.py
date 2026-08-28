@@ -1,6 +1,7 @@
 """Positive static-typing contract for Talea Spec declarations."""
 
 from copy import replace
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
@@ -37,6 +38,26 @@ from talea import (
     transform,
 )
 from talea.introspection import ContractInfo, SpecInfo, inspect_contract, inspect_spec
+
+
+@dataclass
+class DataclassUser:
+    id: int
+    name: str
+
+
+@dataclass
+class DataclassPage[T]:
+    items: list[T]
+
+
+dataclass_contract = Contract(DataclassUser)
+generic_dataclass_contract: Contract[DataclassPage[int]] = Contract(DataclassPage[int])
+
+assert_type(dataclass_contract.validate(DataclassUser(1, "Ada")), DataclassUser)
+assert_type(dataclass_contract.from_python({"id": 1, "name": "Ada"}), DataclassUser)
+assert_type(dataclass_contract.from_json('{"id":1,"name":"Ada"}'), DataclassUser)
+assert_type(generic_dataclass_contract.from_python({"items": [1]}), DataclassPage[int])
 
 
 class User(Spec):

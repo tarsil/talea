@@ -21,6 +21,7 @@ from talea.errors.safety import REDACTED
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
+    DataclassSchema,
     EnumSchema,
     FixedTupleSchema,
     LiteralSchema,
@@ -144,6 +145,9 @@ class _ValidationEmitter:
             return
         if isinstance(base, SpecReferenceSchema):
             self.emit_spec_reference(base, value, location, indentation)
+            return
+        if isinstance(base, DataclassSchema):
+            self.emit_dataclass(base, value, location, indentation)
             return
         if isinstance(base, SequenceSchema):
             self.emit_sequence(base, value, location, indentation, constraints)
@@ -284,6 +288,73 @@ class _ValidationEmitter:
                     indentation,
                     sensitive=any(bool(declaration.fields[index].metadata.sensitive) for index in indices),
                 )
+
+    def emit_dataclass(
+        self,
+        schema: DataclassSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+        *,
+        external_names: bool = False,
+    ) -> None:
+        """Emit exact identity and direct declared-field current-state checks."""
+
+        type_name = self.runtime("type", type)
+        expected_type = self.bind("dataclass_type", schema.dataclass_type)
+        self.emit(indentation, f"if {type_name}({value}) is not {expected_type}:")
+        self.emit_failure(schema, value, location, indentation + 1)
+        field_indentation = indentation
+        if self.trusted_instances is not None:
+            identity = self.runtime("id", id)
+            self.emit(
+                indentation,
+                f"if {self.trusted_instances} is None or {identity}({value}) not in {self.trusted_instances}:",
+            )
+            field_indentation += 1
+        self.emit_dataclass_fields(
+            schema,
+            value,
+            location,
+            field_indentation,
+            external_names=external_names,
+        )
+
+    def emit_dataclass_fields(
+        self,
+        schema: DataclassSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+        *,
+        external_names: bool,
+    ) -> None:
+        """Emit direct stored-state reads using canonical or external locations."""
+
+        names = tuple(field.external_name if external_names else field.name for field in schema.fields)
+        field_names = self.bind("dataclass_field_names", names)
+        attribute_error = self.runtime("attribute_error", AttributeError)
+        title = self.title_name or self.bind("dataclass_title", schema.dataclass_type.__name__)
+        for index, field in enumerate(schema.fields):
+            nested = self.variable("dataclass_field")
+            member_location = (*location, f"{field_names}[{index}]")
+            self.emit(indentation, "try:")
+            self.emit(indentation + 1, f"{nested} = {value}.{field.name}")
+            self.emit(indentation, f"except {attribute_error}:")
+            missing = self.variable("missing_error")
+            self.emit(
+                indentation + 1,
+                f"{missing} = {self.validation_error_name}._missing("
+                f"{self.location_expression(member_location)}, title={title})",
+            )
+            self.emit(indentation + 1, f"raise {missing} from None")
+            self.emit_schema(
+                field.schema,
+                nested,
+                member_location,
+                indentation,
+                sensitive=bool(field.metadata.sensitive),
+            )
 
     def emit_transform(
         self,
@@ -834,6 +905,10 @@ class _ValidationEmitter:
             instance_check = self.runtime("isinstance", isinstance)
             expected_type = self.bind("spec_type", schema.spec_type)
             return f"{instance_check}({value}, {expected_type})"
+        if isinstance(schema, DataclassSchema):
+            type_name = self.runtime("type", type)
+            expected_type = self.bind("dataclass_type", schema.dataclass_type)
+            return f"{type_name}({value}) is {expected_type}"
         if isinstance(schema, SequenceSchema):
             type_name = self.runtime("type", type)
             sequence_type = self.runtime(schema.kind, self._sequence_types[schema.kind])

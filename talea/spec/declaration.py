@@ -22,6 +22,7 @@ from talea.metadata import EMPTY_METADATA, DeclarationMetadata, normalize_metada
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
+    DataclassSchema,
     EnumSchema,
     FixedTupleSchema,
     LiteralSchema,
@@ -162,6 +163,8 @@ def _referenced_specs(
     if isinstance(schema, MappingSchema):
         return (*_referenced_specs(schema.key, visiting), *_referenced_specs(schema.value, visiting))
     if isinstance(schema, TypedDictSchema):
+        return tuple(target for field in schema.fields for target in _referenced_specs(field.schema, visiting))
+    if isinstance(schema, DataclassSchema):
         return tuple(target for field in schema.fields for target in _referenced_specs(field.schema, visiting))
     if isinstance(schema, TaggedUnionSchema):
         return tuple(target for branch in schema.branches for target in _referenced_specs(branch.schema, visiting))

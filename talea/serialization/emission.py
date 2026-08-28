@@ -24,6 +24,7 @@ from talea.json.representations import encode_bytes, format_timedelta, standard_
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
+    DataclassSchema,
     EnumSchema,
     FixedTupleSchema,
     LiteralSchema,
@@ -304,6 +305,8 @@ class _ValueProjectionCompiler:
             nested = self._bind(names, namespace, "nested_serializer", serializer)
             project = self._bind(names, namespace, "project_nested", _project_nested)
             return f"{project}({value}, {nested}, {location}{self._sensitive_argument()})"
+        if isinstance(schema, DataclassSchema):
+            return self._dataclass_expression(schema, value, location, names, namespace)
         if isinstance(schema, SequenceSchema):
             return self._sequence_expression(schema, value, location, names, namespace)
         if isinstance(schema, MappingSchema):
@@ -438,6 +441,31 @@ class _ValueProjectionCompiler:
             )
             fields.append(f"**({{{key}: {projected}}} if {key} in {value} else {{}})")
         return f"{{{', '.join(fields)}}}"
+
+    def _dataclass_expression(
+        self,
+        schema: DataclassSchema,
+        value: str,
+        location: str,
+        names: _GeneratedNames,
+        namespace: dict[str, object],
+    ) -> str:
+        """Project declared stored fields directly into a detached dictionary."""
+
+        entries = []
+        for field in schema.fields:
+            key = field.external_name if self.by_alias else field.name
+            key_name = self._bind(names, namespace, "dataclass_key", key)
+            projected = self.expression(
+                field.schema,
+                f"{value}.{field.name}",
+                f"(*{location}, {key_name})",
+                names,
+                namespace,
+                sensitive=bool(field.metadata.sensitive),
+            )
+            entries.append(f"{key_name}: {projected}")
+        return f"{{{', '.join(entries)}}}"
 
     def _variadic_tuple_expression(
         self,

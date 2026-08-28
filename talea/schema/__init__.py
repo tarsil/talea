@@ -3,6 +3,8 @@
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
+    DataclassField,
+    DataclassSchema,
     EnumSchema,
     FixedTupleSchema,
     LiteralSchema,
@@ -37,6 +39,8 @@ __all__ = [
     "AnnotationResolutionError",
     "ConstrainedSchema",
     "ConstraintDeclarationError",
+    "DataclassField",
+    "DataclassSchema",
     "TaggedUnionDeclarationError",
     "EnumSchema",
     "FixedTupleSchema",

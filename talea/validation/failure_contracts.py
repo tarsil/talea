@@ -14,6 +14,7 @@ from talea.errors import ErrorCode
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
+    DataclassSchema,
     EnumSchema,
     FixedTupleSchema,
     LiteralSchema,
@@ -55,6 +56,8 @@ def describe_schema(schema: Schema) -> str:
         return f"Annotated[{describe_schema(schema.schema)}, {descriptions}]"
     if isinstance(schema, SpecReferenceSchema):
         return schema.spec_type.__name__
+    if isinstance(schema, DataclassSchema):
+        return schema.dataclass_type.__name__
     if isinstance(schema, SequenceSchema):
         return f"{schema.kind}[{describe_schema(schema.item)}]"
     if isinstance(schema, MappingSchema):
@@ -159,6 +162,8 @@ def schema_order_key(schema: Schema) -> tuple[int, str]:
         return 6, describe_schema(schema)
     if isinstance(schema, SpecReferenceSchema):
         return 6, f"{schema.spec_type.__module__}.{schema.spec_type.__qualname__}"
+    if isinstance(schema, DataclassSchema):
+        return 6, f"{schema.dataclass_type.__module__}.{schema.dataclass_type.__qualname__}"
     if isinstance(schema, TypedDictSchema):
         return 7, f"{schema.module}.{schema.name}"
     if isinstance(schema, TaggedUnionSchema):
