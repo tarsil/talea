@@ -29,6 +29,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -124,6 +125,9 @@ class _ValidationEmitter:
         if isinstance(base, TypeSchema):
             self.emit_type(base, value, location, indentation, constraints)
             return
+        if isinstance(base, RepresentationSchema):
+            self.emit_representation(base, value, location, indentation)
+            return
         if isinstance(base, EnumSchema):
             self.emit_enum(base, value, location, indentation)
             return
@@ -171,6 +175,17 @@ class _ValidationEmitter:
             self.emit_union(base, value, location, indentation)
             return
         raise AssertionError("nested constrained schema reached validation emission")
+
+    def emit_representation(
+        self,
+        schema: RepresentationSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Validate only the canonical internal contract on strict paths."""
+
+        self.emit_schema(schema.internal, value, location, indentation)
 
     def emit_named_reference(
         self,
@@ -895,6 +910,8 @@ class _ValidationEmitter:
                 return f"{type_name}({value}) is {expected_type}"
             instance_check = self.runtime("isinstance", isinstance)
             return f"{instance_check}({value}, {expected_type})"
+        if isinstance(schema, RepresentationSchema):
+            return self.top_level_condition(schema.internal, value)
         if isinstance(schema, EnumSchema):
             type_name = self.runtime("type", type)
             enum_type = self.bind("enum_type", schema.enum_type)

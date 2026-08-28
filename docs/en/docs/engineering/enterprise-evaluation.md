@@ -55,10 +55,11 @@ memory, and allocations. Comparisons call out semantic differences. See
 
 ## Maturity and support
 
-The current version is in Talea's ongoing 0.x series. Public behavior is tested with enforced 100%
-line coverage and static typing gates in the repository, but 1.0 compatibility
-and support governance are not yet frozen. No compliance certification,
-service-level agreement, or bank approval is claimed.
+The current version is in Talea's ongoing 0.x series. Public behavior is tested
+with enforced 100% line coverage and static typing gates in the repository, but
+compatibility and support governance remain intentionally evolvable across 0.x
+releases. No compliance certification, service-level agreement, or bank
+approval is claimed.
 
 Review [known limitations](limitations.md), [comparison](comparison.md),
 [security architecture](security.md), [version and support](../release-ledger.md),

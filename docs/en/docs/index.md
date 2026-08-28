@@ -174,9 +174,9 @@ technical consequences in detail.
 | Records | strict keyword-only immutable slotted Specs, defaults/factories, inheritance, generics, recursion |
 | Validation | exact Python types, constraints, transforms, field and whole-Spec checks, structured errors |
 | Boundaries | trusted Python, external Mapping, strict JSON, arbitrary Contract roots |
-| Composition | nested Specs, stdlib dataclasses, TypedDict, aliases, unions, canonical tagged dispatch, recursive named graphs |
+| Composition | nested Specs, stdlib dataclasses, TypedDict, aliases, represented custom domain types, unions, canonical tagged dispatch, recursive named graphs |
 | Updates | `copy.replace`, `derive_spec`, presence-aware partials, `apply_patch` |
-| Output | detached Python projection, JSON representations, per-call codec boundaries |
+| Output | detached Python projection, JSON representations, nested selection, field serializers with optional declared output truth, per-call codec boundaries |
 | Security | Sensitive-aware failure redaction; finite transport, depth, work, and error budgets |
 | Standards | JSON Schema Draft 2020-12 and OpenAPI 3.1-compatible Schema Objects |
 | Tooling | immutable field/schema introspection and dynamic `create_spec` declarations |
@@ -231,6 +231,7 @@ page](release-ledger.md) make that cost explicit.
 | Model partial updates | [PATCH and presence](presence-derived-contracts.md) | [`derive_spec` / `apply_patch` API](reference/api.md#derive_spec-and-apply_patch) |
 | Consume event messages | [Tagged unions](tagged-unions.md) | [Recursion/generics](recursive-generics.md), [schemas](json-schema-openapi.md) |
 | Validate arbitrary roots | [Contract](contracts.md) | [Supported types](supported-types.md) |
+| Represent custom domain types | [Custom representations](custom-representations.md) | [Serialization](serialization.md), [schemas](json-schema-openapi.md) |
 | Build framework tooling | [Introspection](reference/introspection.md) | [OpenAPI](json-schema-openapi.md), [architecture](engineering/architecture.md) |
 | Perform security review | [Resource and security model](resource-security.md) | [Security summary](engineering/security.md) |
 | Evaluate adoption | [Why Talea?](getting-started/why-talea.md) | [Comparison](engineering/comparison.md), [enterprise questions](engineering/enterprise-evaluation.md) |

@@ -533,6 +533,23 @@ def test_serialization_hook_failures_preserve_cause_and_reject_unsupported_json_
     assert "nested" in str(nested.value)
 
 
+def test_opaque_serializer_cycles_raise_located_serialization_errors() -> None:
+    class Cyclic(Spec):
+        value: int
+
+        @serialize("value")
+        def output(value: int) -> list[object]:
+            result: list[object] = [value]
+            result.append(result)
+            return result
+
+    for operation in (Cyclic(value=1).to_dict, Cyclic(value=1).to_json):
+        with pytest.raises(SerializationError, match="cyclic object graphs") as raised:
+            operation()
+        assert raised.value.location == ("value", 1)
+        assert raised.value.__cause__ is None
+
+
 def test_serialization_hook_declaration_rejects_ambiguous_or_async_lifecycles() -> None:
     with pytest.raises(TypeError, match="non-empty"):
         serialize("")

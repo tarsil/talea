@@ -31,6 +31,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -186,6 +187,37 @@ def _project_nested(
         raise prefixed from prefixed.__cause__
 
 
+def _project_representation(
+    dump: Callable[[object], object],
+    validator: Callable[[object], object],
+    projector: ValueProjector,
+    value: object,
+    location: tuple[object, ...],
+    sensitive: bool = False,
+) -> object:
+    """Dump one internal value and enforce its declared output contract."""
+
+    try:
+        candidate = dump(value)
+    except Exception as error:
+        failure = SerializationError(
+            "Representation dumper failed",
+            location,
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
+    try:
+        validator(candidate)
+    except ValidationError as error:
+        failure = SerializationError(
+            "Representation dumper returned a value outside its declared output contract",
+            location,
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
+    return projector(candidate, location)
+
+
 class _ValueProjectionCompiler:
     """Emit one direct value projector for a canonical Schema."""
 
@@ -320,6 +352,32 @@ class _ValueProjectionCompiler:
                 _NamedOutputReference(schema, self.mode, self.by_alias, self.sensitive),
             )
             return f"{projector}({value}, {location})"
+        if isinstance(schema, RepresentationSchema):
+            output = schema.output
+            dump = schema._declaration.dump
+            if output is None or dump is None:
+                raise SerializationError("Representation has no output direction")
+            callback = self._bind(names, namespace, "representation_dump", dump)
+            validator = self._bind(
+                names,
+                namespace,
+                "representation_output_validator",
+                compile_validator(output, sensitive=self.sensitive),
+            )
+            projector = self._bind(
+                names,
+                namespace,
+                "representation_output_projector",
+                _ValueProjectionCompiler(self.mode, self.by_alias).compile(
+                    output,
+                    sensitive=self.sensitive,
+                    include=include,
+                    exclude=exclude,
+                    exclude_none=exclude_none,
+                ),
+            )
+            project = self._bind(names, namespace, "project_representation", _project_representation)
+            return f"{project}({callback}, {validator}, {projector}, {value}, {location}{self._sensitive_argument()})"
         if isinstance(schema, PrimitiveSchema):
             if self.mode == "json" and schema.kind == "bytes":
                 encoder = self._bind(names, namespace, "encode_bytes", encode_bytes)
@@ -732,6 +790,8 @@ def _schema_accepts_selection(schema: Schema, active: set[int] | None = None) ->
     try:
         if isinstance(schema, NamedReferenceSchema):
             return _schema_accepts_selection(schema.target, active)
+        if isinstance(schema, RepresentationSchema):
+            return schema.output is not None and _schema_accepts_selection(schema.output, active)
         if isinstance(schema, (SpecReferenceSchema, DataclassSchema, TypedDictSchema, TaggedUnionSchema)):
             return True
         if isinstance(schema, (SequenceSchema, VariadicTupleSchema)):
@@ -784,8 +844,40 @@ def project_hook_value(
         )
         raise failure from (None if sensitive else error)
     if mode == "python":
-        return _copy_hook_python(replacement, by_alias, location, sensitive)
-    return _project_hook_json(replacement, by_alias, location, sensitive)
+        return _copy_hook_python(replacement, by_alias, location, sensitive, None)
+    return _project_hook_json(replacement, by_alias, location, sensitive, None)
+
+
+def project_declared_hook_value(
+    function: FunctionType,
+    hook_name: str,
+    validator: Callable[[object], object],
+    projector: ValueProjector,
+    value: object,
+    location: tuple[object, ...],
+    sensitive: bool = False,
+) -> object:
+    """Run one field serializer once and enforce its declared result schema."""
+
+    try:
+        replacement = function(value)
+    except Exception as error:
+        failure = SerializationError(
+            f"serialization hook {hook_name!r} failed",
+            location,
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
+    try:
+        validator(replacement)
+    except ValidationError as error:
+        failure = SerializationError(
+            f"serialization hook {hook_name!r} returned a value outside its declared output contract",
+            location,
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
+    return projector(replacement, location)
 
 
 def _copy_hook_python(
@@ -793,39 +885,65 @@ def _copy_hook_python(
     by_alias: bool,
     location: tuple[object, ...],
     sensitive: bool,
+    active: set[int] | None,
 ) -> object:
     artifacts = getattr(type(value), "__talea_artifacts__", None)
     if artifacts is not None:
         serializer = artifacts.outputs.output_for(artifacts.schema, "python", by_alias, False)
         return _project_nested(value, serializer, location, sensitive)
-    if type(value) is list:
-        return [_copy_hook_python(item, by_alias, (*location, index), sensitive) for index, item in enumerate(value)]
-    if type(value) is tuple:
-        return tuple(
-            _copy_hook_python(item, by_alias, (*location, index), sensitive) for index, item in enumerate(value)
-        )
-    if type(value) is set:
-        return {_copy_hook_python(item, by_alias, (*location, index), sensitive) for index, item in enumerate(value)}
-    if type(value) is frozenset:
-        return frozenset(
-            _copy_hook_python(item, by_alias, (*location, index), sensitive) for index, item in enumerate(value)
-        )
-    if type(value) is dict:
+    container_type = type(value)
+    if container_type not in (list, tuple, set, frozenset, dict):
+        return value
+    if active is None:
+        active = set()
+    identity = id(value)
+    if identity in active:
+        raise SerializationError(
+            "cyclic object graphs cannot be serialized",
+            location,
+            sensitive=sensitive,
+        ) from None
+    active.add(identity)
+    try:
+        container = cast(list[object] | tuple[object, ...] | set[object] | frozenset[object], value)
+        if container_type is list:
+            return [
+                _copy_hook_python(item, by_alias, (*location, index), sensitive, active)
+                for index, item in enumerate(container)
+            ]
+        if container_type is tuple:
+            return tuple(
+                _copy_hook_python(item, by_alias, (*location, index), sensitive, active)
+                for index, item in enumerate(container)
+            )
+        if container_type is set:
+            return {
+                _copy_hook_python(item, by_alias, (*location, index), sensitive, active)
+                for index, item in enumerate(container)
+            }
+        if container_type is frozenset:
+            return frozenset(
+                _copy_hook_python(item, by_alias, (*location, index), sensitive, active)
+                for index, item in enumerate(container)
+            )
         return {
             _copy_hook_python(
                 key,
                 by_alias,
                 (*location, REDACTED if sensitive else key),
                 sensitive,
+                active,
             ): _copy_hook_python(
                 item,
                 by_alias,
                 (*location, REDACTED if sensitive else key),
                 sensitive,
+                active,
             )
-            for key, item in value.items()
+            for key, item in cast(dict[object, object], value).items()
         }
-    return value
+    finally:
+        active.remove(identity)
 
 
 def _project_hook_json(
@@ -833,6 +951,7 @@ def _project_hook_json(
     by_alias: bool,
     location: tuple[object, ...],
     sensitive: bool,
+    active: set[int] | None,
 ) -> object:
     artifacts = getattr(type(value), "__talea_artifacts__", None)
     if artifacts is not None:
@@ -856,21 +975,37 @@ def _project_hook_json(
         return str(value)
     if isinstance(value, Enum):
         return _enum_json(value, location, sensitive)
-    if type(value) in (list, tuple, set, frozenset):
-        container = cast(list[object] | tuple[object, ...] | set[object] | frozenset[object], value)
-        return [
-            _project_hook_json(item, by_alias, (*location, index), sensitive) for index, item in enumerate(container)
-        ]
-    if type(value) is dict:
-        return {
-            _json_key(key, (*location, REDACTED if sensitive else key), sensitive): _project_hook_json(
-                item,
-                by_alias,
-                (*location, REDACTED if sensitive else key),
-                sensitive,
-            )
-            for key, item in value.items()
-        }
+    container_type = type(value)
+    if container_type in (list, tuple, set, frozenset, dict):
+        if active is None:
+            active = set()
+        identity = id(value)
+        if identity in active:
+            raise SerializationError(
+                "cyclic object graphs cannot be serialized",
+                location,
+                sensitive=sensitive,
+            ) from None
+        active.add(identity)
+        try:
+            if container_type is not dict:
+                container = cast(list[object] | tuple[object, ...] | set[object] | frozenset[object], value)
+                return [
+                    _project_hook_json(item, by_alias, (*location, index), sensitive, active)
+                    for index, item in enumerate(container)
+                ]
+            return {
+                _json_key(key, (*location, REDACTED if sensitive else key), sensitive): _project_hook_json(
+                    item,
+                    by_alias,
+                    (*location, REDACTED if sensitive else key),
+                    sensitive,
+                    active,
+                )
+                for key, item in cast(dict[object, object], value).items()
+            }
+        finally:
+            active.remove(identity)
     raise SerializationError(
         f"hook returned unsupported JSON value {type(value).__qualname__}",
         location,

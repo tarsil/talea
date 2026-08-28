@@ -1,6 +1,32 @@
 # Release Notes
 
-## 0.2.0 — Python interoperability and boundary productivity
+## 0.3.0
+
+### Added
+
+- Reusable annotation-scoped `Representation` contracts for custom domain
+  types, with explicit one-way or bidirectional input/output declarations.
+- Representation execution across strict validation, external Python/JSON
+  input, detached Python/JSON output, JSON Schema, OpenAPI, callback-free
+  introspection, and nested composition through Specs, dataclasses, TypedDicts,
+  containers, unions, aliases, generics, and recursive containing graphs.
+- Optional declared `output=` contracts for field serializers, with callback
+  result validation, canonical Python/JSON projection, output-only JSON
+  Schema/OpenAPI truth, callback-free introspection, and nested output
+  selection. Serializers without `output=` retain their opaque behavior.
+
+### Fixed
+
+- Sensitive represented input now redacts ordinary loader exceptions instead
+  of allowing secret-bearing non-`ValueError` failures to escape unchanged.
+- Cyclic built-in containers returned by opaque field serializers now fail with
+  a located `SerializationError` instead of an unhandled recursion failure.
+
+Callbacks remain synchronous, trusted, and ungoverned by output
+`ResourcePolicy`; Representation is explicit rather than registry-driven, and
+serializers without `output=` remain structurally opaque.
+
+## 0.2.0
 
 ### Added
 
@@ -21,7 +47,7 @@
   OpenAPI. The original dataclass, constructor lifecycle, defaults,
   `__post_init__`, equality, hashing, and pickle behavior remain unchanged.
 
-## 0.1.0 — First Public Release
+## 0.1.0
 
 Talea 0.1.0 is the first public release of Talea, a pure-Python data-contract
 library for Python 3.14 and newer. It provides strict validation, explicit

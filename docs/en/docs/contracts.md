@@ -40,6 +40,11 @@ A Contract consumes the same canonical schema, validator, input, JSON, and
 serialization owners as a Spec. It is not an adapter-specific validation
 engine.
 
+For an application-owned Python class at an explicit annotation position, use
+root-public `Representation` to declare its external input and output contracts.
+The same alias then works as a Contract root or beneath every normal container
+and object owner. See [Custom domain representations](custom-representations.md).
+
 ## Strict Python and external Python
 
 `validate()` is strict. It accepts an already-valid Python value and returns

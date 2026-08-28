@@ -9,6 +9,7 @@ from talea import (
     Alias,
     Contract,
     Ge,
+    Representation,
     ResourcePolicy,
     Sensitive,
     Spec,
@@ -75,6 +76,28 @@ inspect_spec(User(id=1))  # ty: ignore[invalid-argument-type]
 inspect_contract(int)  # ty: ignore[invalid-argument-type]
 Title(1)  # ty: ignore[invalid-argument-type]
 Sensitive("yes")  # ty: ignore[invalid-argument-type]
+
+
+class TypedMoney:
+    pass
+
+
+async def async_money(value: str) -> TypedMoney:
+    return TypedMoney()
+
+
+bad_loader_result: Representation[str, TypedMoney, object] = Representation(
+    input=str,
+    load=lambda value: value,
+)  # ty: ignore[invalid-assignment]
+bad_async_loader: Representation[str, TypedMoney, object] = Representation(
+    input=str,
+    load=async_money,
+)  # ty: ignore[invalid-assignment]
+bad_dump_input: Representation[str, TypedMoney, str] = Representation(
+    output=str,
+    dump=lambda value: 1,
+)  # ty: ignore[invalid-assignment]
 
 
 type RecursiveValue = int | list[RecursiveValue]

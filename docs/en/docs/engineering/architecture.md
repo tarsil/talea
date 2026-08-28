@@ -34,7 +34,7 @@ identity, and discriminator truth are not reinterpreted by each branch.
 | resources | operation-local input budgets |
 | standards projection | Draft 2020-12 and OpenAPI Schema Objects |
 
-## Talea 0.2 owner map
+## Canonical owner map
 
 The 0.2 capabilities extend existing owners rather than creating parallel
 representations:
@@ -49,12 +49,55 @@ representations:
 | external-input budgets | operation-local `ResourcePolicy` state | Mapping and JSON input compilers |
 | JSON representations | canonical JSON representation owner | JSON input, JSON output, and standards projection |
 | public validation failures | `ErrorCode`, `ErrorData`, and `ValidationError` | every validation and input execution target |
+| represented domain values | one immutable `RepresentationSchema` association between internal, input, output, and callback identity | strict validation, input/output compilation, standards projection, introspection, and nested selection |
 
 Dataclass execution specializes from `DataclassSchema`; it does not retain a
 second field map or rediscover `dataclasses.fields()`. Directional derivation
 projects normal Spec declarations from one provenance record. Nested selection
 copies caller input into an immutable tree before field access, compiles only
 when a nested selector is used, and has no process-global cache.
+
+### Representation ownership
+
+The representation declaration is
+`Annotated[Internal, Representation(...)]`. Resolution creates one
+`RepresentationSchema`; execution does not scan metadata again and there is no
+callback registry. Strict validation consumes only the internal schema. An
+external Python or decoded-JSON value is processed by the declared input
+schema, passed to the synchronous loader once, and the result is validated by
+the internal schema before it can escape.
+
+Callbacks are trusted application code: their own work is not budgeted or
+rolled back. Talea-owned traversal before and after the callback shares the
+same operation-local `ResourcePolicy` state, so a small input expanded into a
+large structural result remains bounded. Opaque represented classes receive an
+exact runtime-type check, not permanent trust in hidden state. Existing
+supported internal schemas retain their normal structural and trust rules.
+
+Ordinary unions keep Talea's canonical branch ordering. A represented branch
+is attempted only when its declared input schema is structurally plausible;
+its loader `ValueError` becomes a branch validation failure and may allow the
+next branch to run, while other exceptions propagate. Consequently trusted
+loader side effects can occur in more than one attempted branch, and every
+attempted input/result traversal consumes the shared resource budget. A union
+with multiple representation declarations for the same internal contract is
+rejected because callback ordering would otherwise be indistinguishable.
+
+Python 3.14 has no `TypeForm`, so the runtime `input` and `output` type-form
+parameters use `object` annotations. Generic callback relationships still
+express `InputT -> InternalT` and `InternalT -> OutputT`; runtime resolution
+validates the actual type forms. Moving to Python 3.15 `TypeForm` can strengthen
+those two annotations without changing declaration vocabulary or behavior.
+
+Output validates current internal truth, invokes the directly bound dumper once,
+validates the candidate against the declared output schema, and feeds that
+schema's normal Python or JSON projector. Standards modes project the declared
+input or output schema without executing callbacks. Callback-free
+`RepresentationInfo` and structural nested selection are projections of the
+same node, not additional declaration models. A missing direction fails
+explicitly and never falls through to `repr`, `__dict__`, or internal-object
+serialization. `Representation` is root-public because these owners now form
+one complete boundary contract.
 
 ## Why compile generated Python
 

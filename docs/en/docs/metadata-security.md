@@ -206,6 +206,13 @@ Likewise, a JSON codec failure for a value graph containing sensitive metadata
 does not retain the codec exception. Successful custom hooks and codecs still
 receive the actual value because serialization was explicitly requested.
 
+A Sensitive represented value follows the same policy for current-state,
+dumper, invalid-result, nested projection, and JSON failures. Talea suppresses
+unsafe causes and never renders callback repr or message-derived details. It
+cannot stop the trusted loader/dumper from logging its argument or causing
+external side effects, and successful represented output remains intentional
+output rather than automatic omission.
+
 Read-only and write-only are also projected to JSON Schema/OpenAPI. They do not
 enforce ordinary source-Spec runtime operations. Applications that want a
 concrete directional shape can explicitly derive it:

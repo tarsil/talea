@@ -45,6 +45,7 @@ from talea.metadata import (
     annotation_metadata,
     normalize_metadata,
 )
+from talea.representation import Representation
 from talea.schema.nodes import (
     DATACLASS_MISSING,
     AliasSchema,
@@ -58,6 +59,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -224,16 +226,7 @@ def _resolve_annotation(
         return _resolve_typed_dict(cast(type[object], typed_dict), arguments, targets)
 
     if origin is Annotated:
-        discriminators = tuple(item for item in arguments[1:] if isinstance(item, Discriminator))
-        if len(discriminators) > 1:
-            raise TaggedUnionDeclarationError("an annotation can declare only one Discriminator")
-        if discriminators:
-            schema = _resolve_tagged_union(arguments[0], discriminators[0], targets)
-            constraints = tuple(item for item in arguments[1:] if isinstance(item, _CONSTRAINT_TYPES))
-            return _apply_constraints(schema, constraints)
-        schema = _resolve_annotation(arguments[0], targets)
-        constraints = tuple(item for item in arguments[1:] if isinstance(item, _CONSTRAINT_TYPES))
-        return _apply_constraints(schema, constraints)
+        return _resolve_annotated(arguments, targets)
     if origin is Literal:
         if not arguments:
             raise AnnotationResolutionError(annotation)
@@ -243,6 +236,7 @@ def _resolve_annotation(
         options = frozenset(_resolve_annotation(argument, targets) for argument in arguments)
         if len(options) == 1:
             return next(iter(options))
+        _validate_representation_union(options)
         if any(_is_tagged_option(option) for option in options) and any(
             not _is_tagged_option(option) and not (isinstance(option, PrimitiveSchema) and option.kind == "none")
             for option in options
@@ -273,6 +267,75 @@ def _resolve_annotation(
             return FixedTupleSchema(tuple(_resolve_annotation(item, targets) for item in arguments))
 
     raise AnnotationResolutionError(annotation)
+
+
+def _resolve_annotated(
+    arguments: tuple[object, ...],
+    targets: dict[NamedSchemaIdentity, _NamedSchemaTarget],
+) -> Schema:
+    """Resolve metadata-bearing annotations outside the primitive resolution frame."""
+
+    representations = tuple(item for item in arguments[1:] if isinstance(item, Representation))
+    if len(representations) > 1:
+        raise TypeError("an annotation can declare only one Representation")
+    discriminators = tuple(item for item in arguments[1:] if isinstance(item, Discriminator))
+    if len(discriminators) > 1:
+        raise TaggedUnionDeclarationError("an annotation can declare only one Discriminator")
+    if discriminators:
+        if representations:
+            raise TypeError("Representation and Discriminator cannot annotate the same contract")
+        schema = _resolve_tagged_union(arguments[0], discriminators[0], targets)
+    elif representations:
+        schema = _resolve_representation(arguments[0], representations[0], targets)
+    else:
+        schema = _resolve_annotation(arguments[0], targets)
+    constraints = tuple(item for item in arguments[1:] if isinstance(item, _CONSTRAINT_TYPES))
+    return _apply_constraints(schema, constraints)
+
+
+def _validate_representation_union(options: frozenset[Schema]) -> None:
+    """Reject callback-order ambiguity for repeated represented internals."""
+
+    internals: set[Schema] | None = None
+    for option in options:
+        option_type = type(option)
+        if option_type is RepresentationSchema:
+            assert isinstance(option, RepresentationSchema)
+            representation = option
+        elif option_type is AliasSchema or option_type is ConstrainedSchema:
+            representation = _representation_option(option)
+        else:
+            continue
+        if representation is None:
+            continue
+        if internals is None:
+            internals = {representation.internal}
+        elif representation.internal in internals:
+            raise TypeError(
+                "a union cannot contain multiple Representation declarations for the same internal contract"
+            )
+        else:
+            internals.add(representation.internal)
+
+
+def _resolve_representation(
+    internal_annotation: object,
+    declaration: Representation[object, object, object],
+    targets: dict[NamedSchemaIdentity, _NamedSchemaTarget],
+) -> RepresentationSchema:
+    """Resolve one marker without broadening arbitrary-class support."""
+
+    opaque_internal = False
+    try:
+        internal = _resolve_annotation(internal_annotation, targets)
+    except AnnotationResolutionError:
+        if not isinstance(internal_annotation, type):
+            raise
+        internal = TypeSchema(internal_annotation, "exact")
+        opaque_internal = True
+    input_schema = _resolve_annotation(declaration._input, targets) if declaration._has_input else None
+    output_schema = _resolve_annotation(declaration._output, targets) if declaration._has_output else None
+    return RepresentationSchema(internal, input_schema, output_schema, declaration, opaque_internal)
 
 
 def _resolve_alias(
@@ -608,6 +671,14 @@ def _is_tagged_option(schema: Schema) -> bool:
     while isinstance(schema, (AliasSchema, ConstrainedSchema)):
         schema = schema.schema
     return isinstance(schema, TaggedUnionSchema)
+
+
+def _representation_option(schema: Schema) -> RepresentationSchema | None:
+    """Return a directly wrapped union option's representation truth."""
+
+    while isinstance(schema, (AliasSchema, ConstrainedSchema)):
+        schema = schema.schema
+    return schema if isinstance(schema, RepresentationSchema) else None
 
 
 def _resolve_tagged_union(

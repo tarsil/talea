@@ -145,11 +145,21 @@ contract. Talea cannot infer that callback's input domain. Input projection of
 a transform-bearing Spec therefore raises `SchemaProjectionError`.
 
 An arbitrary field serializer can return a different output type. Output
-projection of a serializer-bearing Spec raises the same focused error because
-the callback has no declared return contract.
+projection of a serializer without `output=` raises the same focused error
+because the callback has no declared return contract. A serializer declared as
+`@serialize("field", output=Payload)` projects `Payload` for that output
+property. Input mode still projects the original field contract. JSON Schema
+and OpenAPI consume the retained schema and never execute the serializer.
 
 The opposite modes remain projectable: transforms do not change output, and
-serializers do not change accepted input.
+serializers—including declared output contracts—do not change accepted input.
+
+`Representation` supplies the explicit contract that arbitrary callbacks lack:
+input mode projects its `input=` schema and output mode projects `output=`. A
+missing direction raises `SchemaProjectionError`. Loaders and dumpers never run
+during projection and cannot inject schema dictionaries. Named alias identity,
+not callback identity, owns `$defs` and component names. See [Custom domain
+representations](custom-representations.md).
 
 Custom `check` callbacks are different. They do not change structural shape,
 so projection emits known structure and built-in constraints. Arbitrary check

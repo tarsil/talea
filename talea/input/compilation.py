@@ -6,6 +6,7 @@ from typing import cast
 
 from talea.codegen import _GeneratedNames
 from talea.declaration.models import SpecSchema
+from talea.declaration.policies import schema_contains_representation
 from talea.errors import ErrorCode
 from talea.input.emission import (
     InputMode,
@@ -341,6 +342,15 @@ class _InputCompiler:
     ) -> None:
         field = schema.fields[index]
         field_name = emitter.bind("field_name", field.external_name)
+        represented = schema_contains_representation(field.schema)
+        if represented:
+            emitter.emit_conversion(
+                field.schema,
+                value,
+                (field_name,),
+                indentation,
+                sensitive=bool(field.metadata.sensitive),
+            )
         for hook in schema.hooks:
             if hook.kind == "transform" and hook.fields == (field.name,):
                 emitter.emit_transform(
@@ -350,13 +360,22 @@ class _InputCompiler:
                     indentation,
                     sensitive=bool(field.metadata.sensitive),
                 )
-        emitter.emit_schema(
-            field.schema,
-            value,
-            (field_name,),
-            indentation,
-            sensitive=bool(field.metadata.sensitive),
-        )
+        if represented:
+            emitter.emit_strict_schema(
+                field.schema,
+                value,
+                (field_name,),
+                indentation,
+                sensitive=bool(field.metadata.sensitive),
+            )
+        else:
+            emitter.emit_schema(
+                field.schema,
+                value,
+                (field_name,),
+                indentation,
+                sensitive=bool(field.metadata.sensitive),
+            )
         for hook in schema.hooks:
             if hook.kind == "check" and hook.fields == (field.name,):
                 emitter.emit_check(

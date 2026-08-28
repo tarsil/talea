@@ -6,7 +6,10 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 
 - custom transforms, checks, serializers, and codecs are synchronous trusted
   callables; Talea does not sandbox them;
-- callable-signature and return-value validation are not implemented;
+- full callable argument/return annotation validation is not implemented;
+  callback shape is checked where declared, and Representation plus
+  `@serialize(..., output=...)` results are runtime-validated against their
+  explicit contracts;
 - NamedTuple, attrs, ordinary-class, ORM-object, and settings-source mapping
   are not part of core;
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
@@ -18,13 +21,14 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - open generic Specs, aliases, TypedDicts, and dataclasses must be concretely
   specialized before execution;
 - an arbitrary transform can make input schema projection unknowable;
-- an arbitrary serializer can make output schema projection unknowable;
+- a serializer without declared `output=` makes output schema projection
+  unknowable;
 - nested serialization selection uses canonical field names only; aliases are
   output keys, not selector identities;
 - nested selection has no per-index sequence selection, mapping-key selection,
   wildcards, predicates, path expressions, or query-language callbacks;
-- custom serializer output is a leaf because no replacement-output contract is
-  declared;
+- serializer output without `output=` is a leaf; declared output contracts use
+  the normal structural selection rules;
 - recursive selection requires an explicitly finite selection tree;
 - heterogeneous fixed tuples require one subtree valid for every position;
 - structured `set`/`frozenset` member selection is JSON-only because projected
@@ -33,6 +37,16 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   because Python cannot infer runtime field mappings;
 - no automatic converters are provided for Pydantic, attrs, or foreign schema
   systems.
+- plain `Contract(ArbitraryClass)` remains unsupported unless an explicit
+  `Representation` annotates that position; there is no registry, discovery,
+  generic Representation factory, custom format namespace, or custom error-code
+  namespace;
+- Representation and serializer callbacks are synchronous trusted Python;
+  undeclared `@serialize` results remain opaque to nested selection and output
+  schema;
+- Python 3.14 has no `TypeForm`, so `Representation.input` and `.output` are
+  typed as `object` while declaration-time resolution still rejects unsupported
+  forms;
 
 ## Deliberate boundaries and trust model
 
@@ -40,6 +54,17 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - custom Mapping objects, codecs, callbacks, dataclass constructors,
   `__post_init__`, descriptors, and `__getattribute__` can execute arbitrary
   trusted application code;
+- a representation loader may mutate its accepted input and Talea cannot roll
+  back those application side effects; subsequent Talea validation still uses
+  the values already extracted by the compiled operation;
+- a representation dumper may mutate its internal value, reenter Talea, log
+  secrets, or amplify a small value into large output; Talea calls it once but
+  cannot roll back or resource-govern that application work;
+- callbacks have no timeout or cancellation boundary, and callback CPU,
+  allocation, I/O, and output size remain application-owned;
+- Talea validates each declared direction but does not guarantee
+  `dump(load(value)) == value`, `load(dump(value)) == value`, or byte-for-byte
+  round trips;
 - `Sensitive` governs Talea-owned failures but cannot alter a dataclass's own
   generated repr; applications must use `field(repr=False)` where needed;
 - resource policies govern external input, not strict trusted construction,

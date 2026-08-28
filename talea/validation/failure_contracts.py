@@ -22,6 +22,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -42,6 +43,8 @@ def describe_schema(schema: Schema) -> str:
         return "None" if schema.kind == "none" else schema.kind
     if isinstance(schema, TypeSchema):
         return schema.python_type.__name__
+    if isinstance(schema, RepresentationSchema):
+        return describe_schema(schema.internal)
     if isinstance(schema, EnumSchema):
         return schema.enum_type.__name__
     if isinstance(schema, LiteralSchema):
@@ -160,6 +163,9 @@ def schema_order_key(schema: Schema) -> tuple[int, str]:
         return 7, f"{schema.identity.module}.{schema.identity.name}"
     if isinstance(schema, (TypeSchema, EnumSchema, LiteralSchema)):
         return 6, describe_schema(schema)
+    if isinstance(schema, RepresentationSchema):
+        order, label = schema_order_key(schema.internal)
+        return order, f"representation:{label}"
     if isinstance(schema, SpecReferenceSchema):
         return 6, f"{schema.spec_type.__module__}.{schema.spec_type.__qualname__}"
     if isinstance(schema, DataclassSchema):

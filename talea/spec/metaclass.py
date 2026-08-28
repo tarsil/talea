@@ -94,6 +94,7 @@ class _SpecMeta(type):
                 False,
                 declared_metadata=derived_plan.metadata,
                 prepared_fields=derived_plan.fields,
+                prepared_serializers=derived_plan.serializers,
                 derivation=derived_plan.derivation,
             )
             type.__setattr__(cls, "__talea_declaration__", declaration)
@@ -292,7 +293,19 @@ class _SpecMeta(type):
         except _UnresolvedReference:
             return cls
         assert declaration.prepared_fields is not None
-        targets = {target for field in declaration.prepared_fields for target in _referenced_specs(field.schema)}
+        assert declaration.prepared_serializers is not None
+        targets = {
+            target
+            for schema in (
+                *(field.schema for field in declaration.prepared_fields),
+                *(
+                    serializer.output_schema
+                    for serializer in declaration.prepared_serializers
+                    if serializer.output_schema is not None
+                ),
+            )
+            for target in _referenced_specs(schema)
+        }
         if all("__talea_artifacts__" in vars(target) for target in targets):
             if targets:
                 _finalize_graph(cls)

@@ -27,6 +27,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -40,6 +41,14 @@ from talea.tagged.dispatch import nominal_member
 from talea.tagged.validation import _TaggedValidationEmission
 from talea.validation.emission import _ValidationEmitter
 from talea.validation.failure_contracts import describe_schema, schema_order_key
+
+
+def _representation_input(schema: RepresentationSchema) -> Schema:
+    """Return one declared input schema or fail the lazy input operation."""
+
+    if schema.input is None:
+        raise TypeError("Representation has no input direction")
+    return schema.input
 
 
 def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
@@ -59,6 +68,9 @@ def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
         return mode == "json" and schema.kind in ("float", "bytes")
     if isinstance(schema, TypeSchema):
         return mode == "json" and standard_json_representation(schema.python_type) is not None
+    if isinstance(schema, RepresentationSchema):
+        _representation_input(schema)
+        return True
     if isinstance(schema, EnumSchema):
         return mode == "json" and bool(_json_enum_members(schema))
     if isinstance(schema, LiteralSchema):
@@ -96,6 +108,8 @@ def schema_may_construct_spec(schema: Schema) -> bool:
         return not artifacts.schema.instances_are_permanently_trusted
     if isinstance(schema, DataclassSchema):
         return True
+    if isinstance(schema, RepresentationSchema):
+        return schema.input is not None and schema_may_construct_spec(schema.input)
     if isinstance(schema, SequenceSchema):
         return schema_may_construct_spec(schema.item)
     if isinstance(schema, MappingSchema):
@@ -117,7 +131,7 @@ def _resource_visit_depth(schema: Schema, location: tuple[str, ...]) -> int | No
     """Return canonical depth for one logical visit, excluding wrapper nodes."""
 
     base = schema.schema if isinstance(schema, ConstrainedSchema) else schema
-    if isinstance(base, (AliasSchema, NamedReferenceSchema)):
+    if isinstance(base, (AliasSchema, NamedReferenceSchema, RepresentationSchema)):
         return None
     container = isinstance(
         base,
@@ -379,6 +393,24 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         finally:
             self.sensitive = previous
 
+    def emit_strict_schema(
+        self,
+        schema: Schema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+        *,
+        sensitive: bool = False,
+    ) -> None:
+        """Emit only post-conversion validation with shared resource state."""
+
+        previous = self._validating
+        self._validating = True
+        try:
+            self.emit_schema(schema, value, location, indentation, sensitive=sensitive)
+        finally:
+            self._validating = previous
+
     def _emit_conversion(
         self,
         schema: Schema,
@@ -413,6 +445,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         elif isinstance(schema, TypeSchema):
             if self.mode == "json":
                 self.emit_json_type_conversion(schema, value, location, indentation)
+        elif isinstance(schema, RepresentationSchema):
+            self.emit_representation_conversion(schema, value, location, indentation)
         elif isinstance(schema, EnumSchema):
             if self.mode == "json":
                 self.emit_enum_conversion(schema, value, indentation)
@@ -435,6 +469,62 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             self.emit_boundary_union(schema, value, location, indentation)
         else:
             assert_never(schema)
+
+    def emit_representation_conversion(
+        self,
+        schema: RepresentationSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Emit input validation followed by one direct loader call."""
+
+        self.emit_schema(_representation_input(schema), value, location, indentation)
+        loader = schema._declaration.load
+        assert loader is not None
+        callback = self.bind("representation_loader", loader)
+        callback_error = self.variable("representation_error")
+        load_failure = self.variable("representation_failure")
+        callback_exception = self.runtime(
+            "exception" if self.sensitive else "value_error",
+            Exception if self.sensitive else ValueError,
+        )
+        load_code = self.runtime("error_code_representation_load", ErrorCode.REPRESENTATION_LOAD)
+        context = self.bind("representation_load_context", (("stage", "load"),))
+        self.emit(indentation, "try:")
+        self.emit(indentation + 1, f"{value} = {callback}({value})")
+        self.emit(indentation, f"except {callback_exception} as {callback_error}:")
+        self.emit(
+            indentation + 1,
+            f"{load_failure} = {self.validation_error_name}(None, {value}, "
+            f"{self.location_expression(location)}, {load_code}{self.title_argument()}, "
+            f"context={context}{self.sensitive_argument()})",
+        )
+        self.emit(
+            indentation + 1,
+            f"raise {load_failure} from {'None' if self.sensitive else callback_error}",
+        )
+
+    def emit_representation(
+        self,
+        schema: RepresentationSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Validate and restage one loader result through canonical strict truth."""
+
+        result_error = self.variable("representation_result_error")
+        self.emit(indentation, "try:")
+        super().emit_representation(schema, value, location, indentation + 1)
+        self.emit(indentation, f"except {self.validation_error_name} as {result_error}:")
+        self.emit_failure(
+            schema.internal,
+            value,
+            location,
+            indentation + 1,
+            code=ErrorCode.REPRESENTATION_RESULT,
+        )
 
     def emit_spec_conversion(
         self,
@@ -1046,6 +1136,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             return self.boundary_condition(schema.schema, value)
         if isinstance(schema, NamedReferenceSchema):
             return "True"
+        if isinstance(schema, RepresentationSchema):
+            return self.boundary_condition(_representation_input(schema), value)
         if self.mode == "mapping":
             if isinstance(schema, SpecReferenceSchema):
                 return (

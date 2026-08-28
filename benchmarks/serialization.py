@@ -11,6 +11,7 @@ import importlib
 import sys
 import tracemalloc
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from functools import partial
@@ -18,10 +19,18 @@ from statistics import median
 from time import perf_counter_ns
 from timeit import Timer
 from types import FunctionType, MethodType
-from typing import Annotated, Literal, cast
+from typing import Annotated, Literal, TypedDict, cast
 from uuid import UUID
 
-from talea import Alias, Discriminator, Spec, serialize
+from talea import (
+    Alias,
+    Discriminator,
+    Representation,
+    Sensitive,
+    SerializationError,
+    Spec,
+    serialize,
+)
 from talea.serialization.compilation import compile_selected_serialization
 from talea.serialization.json import _default_dumps
 from talea.serialization.selection import SerializationSelection, normalize_selection
@@ -109,6 +118,22 @@ def make_spec(count: int) -> type[Spec]:
     return type(f"Output{count}", (Spec,), {"__annotations__": dict.fromkeys(names(count), int)})
 
 
+def make_declared_serializer_spec() -> type[Spec]:
+    """Declare one fresh Spec with a scalar serializer output contract."""
+
+    def output(value: int) -> str:
+        return str(value)
+
+    return type(
+        "DeclaredOutput",
+        (Spec,),
+        {
+            "__annotations__": {"value": int},
+            "output": serialize("value", output=str)(output),
+        },
+    )
+
+
 def make_hand_serializer(count: int) -> Callable[[object], dict[str, object]]:
     """Compile the equivalent direct hand-written dictionary literal."""
 
@@ -154,6 +179,117 @@ class Hooked(Spec):
     @serialize("value")
     def output(value: int) -> str:
         return str(value)
+
+
+class SerializerSummary(Spec):
+    name: str
+    score: int
+
+
+@dataclass
+class SerializerDataclass:
+    name: str
+
+
+class SerializerDictionary(TypedDict):
+    name: str
+
+
+class SerializerDomain:
+    __slots__ = ("value",)
+
+    def __init__(self, value: int) -> None:
+        self.value = value
+
+
+type SerializerRepresentation = Annotated[
+    SerializerDomain,
+    Representation(output=str, dump=lambda value: str(value.value)),
+]
+
+
+class DeclaredScalar(Spec):
+    value: int
+
+    @serialize("value", output=str)
+    def output(value: int) -> str:
+        return str(value)
+
+
+class DeclaredStructured(Spec):
+    value: int
+
+    @serialize("value", output=SerializerSummary)
+    def output(value: int) -> SerializerSummary:
+        return SerializerSummary(name=str(value), score=value)
+
+
+class DeclaredModels(Spec):
+    dataclass_value: int
+    dictionary_value: int
+    representation_value: int
+    list_value: int
+    mapping_value: int
+
+    @serialize("dataclass_value", output=SerializerDataclass)
+    def dataclass_output(value: int) -> SerializerDataclass:
+        return SerializerDataclass(str(value))
+
+    @serialize("dictionary_value", output=SerializerDictionary)
+    def dictionary_output(value: int) -> SerializerDictionary:
+        return {"name": str(value)}
+
+    @serialize("representation_value", output=SerializerRepresentation)
+    def representation_output(value: int) -> SerializerDomain:
+        return SerializerDomain(value)
+
+    @serialize("list_value", output=list[SerializerSummary])
+    def list_output(value: int) -> list[SerializerSummary]:
+        return [SerializerSummary(name=str(value), score=value)]
+
+    @serialize("mapping_value", output=dict[str, SerializerSummary])
+    def mapping_output(value: int) -> dict[str, SerializerSummary]:
+        return {"value": SerializerSummary(name=str(value), score=value)}
+
+
+class InvalidDeclaredScalar(Spec):
+    value: int
+
+    @serialize("value", output=str)
+    def output(value: int) -> int:
+        return value
+
+
+class FailingDeclaredScalar(Spec):
+    value: int
+
+    @serialize("value", output=str)
+    def output(value: int) -> str:
+        raise ValueError(value)
+
+
+class InvalidDeclaredNested(Spec):
+    value: int
+
+    @serialize("value", output=SerializerDictionary)
+    def output(value: int) -> SerializerDictionary:
+        return cast(SerializerDictionary, {"name": value})
+
+
+class SensitiveInvalidDeclared(Spec):
+    value: Annotated[int, Sensitive()]
+
+    @serialize("value", output=str)
+    def output(value: int) -> int:
+        return value
+
+
+class SensitiveFailingDeclared(Spec):
+    value: Annotated[int, Sensitive()]
+
+    @serialize("value", output=str)
+    def output(value: int) -> str:
+        raise ValueError(value)
 
 
 class Aliased(Spec):
@@ -211,6 +347,14 @@ class ProjectionBank(Spec):
 type ProjectionPayment = Annotated[ProjectionCard | ProjectionBank, Discriminator("kind")]
 
 
+class DeclaredTagged(Spec):
+    value: int
+
+    @serialize("value", output=ProjectionPayment)
+    def output(value: int) -> ProjectionPayment:
+        return ProjectionCard(kind="card", number=str(value))
+
+
 class ProjectionTagged(Spec):
     payment: ProjectionPayment
 
@@ -249,6 +393,20 @@ STANDARD = Standard(
 )
 INHERITED = Inherited(identifier=1, name="Ada", active=True)
 HOOKED = Hooked(value=1)
+DECLARED_SCALAR = DeclaredScalar(value=1)
+DECLARED_STRUCTURED = DeclaredStructured(value=1)
+DECLARED_MODELS = DeclaredModels(
+    dataclass_value=1,
+    dictionary_value=1,
+    representation_value=1,
+    list_value=1,
+    mapping_value=1,
+)
+INVALID_DECLARED_SCALAR = InvalidDeclaredScalar(value=1)
+FAILING_DECLARED_SCALAR = FailingDeclaredScalar(value=1)
+INVALID_DECLARED_NESTED = InvalidDeclaredNested(value=1)
+SENSITIVE_INVALID_DECLARED = SensitiveInvalidDeclared(value=1)
+SENSITIVE_FAILING_DECLARED = SensitiveFailingDeclared(value=1)
 ALIASED = Aliased(identifier=1, name="Ada")
 PROJECTION_PROFILE = ProjectionProfile(
     name="Ada",
@@ -266,6 +424,7 @@ PROJECTION_COLLECTION = ProjectionCollection(
 )
 PROJECTION_UNION = ProjectionUnion(subject=ProjectionAdmin(name="Ada", level=3))
 PROJECTION_TAGGED = ProjectionTagged(payment=ProjectionCard(kind="card", number="4111"))
+DECLARED_TAGGED = DeclaredTagged(value=4111)
 PROJECTION_DEEP = ProjectionDepth1(
     child=ProjectionDepth2(
         child=ProjectionDepth3(
@@ -282,12 +441,46 @@ NESTED_EXCLUDE_1: SerializationSelection = {"profile": {"internal_note": True}}
 NESTED_EXCLUDE_3: SerializationSelection = {"profile": {"address": {"internal_code": True}}}
 NESTED_INCLUDE_5: SerializationSelection = {"child": {"child": {"child": {"child": {"value": True}}}}}
 NESTED_EXCLUDE_5: SerializationSelection = {"child": {"child": {"child": {"child": {"sibling": True}}}}}
+DECLARED_INCLUDE: SerializationSelection = {"value": {"name": True}}
+DECLARED_EXCLUDE: SerializationSelection = {"value": {"score": True}}
+DECLARED_DATACLASS_ONLY: SerializationSelection = {"dataclass_value"}
+DECLARED_TYPED_DICT_ONLY: SerializationSelection = {"dictionary_value"}
+DECLARED_REPRESENTATION_ONLY: SerializationSelection = {"representation_value"}
+DECLARED_LIST_ONLY: SerializationSelection = {"list_value"}
+DECLARED_MAPPING_ONLY: SerializationSelection = {"mapping_value"}
 
 
 def project_account(value: ProjectionAccount) -> dict[str, object]:
     """Project the equivalent nested response shape directly by hand."""
 
     return {"profile": {"address": {"city": value.profile.address.city}}}
+
+
+def project_declared_scalar(value: DeclaredScalar) -> dict[str, object]:
+    """Perform the equivalent callback, result check, and scalar projection."""
+
+    replacement = DeclaredScalar.output(value.value)
+    if type(replacement) is not str:
+        raise TypeError
+    return {"value": replacement}
+
+
+def project_declared_structured(value: DeclaredStructured) -> dict[str, object]:
+    """Perform the equivalent callback, result check, and structural projection."""
+
+    replacement = DeclaredStructured.output(value.value)
+    if type(replacement) is not SerializerSummary:
+        raise TypeError
+    return {"value": {"name": replacement.name, "score": replacement.score}}
+
+
+def ignore_serialization_error(operation: Operation) -> None:
+    """Consume one expected serializer failure for stable failure-path timing."""
+
+    try:
+        operation()
+    except SerializationError:
+        pass
 
 
 def measure_first_use(mode: str) -> Measurement:
@@ -324,7 +517,18 @@ def benchmark_python_projection() -> None:
         )
         print_measurement(f"to_dict {count} fields", "handwritten", measure(MethodType(hand, instance)))
 
-    for instance in (NESTED, CONTAINER, STANDARD, INHERITED, HOOKED, ALIASED):
+    for instance in (
+        NESTED,
+        CONTAINER,
+        STANDARD,
+        INHERITED,
+        HOOKED,
+        DECLARED_SCALAR,
+        DECLARED_STRUCTURED,
+        DECLARED_MODELS,
+        DECLARED_TAGGED,
+        ALIASED,
+    ):
         instance.to_dict()
     cases: tuple[tuple[str, Operation], ...] = (
         ("nested Spec", NESTED.to_dict),
@@ -332,6 +536,18 @@ def benchmark_python_projection() -> None:
         ("standard-library", STANDARD.to_dict),
         ("inherited Spec", INHERITED.to_dict),
         ("serialization hook", HOOKED.to_dict),
+        ("declared scalar hook", DECLARED_SCALAR.to_dict),
+        ("declared structured hook", DECLARED_STRUCTURED.to_dict),
+        ("declared model outputs", DECLARED_MODELS.to_dict),
+        ("declared tagged output", DECLARED_TAGGED.to_dict),
+        ("declared dataclass output", partial(DECLARED_MODELS.to_dict, include=DECLARED_DATACLASS_ONLY)),
+        ("declared TypedDict output", partial(DECLARED_MODELS.to_dict, include=DECLARED_TYPED_DICT_ONLY)),
+        (
+            "declared Representation output",
+            partial(DECLARED_MODELS.to_dict, include=DECLARED_REPRESENTATION_ONLY),
+        ),
+        ("declared list output", partial(DECLARED_MODELS.to_dict, include=DECLARED_LIST_ONLY)),
+        ("declared mapping output", partial(DECLARED_MODELS.to_dict, include=DECLARED_MAPPING_ONLY)),
         ("alias", ALIASED.to_dict),
         ("include", partial(INHERITED.to_dict, include={"identifier", "active"})),
         ("exclude", partial(INHERITED.to_dict, exclude={"name"})),
@@ -339,6 +555,40 @@ def benchmark_python_projection() -> None:
     )
     for name, operation in cases:
         print_measurement(name, "talea", measure(operation))
+    print_measurement(
+        "declared scalar hook", "manual equivalent", measure(partial(project_declared_scalar, DECLARED_SCALAR))
+    )
+    print_measurement(
+        "declared structured hook",
+        "manual equivalent",
+        measure(partial(project_declared_structured, DECLARED_STRUCTURED)),
+    )
+    print_measurement("declared callback", "lower bound", measure(partial(DeclaredScalar.output, 1)))
+    print_measurement(
+        "declared invalid result",
+        "talea failure",
+        measure(partial(ignore_serialization_error, INVALID_DECLARED_SCALAR.to_dict)),
+    )
+    print_measurement(
+        "declared callback failure",
+        "talea failure",
+        measure(partial(ignore_serialization_error, FAILING_DECLARED_SCALAR.to_dict)),
+    )
+    print_measurement(
+        "declared invalid nested",
+        "talea failure",
+        measure(partial(ignore_serialization_error, INVALID_DECLARED_NESTED.to_dict)),
+    )
+    print_measurement(
+        "Sensitive invalid result",
+        "talea failure",
+        measure(partial(ignore_serialization_error, SENSITIVE_INVALID_DECLARED.to_dict)),
+    )
+    print_measurement(
+        "Sensitive callback failure",
+        "talea failure",
+        measure(partial(ignore_serialization_error, SENSITIVE_FAILING_DECLARED.to_dict)),
+    )
 
 
 def benchmark_nested_selection() -> None:
@@ -363,6 +613,14 @@ def benchmark_nested_selection() -> None:
         ("tagged union selection", partial(PROJECTION_TAGGED.to_dict, include=tagged_include)),
         ("normalization only", partial(normalize_selection, NESTED_INCLUDE_3, schema, "include")),
         ("repeated equivalent selection", partial(PROJECTION_ACCOUNT.to_dict, include=NESTED_INCLUDE_3)),
+        (
+            "declared output include",
+            partial(DECLARED_STRUCTURED.to_dict, include=DECLARED_INCLUDE),
+        ),
+        (
+            "declared output exclude",
+            partial(DECLARED_STRUCTURED.to_dict, exclude=DECLARED_EXCLUDE),
+        ),
     )
     for name, operation in cases:
         print_measurement(name, "talea", measure(operation, _SELECTION_ITERATIONS))
@@ -432,6 +690,10 @@ def benchmark_json_projection() -> None:
         ("nested full to_json", NESTED),
         ("container full to_json", CONTAINER),
         ("UUID/datetime/Decimal", STANDARD),
+        ("declared scalar to_json", DECLARED_SCALAR),
+        ("declared structured to_json", DECLARED_STRUCTURED),
+        ("declared models to_json", DECLARED_MODELS),
+        ("declared tagged to_json", DECLARED_TAGGED),
     ):
         print_measurement(name, "talea + stdlib", measure(instance.to_json))
 
@@ -455,6 +717,11 @@ def benchmark_costs() -> None:
             "serialization unused",
             measure(partial(make_spec, count), _DECLARATION_ITERATIONS),
         )
+    print_measurement(
+        "declare scalar output",
+        "serialization unused",
+        measure(make_declared_serializer_spec, _DECLARATION_ITERATIONS),
+    )
     print(f"Output first use ({_FIRST_USE_SAMPLES:,} fresh five-field declarations)")
     print_measurement("first to_dict", "compile + execute", measure_first_use("python"))
     print_measurement("first to_json", "compile + execute", measure_first_use("json"))
@@ -477,6 +744,10 @@ def benchmark_costs() -> None:
         ("selected nested to_dict", partial(PROJECTION_ACCOUNT.to_dict, include=NESTED_INCLUDE_3)),
         ("five-field to_json", allocation_json.to_json),
         ("selected nested to_json", partial(PROJECTION_ACCOUNT.to_json, include=NESTED_INCLUDE_3)),
+        ("declared scalar to_dict", DECLARED_SCALAR.to_dict),
+        ("declared structured to_dict", DECLARED_STRUCTURED.to_dict),
+        ("declared structured to_json", DECLARED_STRUCTURED.to_json),
+        ("declared models to_dict", DECLARED_MODELS.to_dict),
     ):
         result = measure_allocations(operation)
         print(f"{name:34} retained={result.retained:5} B peak={result.peak:5} B")
@@ -495,6 +766,16 @@ def benchmark_costs() -> None:
         f"cold={cold_bytes} B python-warm={warm_bytes} B instance={instance_bytes} B "
         f"json_compiled={artifacts.outputs.json_alias is not None}"
     )
+    declared_artifacts = vars(DeclaredStructured)["__talea_artifacts__"].outputs
+    assert declared_artifacts.python_alias is not None and declared_artifacts.json_alias is not None
+    declared_retained = (
+        sys.getsizeof(declared_artifacts)
+        + sys.getsizeof(declared_artifacts.python_alias)
+        + sys.getsizeof(declared_artifacts.python_alias.__globals__)
+        + sys.getsizeof(declared_artifacts.json_alias)
+        + sys.getsizeof(declared_artifacts.json_alias.__globals__)
+    )
+    print(f"Declared output retained shallow memory python+json-warm={declared_retained} B")
 
 
 def main() -> None:

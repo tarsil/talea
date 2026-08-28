@@ -30,6 +30,8 @@ class ErrorCode(StrEnum):
     FIELD_CHECK = "field_check"
     SPEC_CHECK = "spec_check"
     FACTORY = "factory"
+    REPRESENTATION_LOAD = "representation_load"
+    REPRESENTATION_RESULT = "representation_result"
     JSON_INVALID = "json_invalid"
     JSON_DUPLICATE = "json_duplicate"
     CYCLE = "cycle"

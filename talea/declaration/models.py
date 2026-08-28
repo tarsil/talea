@@ -27,6 +27,15 @@ class _MissingDefault:
 
 MISSING_DEFAULT: Final = _MissingDefault()
 
+
+class _MissingSerializerOutput:
+    """Distinguish an omitted serializer output from ``output=None``."""
+
+    __slots__ = ()
+
+
+MISSING_SERIALIZER_OUTPUT: Final = _MissingSerializerOutput()
+
 type HookKind = Literal["transform", "check"]
 type DerivationSelection = Literal["all", "include", "exclude"]
 type DerivationMode = Literal["input", "output"]
@@ -96,6 +105,8 @@ class SerializationHook:
     name: str
     field: str
     function: Callable[[object], object]
+    output_schema: Schema | None = None
+    output_annotation: object = field(default=MISSING_SERIALIZER_OUTPUT, repr=False, compare=False)
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,7 +1,7 @@
 """Resolve, compile, and publish canonical Talea Spec declarations."""
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from threading import RLock
 from types import MemberDescriptorType
 from typing import Annotated, TypeVar, cast, get_args, get_origin, get_type_hints
@@ -10,6 +10,7 @@ from weakref import WeakValueDictionary
 from talea.declaration.metadata import Alias
 from talea.declaration.models import (
     MISSING_DEFAULT,
+    MISSING_SERIALIZER_OUTPUT,
     SerializationHook,
     SpecDerivation,
     SpecField,
@@ -29,6 +30,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -107,6 +109,7 @@ class _SpecDeclaration:
     declares_to_dict: bool
     declared_metadata: DeclarationMetadata = EMPTY_METADATA
     prepared_fields: tuple[SpecField, ...] | None = None
+    prepared_serializers: tuple[SerializationHook, ...] | None = None
     finalizing: bool = False
     type_params: tuple[TypeVar, ...] = ()
     generic_origin: type[object] | None = None
@@ -150,6 +153,12 @@ def _referenced_specs(
         return ()
     if isinstance(schema, ConstrainedSchema):
         return _referenced_specs(schema.schema, visiting)
+    if isinstance(schema, RepresentationSchema):
+        directions = tuple(item for item in (schema.input, schema.output) if item is not None)
+        return (
+            *_referenced_specs(schema.internal, visiting),
+            *(target for item in directions for target in _referenced_specs(item, visiting)),
+        )
     if isinstance(schema, AliasSchema):
         return _referenced_specs(schema.schema, visiting)
     if isinstance(schema, NamedReferenceSchema):
@@ -190,10 +199,17 @@ def _reaches_spec(
     visited.add(current)
     declaration = cast(_SpecDeclaration, vars(current)["__talea_declaration__"])
     assert declaration.prepared_fields is not None
-    return any(
+    field_reaches = any(
         _reaches_spec(reference, target, visited)
         for field in declaration.prepared_fields
         for reference in _referenced_specs(field.schema)
+    )
+    serializers = declaration.prepared_serializers or ()
+    return field_reaches or any(
+        _reaches_spec(reference, target, visited)
+        for serializer in serializers
+        if serializer.output_schema is not None
+        for reference in _referenced_specs(serializer.output_schema)
     )
 
 
@@ -213,7 +229,7 @@ def _prepare_declaration(cls: type[object]) -> None:
     """Resolve one declaration's local annotations without compiling artifacts."""
 
     declaration = cast(_SpecDeclaration, vars(cls)["__talea_declaration__"])
-    if declaration.prepared_fields is not None:
+    if declaration.prepared_fields is not None and declaration.prepared_serializers is not None:
         return
     if declaration.requires_local_namespace:
         for annotation in declaration.annotations.values():
@@ -275,6 +291,32 @@ def _prepare_declaration(cls: type[object]) -> None:
             )
         declaration.prepared_fields = tuple(fields[name] for name in ordered_names if name in fields)
     declaration.prepared_fields = tuple(fields[name] for name in ordered_names)
+    substitutions = {}
+    if declaration.generic_origin is not None:
+        origin_declaration = vars(declaration.generic_origin)["__talea_declaration__"]
+        substitutions = dict(
+            zip(
+                origin_declaration.type_params,
+                declaration.generic_arguments,
+                strict=True,
+            )
+        )
+    prepared_serializers = []
+    for serializer in cast(tuple[SerializationHook, ...], declaration.declared_serializers):
+        annotation = serializer.output_annotation
+        if annotation is MISSING_SERIALIZER_OUTPUT:
+            prepared_serializers.append(serializer)
+            continue
+        if substitutions:
+            annotation = substitute_annotation(annotation, substitutions)
+        prepared_serializers.append(
+            replace(
+                serializer,
+                output_schema=resolve_annotation(annotation),
+                output_annotation=MISSING_SERIALIZER_OUTPUT,
+            )
+        )
+    declaration.prepared_serializers = tuple(prepared_serializers)
 
 
 def _contains_discriminator(annotation: object) -> bool:
@@ -297,6 +339,11 @@ def _prepare_graph(cls: type[object], visiting: set[type[object]]) -> None:
     for spec_field in declaration.prepared_fields:
         for target in _referenced_specs(spec_field.schema):
             _prepare_graph(target, visiting)
+    assert declaration.prepared_serializers is not None
+    for serializer in declaration.prepared_serializers:
+        if serializer.output_schema is not None:
+            for target in _referenced_specs(serializer.output_schema):
+                _prepare_graph(target, visiting)
 
 
 def _finalize_graph(cls: type[object], recursive: bool | None = None) -> None:
@@ -313,6 +360,11 @@ def _finalize_graph(cls: type[object], recursive: bool | None = None) -> None:
         for field in declaration.prepared_fields:
             for target in _referenced_specs(field.schema):
                 _finalize_graph(target)
+        assert declaration.prepared_serializers is not None
+        for serializer in declaration.prepared_serializers:
+            if serializer.output_schema is not None:
+                for target in _referenced_specs(serializer.output_schema):
+                    _finalize_graph(target)
         if recursive is None:
             recursive = declaration.is_recursive()
         _publish_declaration(cls, declaration, recursive)
@@ -389,12 +441,13 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
     """Compile and publish one already-prepared declaration."""
 
     assert declaration.prepared_fields is not None
+    assert declaration.prepared_serializers is not None
     schema = SpecSchema.compose(
         declaration.inherited_schemas,
         declaration.prepared_fields,
         declaration.declared_hooks,
         declaration.shadowed_hook_names,
-        cast(tuple, declaration.declared_serializers),
+        declaration.prepared_serializers,
         declaration.shadowed_serializer_names,
         declaration.declared_metadata,
         declaration.derivation,
@@ -430,6 +483,10 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
         any(
             bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema)
             for field in schema.fields
+        )
+        or any(
+            serializer.output_schema is not None and schema_contains_sensitive_metadata(serializer.output_schema)
+            for serializer in schema.serializers
         ),
     )
     type.__setattr__(cls, "__init__", initializer)

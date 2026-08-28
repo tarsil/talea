@@ -16,6 +16,8 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | output and schema tooling | cycle rejection and explicit projection failures | output size and tooling resource budgets |
 | dataclass Contract | declared stored fields, exact identity, structured boundaries | constructor, post-init, descriptors, generated repr |
 | nested output selection | canonical schema validation, immutable normalization, direct projection | authorization to request or disclose fields |
+| represented custom values | declared input/output result validation, exact-once callback transport, Sensitive error policy | callback CPU, memory, mutation, I/O, logging, and output amplification |
+| declared serializer output | complete result validation, exact-once callback transport, callback-free schema/selection discovery, Sensitive cause suppression | callback CPU, memory, mutation, reentrancy, I/O, logging, and output amplification |
 
 The finite default policy is 8 MiB JSON transport, depth 64, 100,000 compiled
 node visits, and 100 aggregated errors. It reduces Talea-owned unbounded work;
@@ -74,6 +76,25 @@ in ordinary `repr(instance)` even though Talea-owned failures redact it. Use
 that value. Dataclass constructors, `__post_init__`, custom `__getattribute__`,
 and declared descriptors are trusted application execution, not sandboxed
 input machinery.
+
+Representation callbacks are subject to the same trust boundary. They are
+synchronous and may reenter Talea, but compilation/publication locks are not
+held while they execute. `ResourcePolicy` covers external input traversal, not
+callback work or output size. See [Custom domain
+representations](../custom-representations.md) for the full contract.
+At a `Sensitive` represented input boundary, Talea normalizes ordinary loader
+exceptions into a redacted `ValidationError` with no retained cause; a
+non-sensitive loader still uses `ValueError` as its declared rejection signal
+and propagates other application defects.
+
+Declared serializer output contracts prevent a callback result from drifting
+from published output schema, but they do not sandbox the callback. Talea
+normalizes invalid nested selectors before invoking application code and never
+invokes a serializer for JSON Schema, OpenAPI, or introspection. Callback
+exceptions and invalid declared results at a Sensitive boundary suppress unsafe
+causes. A callback may still mutate its source, reenter serialization, return a
+huge graph, or log secrets; output remains outside input `ResourcePolicy`
+governance.
 
 ## Supply chain
 

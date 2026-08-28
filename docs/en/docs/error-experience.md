@@ -110,6 +110,8 @@ location remains structured and unchanged.
 | `field_check` | field-local assertion raised | satisfy the business invariant |
 | `spec_check` | multi-field/whole-Spec assertion raised | inspect `locations` and satisfy the invariant |
 | `factory` | default factory raised | repair it; inspect a non-sensitive `__cause__` |
+| `representation_load` | trusted representation loader rejected accepted external input | correct the input or loader behavior |
+| `representation_result` | loader result failed the internal contract at the containing path | repair the loader return value |
 | `json_invalid` | decoder could not produce valid JSON input | correct syntax or codec contract |
 | `json_duplicate` | default decoder found a duplicate object key | emit each key once |
 | `cycle` | repeated object identity formed an unsupported cycle | replace back-references with IDs or an acyclic representation |
@@ -124,6 +126,13 @@ required arguments, unknown keywords, and positional misuse raise native
 
 Parser line, column, and character position appear in `context` when available;
 they do not become Talea field-location segments.
+
+Representation dump failures belong to `SerializationError`, not the input
+`ErrorCode` vocabulary. A raised dumper and an invalid declared-output result
+have distinct safe reasons at the current canonical output location. Ordinary
+failures preserve a useful cause; Sensitive paths suppress callback and
+validation causes so secret-bearing messages cannot escape. No user-defined
+representation error-code namespace is accepted.
 
 ## Nested and constraint failures
 

@@ -87,6 +87,14 @@ when present and otherwise use the exact Python field name. Canonical and alias
 spellings are not both accepted, preserving one unambiguous external contract.
 Silent extra-field ignoring is not available. A non-string key is unexpected.
 
+An explicit `Representation(input=..., load=...)` changes only the annotated
+custom-type position: Talea validates the external value against `input=`,
+calls the synchronous loader once, and validates its result against the strict
+internal schema. It composes beneath the same objects and containers and shares
+the operation's `ResourcePolicy` traversal state. See [Custom domain
+representations](custom-representations.md); ordinary fields retain the rules
+on this page.
+
 Python values remain strict. For a field declared as `int`, the string `"20"`
 fails. A `list` does not become a `tuple`, `set`, or `frozenset`; UUID, date,
 path, IP, Enum, and Decimal strings do not become their Python types. Declare a

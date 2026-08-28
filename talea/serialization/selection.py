@@ -2,7 +2,7 @@
 
 from collections.abc import Mapping, Set
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from talea.declaration.models import SerializationHook, SpecField, SpecSchema
 from talea.schema.nodes import (
@@ -12,6 +12,7 @@ from talea.schema.nodes import (
     FixedTupleSchema,
     MappingSchema,
     NamedReferenceSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -63,7 +64,7 @@ def _normalize_object(
 ) -> _Selection:
     supplied = _selection_items(selection, parameter, path)
     field_by_name = {field.name: field for field in fields}  # ty: ignore[unresolved-attribute]
-    serializer_fields = frozenset(serializer.field for serializer in serializers)
+    serializer_by_field = {serializer.field: serializer for serializer in serializers}
     entries: list[tuple[str, _Selection | None]] = []
     for name, child_selection in sorted(supplied.items()):
         field = field_by_name.get(name)
@@ -72,9 +73,12 @@ def _normalize_object(
         if child_selection is None:
             entries.append((name, None))
             continue
-        if name in serializer_fields:
+        serializer = serializer_by_field.get(name)
+        if serializer is not None and serializer.output_schema is None:
             raise ValueError(f"{parameter} cannot descend through serializer field {_render_path((*path, name))}")
-        child = _normalize_descendant(child_selection, field.schema, parameter, (*path, name))  # ty: ignore[unresolved-attribute]
+        child_schema = serializer.output_schema if serializer is not None else field.schema  # ty: ignore[unresolved-attribute]
+        assert child_schema is not None
+        child = _normalize_descendant(child_selection, child_schema, parameter, (*path, name))
         entries.append((name, child))
     return _Selection(tuple(entries))
 
@@ -89,6 +93,10 @@ def _normalize_descendant(
         schema = schema.schema
     if isinstance(schema, NamedReferenceSchema):
         return _normalize_descendant(selection, schema.target, parameter, path)
+    if isinstance(schema, RepresentationSchema):
+        if schema.output is None:
+            raise ValueError(f"{parameter} cannot descend through a Representation without output")
+        return _normalize_descendant(selection, schema.output, parameter, path)
     if isinstance(schema, SpecReferenceSchema):
         artifacts = vars(schema.spec_type)["__talea_artifacts__"]
         return _normalize_object(
@@ -176,13 +184,27 @@ def _normalize_union(
             for field in fields
             if field.name == name  # ty: ignore[unresolved-attribute]
         )
-        if any(serializer.field == name for _, serializers in owners for serializer in serializers):
+        serializers = tuple(
+            serializer
+            for _, owner_serializers in owners
+            for serializer in owner_serializers
+            if serializer.field == name
+        )
+        if any(serializer.output_schema is None for serializer in serializers):
             raise ValueError(f"{parameter} cannot descend through serializer field {_render_path((*path, name))}")
-        schemas = tuple(field.schema for field, _ in owners)  # ty: ignore[unresolved-attribute]
+        schemas = tuple(
+            next(
+                (serializer.output_schema for serializer in owner_serializers if serializer.field == name),
+                field.schema,  # ty: ignore[unresolved-attribute]
+            )
+            for field, owner_serializers in owners
+        )
+        assert all(schema is not None for schema in schemas)
+        resolved_schemas = cast(tuple[Schema, ...], schemas)
         if len(schemas) == 1:
-            child = _normalize_descendant(child_selection, schemas[0], parameter, (*path, name))
+            child = _normalize_descendant(child_selection, resolved_schemas[0], parameter, (*path, name))
         else:
-            child = _normalize_union(child_selection, schemas, parameter, (*path, name))
+            child = _normalize_union(child_selection, resolved_schemas, parameter, (*path, name))
         entries.append((name, child))
     return _Selection(tuple(entries))
 
@@ -231,6 +253,8 @@ def _object_variants(
     try:
         if isinstance(schema, NamedReferenceSchema):
             return _object_variants(schema.target, active)
+        if isinstance(schema, RepresentationSchema):
+            return () if schema.output is None else _object_variants(schema.output, active)
         if isinstance(schema, SpecReferenceSchema):
             artifacts = vars(schema.spec_type)["__talea_artifacts__"]
             return ((artifacts.schema.fields, artifacts.schema.serializers),)

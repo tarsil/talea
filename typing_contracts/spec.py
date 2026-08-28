@@ -1,5 +1,6 @@
 """Positive static-typing contract for Talea Spec declarations."""
 
+from collections.abc import Callable
 from copy import replace
 from dataclasses import dataclass
 from datetime import date
@@ -21,6 +22,7 @@ from talea import (
     MaxLength,
     MinLength,
     ReadOnly,
+    Representation,
     ResourceLimitError,
     ResourcePolicy,
     SchemaProjectionError,
@@ -37,7 +39,7 @@ from talea import (
     serialize,
     transform,
 )
-from talea.introspection import ContractInfo, SpecInfo, inspect_contract, inspect_spec
+from talea.introspection import ContractInfo, RepresentationInfo, SpecInfo, inspect_contract, inspect_spec
 
 
 @dataclass
@@ -112,6 +114,62 @@ assert_type(Contract[list[int]](list[int]).openapi_schema(mode="output"), dict[s
 
 schema_projection_error: type[TypeError] = SchemaProjectionError
 resource_limit_error: type[Exception] = ResourceLimitError
+
+
+class TypedMoney:
+    pass
+
+
+def typed_money_from_text(value: str) -> TypedMoney:
+    return TypedMoney()
+
+
+def typed_money_to_text(value: TypedMoney) -> str:
+    return "money"
+
+
+typed_input: Representation[str, TypedMoney, object] = Representation(
+    input=str,
+    load=typed_money_from_text,
+)
+typed_full: Representation[str, TypedMoney, str] = Representation(
+    input=str,
+    load=typed_money_from_text,
+    output=str,
+    dump=typed_money_to_text,
+)
+typed_output: Representation[object, TypedMoney, str] = Representation(
+    output=str,
+    dump=typed_money_to_text,
+)
+type TypedMoneyValue = Annotated[TypedMoney, typed_input]
+type FullTypedMoneyValue = Annotated[TypedMoney, typed_full]
+typed_money_contract: Contract[TypedMoney] = Contract(TypedMoneyValue)
+assert_type(typed_money_contract.validate(TypedMoney()), TypedMoney)
+assert_type(typed_money_contract.from_python("money"), TypedMoney)
+assert_type(Contract[list[TypedMoney]](list[TypedMoneyValue]).from_python(["money"]), list[TypedMoney])
+assert_type(Contract[TypedMoney](FullTypedMoneyValue).to_python(TypedMoney()), object)
+assert_type(Contract[TypedMoney](FullTypedMoneyValue).to_json(TypedMoney()), str)
+assert_type(inspect_contract(Contract[TypedMoney](FullTypedMoneyValue)).representations[0], RepresentationInfo)
+assert_type(typed_output.dump, Callable[[TypedMoney], str] | None)
+
+
+class TypedMoneySpec(Spec):
+    amount: TypedMoneyValue
+
+
+@dataclass
+class TypedMoneyDataclass:
+    amount: TypedMoneyValue
+
+
+class TypedMoneyPayload(TypedDict):
+    amount: TypedMoneyValue
+
+
+assert_type(TypedMoneySpec(amount=TypedMoney()).amount, TypedMoney)
+assert_type(Contract(TypedMoneyDataclass).from_python({"amount": "money"}), TypedMoneyDataclass)
+assert_type(Contract[TypedMoneyPayload](TypedMoneyPayload).from_python({"amount": "money"}), TypedMoneyPayload)
 
 
 class ContractPayload(TypedDict):
@@ -265,6 +323,28 @@ class Serialized(Spec):
 
 
 assert_type(Serialized.output(1), str)
+
+
+class DeclaredSerialized(Spec):
+    value: int
+
+    @serialize("value", output=str)
+    def output(value: int) -> str:
+        return str(value)
+
+
+assert_type(DeclaredSerialized.output(1), str)
+
+
+class SerializedBox[T](Spec):
+    value: T
+
+    @serialize("value", output=T)
+    def output(value: T) -> T:
+        return value
+
+
+assert_type(SerializedBox[int].output(1), int)
 
 
 class Person(Spec):

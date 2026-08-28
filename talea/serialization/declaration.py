@@ -51,7 +51,14 @@ def inspect_serializers(
             or parameters[0].default is not Parameter.empty
         ):
             raise TypeError(f"serialization hook {name!r} requires exactly one positional parameter")
-        serializers.append(SerializationHook(name, marker.field, value))
+        serializers.append(
+            SerializationHook(
+                name,
+                marker.field,
+                value,
+                output_annotation=marker.output,
+            )
+        )
         delattr(value, _SERIALIZER_MARKER)
         namespace[name] = staticmethod(value)
     return tuple(serializers)

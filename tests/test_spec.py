@@ -55,6 +55,7 @@ def test_root_package_exports_only_the_deliberate_public_api() -> None:
         "MultipleOf",
         "Pattern",
         "ReadOnly",
+        "Representation",
         "ResourceLimitError",
         "ResourcePolicy",
         "SchemaProjectionError",
