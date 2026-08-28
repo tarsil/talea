@@ -9,6 +9,7 @@ from talea import (
     Alias,
     Contract,
     Ge,
+    Representation,
     ResourcePolicy,
     Sensitive,
     Spec,
@@ -22,7 +23,6 @@ from talea import (
     transform,
 )
 from talea.introspection import inspect_contract, inspect_spec
-from talea.representation import Representation
 
 
 @dataclass

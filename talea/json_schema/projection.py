@@ -134,7 +134,10 @@ class _StandardsProjector:
                 schema.target,
             )
         if isinstance(schema, RepresentationSchema):
-            raise SchemaProjectionError("Representation schema projection is not available")
+            directional = schema.input if self._mode == "input" else schema.output
+            if directional is None:
+                raise SchemaProjectionError(f"Representation has no {self._mode} direction")
+            return self._project(directional)
         if isinstance(schema, PrimitiveSchema):
             return self._primitive(schema)
         if isinstance(schema, TypeSchema):
@@ -451,6 +454,8 @@ class _StandardsProjector:
         return projected
 
     def _contains_serializer(self, schema: Schema, visiting: frozenset[object] = frozenset()) -> bool:
+        if isinstance(schema, RepresentationSchema):
+            return True
         if isinstance(schema, (AliasSchema, ConstrainedSchema)):
             return self._contains_serializer(schema.schema, visiting)
         if isinstance(schema, NamedReferenceSchema):

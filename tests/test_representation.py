@@ -4,7 +4,7 @@ import dis
 import gc
 import weakref
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import FrozenInstanceError, dataclass
 from functools import partial
 from typing import Annotated, Literal, NewType, NotRequired, TypedDict
 
@@ -12,9 +12,11 @@ import pytest
 
 import talea
 from talea import (
+    Alias,
     Contract,
     Discriminator,
     Pattern,
+    Representation,
     ResourceLimitError,
     ResourcePolicy,
     Sensitive,
@@ -23,16 +25,17 @@ from talea import (
     check,
     create_spec,
     derive_spec,
+    serialize,
     transform,
 )
 from talea.declaration.policies import (
     schema_contains_representation,
     schema_contains_tagged_union,
     schema_input_directions_are_available,
+    schema_output_directions_are_available,
 )
-from talea.introspection import inspect_contract, inspect_spec
+from talea.introspection import RepresentationInfo, inspect_contract, inspect_spec
 from talea.json_schema import SchemaProjectionError
-from talea.representation import Representation
 from talea.schema import AliasSchema
 from talea.schema.nodes import (
     DataclassSchema,
@@ -41,6 +44,7 @@ from talea.schema.nodes import (
     SequenceSchema,
 )
 from talea.serialization import SerializationError
+from talea.serialization.selection import _object_variants
 
 
 class Money:
@@ -58,6 +62,12 @@ class MoneySubclass(Money):
     pass
 
 
+@dataclass(frozen=True)
+class MoneyOutput:
+    amount: int
+    currency: str
+
+
 def load_money(value: str) -> Money:
     return Money(int(value))
 
@@ -66,10 +76,18 @@ def dump_money(value: Money) -> str:
     return str(value.cents)
 
 
+def dump_money_output(value: Money) -> MoneyOutput:
+    return MoneyOutput(value.cents, "CHF")
+
+
 type MoneyValue = Annotated[Money, Representation(input=str, load=load_money)]
 type FullMoneyValue = Annotated[
     Money,
     Representation(input=str, load=load_money, output=str, dump=dump_money),
+]
+type StructuredMoneyValue = Annotated[
+    Money,
+    Representation(input=str, load=load_money, output=MoneyOutput, dump=dump_money_output),
 ]
 
 
@@ -152,7 +170,7 @@ def test_resolution_owns_one_schema_and_plain_opaque_classes_remain_unsupported(
     assert contract_info.schema is schema
     assert contract_info.operations == ("strict_python", "external_python", "json_input")
     assert "load_money" not in repr(schema)
-    assert not hasattr(talea, "Representation")
+    assert talea.Representation is Representation
 
     marker = Representation(input=str, load=load_money)
     with pytest.raises(TypeError, match="only one Representation"):
@@ -415,6 +433,7 @@ def test_dataclass_typeddict_dynamic_derived_generic_and_recursive_composition()
     assert schema_input_directions_are_available(children.item, frozenset({children.item.identity}))
     recursive_ledger = recursive_contract.from_python({"children": [], "amount": "3"})
     assert recursive_ledger.amount == Money(3)
+    assert len(inspect_contract(recursive_contract).representations) == 1
 
     Dynamic = create_spec("DynamicPayment", {"amount": MoneyValue})
     assert Dynamic.from_mapping({"amount": "4"}).amount == Money(4)
@@ -466,7 +485,7 @@ def test_resource_policy_counts_input_and_amplified_internal_validation_in_one_s
     assert depth.value.code == "depth"
 
 
-def test_output_only_and_deferred_output_projection_fail_explicitly_without_calling_dump() -> None:
+def test_output_only_bidirectional_and_missing_output_directions() -> None:
     dumps = 0
 
     def dump(value: Money) -> str:
@@ -477,16 +496,388 @@ def test_output_only_and_deferred_output_projection_fail_explicitly_without_call
     output_only = Contract[Money](Annotated[Money, Representation(output=str, dump=dump)])
     money = Money(1)
     assert output_only.validate(money) is money
-    assert inspect_contract(output_only).operations == ("strict_python",)
+    assert inspect_contract(output_only).operations == ("strict_python", "python_output", "json_output")
     with pytest.raises(TypeError, match="no input direction"):
         output_only.from_python("1")
-    with pytest.raises(SerializationError, match="not available"):
-        output_only.to_python(money)
-    with pytest.raises(SerializationError, match="not available"):
-        Contract[Money](FullMoneyValue).to_json(money)
-    with pytest.raises(SchemaProjectionError, match="not available"):
-        Contract[Money](FullMoneyValue).json_schema()
-    assert dumps == 0
+    assert output_only.to_python(money) == "1"
+    assert output_only.to_json(money) == '"1"'
+    assert dumps == 2
+
+    bidirectional = Contract[Money](FullMoneyValue)
+    assert bidirectional.to_python(money) == "1"
+    assert bidirectional.to_json(money) == '"1"'
+    assert inspect_contract(bidirectional).operations == (
+        "strict_python",
+        "external_python",
+        "json_input",
+        "python_output",
+        "json_output",
+    )
+
+    input_only = Contract[Money](MoneyValue)
+    with pytest.raises(SerializationError, match="no output direction"):
+        input_only.to_python(money)
+    with pytest.raises(SerializationError, match="no output direction"):
+        input_only.to_json(money)
+
+
+def test_output_dumps_once_validates_result_and_uses_normal_projection() -> None:
+    calls: list[Money] = []
+
+    def dump(value: Money) -> MoneyOutput:
+        calls.append(value)
+        return MoneyOutput(value.cents, "CHF")
+
+    type TrackedMoney = Annotated[Money, Representation(output=MoneyOutput, dump=dump)]
+    contract = Contract[Money](TrackedMoney)
+    money = Money(125)
+
+    assert contract.to_python(money) == {"amount": 125, "currency": "CHF"}
+    assert calls == [money]
+    calls.clear()
+    assert contract.to_json(money) == '{"amount":125,"currency":"CHF"}'
+    assert calls == [money]
+
+    mutable = Contract[list[int]](Annotated[list[int], Representation(output=list[int], dump=lambda value: value)])
+    source = [1, 2]
+    projected = mutable.to_python(source)
+    assert projected == source
+    assert projected is not source
+
+    wrong = Contract[Money](Annotated[Money, Representation(output=str, dump=lambda value: value.cents)])
+    with pytest.raises(SerializationError, match="outside its declared output contract") as raised:
+        wrong.to_python(money)
+    assert isinstance(raised.value.__cause__, ValidationError)
+
+
+def test_output_callback_failures_and_sensitive_paths_follow_serialization_policy() -> None:
+    rejected = RuntimeError("unsafe detail")
+
+    def reject(value: Money) -> str:
+        raise rejected
+
+    ordinary = Contract[Money](Annotated[Money, Representation(output=str, dump=reject)])
+    with pytest.raises(SerializationError, match="dumper failed") as raised:
+        ordinary.to_python(Money(1))
+    assert raised.value.__cause__ is rejected
+
+    sensitive = Contract[Money](Annotated[Money, Representation(output=str, dump=reject), Sensitive()])
+    with pytest.raises(SerializationError) as hidden:
+        sensitive.to_json(Money(1))
+    assert hidden.value.__cause__ is None
+    assert "unsafe detail" not in str(hidden.value)
+
+    invalid = Contract[Money](Annotated[Money, Representation(output=str, dump=lambda value: value.cents), Sensitive()])
+    with pytest.raises(SerializationError) as invalid_error:
+        invalid.to_python(Money(1))
+    assert invalid_error.value.__cause__ is None
+
+
+def test_representation_output_composes_through_specs_dataclasses_typed_dicts_and_containers() -> None:
+    class Payment(Spec):
+        amount: FullMoneyValue
+
+    @dataclass
+    class Ledger:
+        amount: StructuredMoneyValue
+
+    class Payload(TypedDict):
+        amount: FullMoneyValue
+
+    assert Payment(amount=Money(7)).to_dict() == {"amount": "7"}
+    assert Payment(amount=Money(7)).to_json() == '{"amount":"7"}'
+    assert Contract(Ledger).to_python(Ledger(Money(8))) == {"amount": {"amount": 8, "currency": "CHF"}}
+    assert Contract(Ledger).to_json(Ledger(Money(8))) == '{"amount":{"amount":8,"currency":"CHF"}}'
+    assert Contract[Payload](Payload).to_python({"amount": Money(9)}) == {"amount": "9"}
+    assert Contract[Payload](Payload).to_json({"amount": Money(9)}) == '{"amount":"9"}'
+    assert Contract[list[Money]](list[FullMoneyValue]).to_python([Money(1), Money(2)]) == ["1", "2"]
+    assert Contract[dict[str, Money]](dict[str, FullMoneyValue]).to_json({"a": Money(3)}) == '{"a":"3"}'
+    assert Contract[Money | None](FullMoneyValue | None).to_python(None) is None
+
+
+def test_schema_projection_uses_declared_directions_without_executing_callbacks() -> None:
+    calls: list[str] = []
+
+    def load(value: int) -> Money:
+        calls.append("load")
+        return Money(value)
+
+    def dump(value: Money) -> MoneyOutput:
+        calls.append("dump")
+        return dump_money_output(value)
+
+    type BoundaryMoney = Annotated[
+        Money,
+        Representation(input=int, load=load, output=MoneyOutput, dump=dump),
+    ]
+    contract = Contract[Money](BoundaryMoney)
+
+    input_schema = contract.json_schema(mode="input")
+    output_schema = contract.json_schema(mode="output")
+    assert input_schema["$defs"] == {"BoundaryMoney": {"type": "integer"}}
+    assert output_schema["$defs"] == {
+        "BoundaryMoney": {"$ref": "#/$defs/MoneyOutput"},
+        "MoneyOutput": {
+            "type": "object",
+            "properties": {"amount": {"type": "integer"}, "currency": {"type": "string"}},
+            "additionalProperties": False,
+            "required": ["amount", "currency"],
+        },
+    }
+    assert contract.openapi_schema(mode="input")["components"]["schemas"]["BoundaryMoney"] == {"type": "integer"}
+    assert contract.openapi_schema(mode="output")["components"]["schemas"]["BoundaryMoney"] == {
+        "$ref": "#/components/schemas/MoneyOutput"
+    }
+
+    class DefaultPayment(Spec):
+        amount: BoundaryMoney = Money(1)
+
+    assert "default" not in repr(DefaultPayment.json_schema(mode="output"))
+    assert calls == []
+
+    with pytest.raises(SchemaProjectionError, match="no output direction"):
+        Contract[Money](MoneyValue).json_schema(mode="output")
+    output_only = Annotated[Money, Representation(output=str, dump=dump_money)]
+    with pytest.raises(SchemaProjectionError, match="no input direction"):
+        Contract[Money](output_only).openapi_schema(mode="input")
+
+
+def test_representation_introspection_is_immutable_and_callback_free() -> None:
+    info = inspect_contract(Contract[Money](FullMoneyValue))
+    assert len(info.representations) == 1
+    representation = info.representations[0]
+    assert isinstance(representation, RepresentationInfo)
+    assert representation.has_loader is representation.has_dumper is True
+    assert representation.input is not None
+    assert representation.output is not None
+    assert not hasattr(representation, "load")
+    assert not hasattr(representation, "dump")
+    assert "load_money" not in repr(representation)
+    assert "dump_money" not in repr(representation)
+    with pytest.raises((AttributeError, FrozenInstanceError)):
+        representation.has_dumper = False  # type: ignore[misc]
+
+    class Payment(Spec):
+        amount: FullMoneyValue
+        fee: FullMoneyValue
+
+    spec_info = inspect_spec(Payment)
+    assert len(spec_info.representations) == 1
+    assert spec_info.representations[0] == representation
+
+
+def test_nested_selection_descends_through_declared_output_and_preserves_hook_opacity() -> None:
+    calls = 0
+
+    @dataclass(frozen=True)
+    class AliasedOutput:
+        amount: Annotated[int, Alias("minorUnits")]
+        currency: str
+
+    def dump(value: Money) -> AliasedOutput:
+        nonlocal calls
+        calls += 1
+        return AliasedOutput(value.cents, "CHF")
+
+    type AliasedMoney = Annotated[Money, Representation(output=AliasedOutput, dump=dump)]
+
+    class Invoice(Spec):
+        price: AliasedMoney
+        history: list[AliasedMoney]
+        indexed: dict[str, AliasedMoney]
+
+    class OptionalInvoice(Spec):
+        price: AliasedMoney | None
+
+    invoice = Invoice(price=Money(1), history=[Money(2)], indexed={"paid": Money(3)})
+    assert invoice.to_dict(include={"price": {"amount": True}}) == {"price": {"minorUnits": 1}}
+    assert calls == 1
+    assert invoice.to_dict(include={"history": {"currency": True}, "indexed": {"amount": True}}) == {
+        "history": [{"currency": "CHF"}],
+        "indexed": {"paid": {"minorUnits": 3}},
+    }
+    assert calls == 3
+    assert invoice.to_dict(include={"price": True}, exclude={"price": {"currency": True}}) == {
+        "price": {"minorUnits": 1}
+    }
+    assert calls == 4
+    assert OptionalInvoice(price=Money(6)).to_dict(include={"price": {"amount": True}}) == {"price": {"minorUnits": 6}}
+    assert calls == 5
+    with pytest.raises(ValueError, match="unknown field"):
+        invoice.to_dict(include={"price": {"missing": True}})
+    assert calls == 5
+
+    class Hooked(Spec):
+        price: AliasedMoney
+
+        @serialize("price")
+        def replace_price(value: Money) -> dict[str, int]:
+            return {"hook": value.cents}
+
+    hooked = Hooked(price=Money(5))
+    assert hooked.to_dict() == {"price": {"hook": 5}}
+    assert calls == 5
+    with pytest.raises(ValueError, match="cannot descend through serializer field"):
+        hooked.to_dict(include={"price": {"amount": True}})
+    assert calls == 5
+
+    class InputOnlyInvoice(Spec):
+        price: MoneyValue
+
+    with pytest.raises(ValueError, match="without output"):
+        InputOnlyInvoice(price=Money(1)).to_dict(include={"price": {"amount": True}})
+    input_only_schema = Contract[Money](MoneyValue)._artifacts.schema
+    assert _object_variants(input_only_schema) == ()
+    assert schema_output_directions_are_available(input_only_schema) is False
+
+
+def test_output_constraints_unions_nested_representations_and_locations() -> None:
+    constrained = Contract[Money](
+        Annotated[
+            Money,
+            Representation(output=Annotated[str, Pattern(r"^CHF \d+$")], dump=lambda value: f"CHF {value.cents}"),
+        ]
+    )
+    assert constrained.to_python(Money(7)) == "CHF 7"
+    invalid_constraint = Contract[Money](
+        Annotated[
+            Money,
+            Representation(output=Annotated[str, Pattern(r"^USD ")], dump=lambda value: f"CHF {value.cents}"),
+        ]
+    )
+    with pytest.raises(SerializationError, match="outside its declared output contract"):
+        invalid_constraint.to_python(Money(7))
+
+    calls = 0
+
+    def tracked(value: Money) -> str:
+        nonlocal calls
+        calls += 1
+        return str(value.cents)
+
+    type TrackedMoney = Annotated[Money, Representation(output=str, dump=tracked)]
+    union = Contract[Money | str](TrackedMoney | str)
+    assert union.to_python("already external") == "already external"
+    assert calls == 0
+    assert union.to_json(Money(8)) == '"8"'
+    assert calls == 1
+
+    type TwiceMoney = Annotated[
+        Money,
+        Representation(output=TrackedMoney, dump=lambda value: Money(value.cents * 2)),
+    ]
+    assert Contract[Money](TwiceMoney).to_python(Money(4)) == "8"
+    assert calls == 2
+
+    def dump_wrong(value: Money) -> int:
+        return value.cents
+
+    type BrokenMoney = Annotated[Money, Representation(output=str, dump=dump_wrong)]
+
+    class BrokenPayment(Spec):
+        amount: BrokenMoney
+
+    with pytest.raises(SerializationError) as nested:
+        BrokenPayment(amount=Money(1)).to_dict()
+    assert nested.value.location == ("amount",)
+
+
+def test_output_generics_dynamic_derivation_recursion_and_tagged_composition() -> None:
+    class Page[T](Spec):
+        item: T
+
+    page = Page[FullMoneyValue](item=Money(1))
+    assert page.to_dict() == {"item": "1"}
+    assert page.to_json() == '{"item":"1"}'
+
+    Dynamic = create_spec("RepresentedOutput", {"amount": FullMoneyValue})
+    Derived = derive_spec(Dynamic, partial=True, name="RepresentedOutputPatch")
+    assert Dynamic(amount=Money(2)).to_dict() == {"amount": "2"}
+    assert Derived(amount=Money(3)).to_dict() == {"amount": "3"}
+
+    class LedgerNode(Spec):
+        amount: FullMoneyValue
+        children: list[LedgerNode]
+
+    root = LedgerNode(amount=Money(4), children=[LedgerNode(amount=Money(5), children=[])])
+    assert Contract(LedgerNode).to_python(root) == {
+        "amount": "4",
+        "children": [{"amount": "5", "children": []}],
+    }
+
+    class Card(TypedDict):
+        kind: Literal["card"]
+        amount: FullMoneyValue
+
+    class Cash(TypedDict):
+        kind: Literal["cash"]
+        amount: FullMoneyValue
+
+    type Method = Annotated[Card | Cash, Discriminator("kind")]
+    tagged = Contract[Method](Method)
+    assert tagged.to_python({"kind": "card", "amount": Money(6)}) == {"kind": "card", "amount": "6"}
+    assert tagged.to_json({"kind": "cash", "amount": Money(7)}) == '{"kind":"cash","amount":"7"}'
+
+
+def test_dump_side_effects_reentrancy_concurrent_compilation_cycles_and_lifetime() -> None:
+    integer = Contract(int)
+    calls = 0
+
+    class HostileDumper:
+        def __call__(self, value: Money) -> list[int]:
+            nonlocal calls
+            calls += 1
+            value.cents += 1
+            return [integer.to_python(value.cents)]
+
+        def __repr__(self) -> str:
+            raise RuntimeError("repr must not execute")
+
+    dumper = HostileDumper()
+    declaration = Representation(output=list[int], dump=dumper)
+    contract = Contract[Money](Annotated[Money, declaration])
+    values = [Money(index) for index in range(32)]
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        projected = tuple(executor.map(contract.to_python, values))
+    assert projected == tuple([index + 1] for index in range(32))
+    assert calls == 32
+    assert [value.cents for value in values] == list(range(1, 33))
+    compiled = contract._artifacts.python_output
+    assert compiled is not None
+    assert dumper in compiled.__globals__.values()
+    assert any("representation_dump" in name for name in compiled.__globals__)
+    assert any("representation_output_validator" in name for name in compiled.__globals__)
+    assert any("representation_output_projector" in name for name in compiled.__globals__)
+    assert all("registry" not in name for name in compiled.__globals__)
+    assert repr(declaration) == "Representation(output=<type form>, dump=<callback>)"
+
+    type RecursiveOutput = int | list[RecursiveOutput]
+
+    def cyclic(value: Money) -> RecursiveOutput:
+        result: list[RecursiveOutput] = []
+        result.append(result)
+        return result
+
+    cyclic_contract = Contract[Money](Annotated[Money, Representation(output=RecursiveOutput, dump=cyclic)])
+    with pytest.raises(SerializationError, match="cyclic object graphs"):
+        cyclic_contract.to_json(Money(1))
+
+    class CollectableDumper:
+        def __call__(self, value: Money) -> str:
+            return str(value.cents)
+
+    collectable = CollectableDumper()
+    reference = weakref.ref(collectable)
+    local_declaration = Representation(output=str, dump=collectable)
+    local = Contract[Money](Annotated[Money, local_declaration])
+    assert local.to_python(Money(1)) == "1"
+    del local, local_declaration, collectable
+    for _index in range(256):
+        callback = CollectableDumper()
+        Contract[Money](Annotated[Money, Representation(output=str, dump=callback)])
+    del callback
+    gc.collect()
+    assert reference() is None
 
 
 def test_callback_reentrancy_concurrent_first_use_source_safety_and_lifetime() -> None:

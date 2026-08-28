@@ -6,6 +6,7 @@ from talea.declaration.metadata import Alias
 from talea.errors import ErrorCode, ErrorData, ValidationError
 from talea.json_schema import SchemaProjectionError
 from talea.metadata import Deprecated, Description, Examples, ReadOnly, Sensitive, Title, WriteOnly
+from talea.representation import Representation
 from talea.resources import ResourceLimitError, ResourcePolicy
 from talea.serialization import SerializationError, serialize
 from talea.spec import Spec, apply_patch, check, derive_spec, field, transform
@@ -30,6 +31,7 @@ __all__ = [
     "MultipleOf",
     "Pattern",
     "ReadOnly",
+    "Representation",
     "ResourceLimitError",
     "ResourcePolicy",
     "SchemaProjectionError",

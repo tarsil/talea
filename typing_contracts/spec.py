@@ -1,5 +1,6 @@
 """Positive static-typing contract for Talea Spec declarations."""
 
+from collections.abc import Callable
 from copy import replace
 from dataclasses import dataclass
 from datetime import date
@@ -21,6 +22,7 @@ from talea import (
     MaxLength,
     MinLength,
     ReadOnly,
+    Representation,
     ResourceLimitError,
     ResourcePolicy,
     SchemaProjectionError,
@@ -37,8 +39,7 @@ from talea import (
     serialize,
     transform,
 )
-from talea.introspection import ContractInfo, SpecInfo, inspect_contract, inspect_spec
-from talea.representation import Representation
+from talea.introspection import ContractInfo, RepresentationInfo, SpecInfo, inspect_contract, inspect_spec
 
 
 @dataclass
@@ -137,11 +138,20 @@ typed_full: Representation[str, TypedMoney, str] = Representation(
     output=str,
     dump=typed_money_to_text,
 )
+typed_output: Representation[object, TypedMoney, str] = Representation(
+    output=str,
+    dump=typed_money_to_text,
+)
 type TypedMoneyValue = Annotated[TypedMoney, typed_input]
+type FullTypedMoneyValue = Annotated[TypedMoney, typed_full]
 typed_money_contract: Contract[TypedMoney] = Contract(TypedMoneyValue)
 assert_type(typed_money_contract.validate(TypedMoney()), TypedMoney)
 assert_type(typed_money_contract.from_python("money"), TypedMoney)
 assert_type(Contract[list[TypedMoney]](list[TypedMoneyValue]).from_python(["money"]), list[TypedMoney])
+assert_type(Contract[TypedMoney](FullTypedMoneyValue).to_python(TypedMoney()), object)
+assert_type(Contract[TypedMoney](FullTypedMoneyValue).to_json(TypedMoney()), str)
+assert_type(inspect_contract(Contract[TypedMoney](FullTypedMoneyValue)).representations[0], RepresentationInfo)
+assert_type(typed_output.dump, Callable[[TypedMoney], str] | None)
 
 
 class TypedMoneySpec(Spec):

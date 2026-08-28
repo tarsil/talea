@@ -187,6 +187,37 @@ def _project_nested(
         raise prefixed from prefixed.__cause__
 
 
+def _project_representation(
+    dump: Callable[[object], object],
+    validator: Callable[[object], object],
+    projector: ValueProjector,
+    value: object,
+    location: tuple[object, ...],
+    sensitive: bool = False,
+) -> object:
+    """Dump one internal value and enforce its declared output contract."""
+
+    try:
+        candidate = dump(value)
+    except Exception as error:
+        failure = SerializationError(
+            "Representation dumper failed",
+            location,
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
+    try:
+        validator(candidate)
+    except ValidationError as error:
+        failure = SerializationError(
+            "Representation dumper returned a value outside its declared output contract",
+            location,
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
+    return projector(candidate, location)
+
+
 class _ValueProjectionCompiler:
     """Emit one direct value projector for a canonical Schema."""
 
@@ -322,7 +353,31 @@ class _ValueProjectionCompiler:
             )
             return f"{projector}({value}, {location})"
         if isinstance(schema, RepresentationSchema):
-            raise SerializationError("Representation output execution is not available")
+            output = schema.output
+            dump = schema._declaration.dump
+            if output is None or dump is None:
+                raise SerializationError("Representation has no output direction")
+            callback = self._bind(names, namespace, "representation_dump", dump)
+            validator = self._bind(
+                names,
+                namespace,
+                "representation_output_validator",
+                compile_validator(output, sensitive=self.sensitive),
+            )
+            projector = self._bind(
+                names,
+                namespace,
+                "representation_output_projector",
+                _ValueProjectionCompiler(self.mode, self.by_alias).compile(
+                    output,
+                    sensitive=self.sensitive,
+                    include=include,
+                    exclude=exclude,
+                    exclude_none=exclude_none,
+                ),
+            )
+            project = self._bind(names, namespace, "project_representation", _project_representation)
+            return f"{project}({callback}, {validator}, {projector}, {value}, {location}{self._sensitive_argument()})"
         if isinstance(schema, PrimitiveSchema):
             if self.mode == "json" and schema.kind == "bytes":
                 encoder = self._bind(names, namespace, "encode_bytes", encode_bytes)
@@ -735,6 +790,8 @@ def _schema_accepts_selection(schema: Schema, active: set[int] | None = None) ->
     try:
         if isinstance(schema, NamedReferenceSchema):
             return _schema_accepts_selection(schema.target, active)
+        if isinstance(schema, RepresentationSchema):
+            return schema.output is not None and _schema_accepts_selection(schema.output, active)
         if isinstance(schema, (SpecReferenceSchema, DataclassSchema, TypedDictSchema, TaggedUnionSchema)):
             return True
         if isinstance(schema, (SequenceSchema, VariadicTupleSchema)):

@@ -1,7 +1,7 @@
 """Derive trust and override compatibility from canonical schema truth."""
 
 from decimal import Decimal
-from typing import assert_never
+from typing import Literal, assert_never
 
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf
 from talea.schema.nodes import (
@@ -303,37 +303,57 @@ def schema_input_directions_are_available(
 ) -> bool:
     """Return whether every representation reached by input has that direction."""
 
+    return _schema_directions_are_available(schema, "input", visiting)
+
+
+def schema_output_directions_are_available(
+    schema: Schema,
+    visiting: frozenset[object] = frozenset(),
+) -> bool:
+    """Return whether every representation reached by output has that direction."""
+
+    return _schema_directions_are_available(schema, "output", visiting)
+
+
+def _schema_directions_are_available(
+    schema: Schema,
+    direction: Literal["input", "output"],
+    visiting: frozenset[object],
+) -> bool:
+    """Traverse composition once for either Representation boundary direction."""
+
     if isinstance(schema, RepresentationSchema):
-        return schema.input is not None and schema_input_directions_are_available(schema.input, visiting)
+        directional = schema.input if direction == "input" else schema.output
+        return directional is not None and _schema_directions_are_available(directional, direction, visiting)
     if isinstance(schema, (ConstrainedSchema, AliasSchema)):
-        return schema_input_directions_are_available(schema.schema, visiting)
+        return _schema_directions_are_available(schema.schema, direction, visiting)
     if isinstance(schema, NamedReferenceSchema):
         if schema.identity in visiting:
             return True
-        return schema_input_directions_are_available(schema.target, visiting | {schema.identity})
+        return _schema_directions_are_available(schema.target, direction, visiting | {schema.identity})
     if isinstance(schema, DataclassSchema):
         identity = schema.identity or schema.dataclass_type
         if identity in visiting:
             return True
         return all(
-            schema_input_directions_are_available(field.schema, visiting | {identity}) for field in schema.fields
+            _schema_directions_are_available(field.schema, direction, visiting | {identity}) for field in schema.fields
         )
     if isinstance(schema, SequenceSchema):
-        return schema_input_directions_are_available(schema.item, visiting)
+        return _schema_directions_are_available(schema.item, direction, visiting)
     if isinstance(schema, MappingSchema):
-        return schema_input_directions_are_available(schema.key, visiting) and schema_input_directions_are_available(
-            schema.value, visiting
+        return _schema_directions_are_available(schema.key, direction, visiting) and _schema_directions_are_available(
+            schema.value, direction, visiting
         )
     if isinstance(schema, TypedDictSchema):
-        return all(schema_input_directions_are_available(field.schema, visiting) for field in schema.fields)
+        return all(_schema_directions_are_available(field.schema, direction, visiting) for field in schema.fields)
     if isinstance(schema, TaggedUnionSchema):
-        return all(schema_input_directions_are_available(branch.schema, visiting) for branch in schema.branches)
+        return all(_schema_directions_are_available(branch.schema, direction, visiting) for branch in schema.branches)
     if isinstance(schema, VariadicTupleSchema):
-        return schema_input_directions_are_available(schema.item, visiting)
+        return _schema_directions_are_available(schema.item, direction, visiting)
     if isinstance(schema, FixedTupleSchema):
-        return all(schema_input_directions_are_available(item, visiting) for item in schema.items)
+        return all(_schema_directions_are_available(item, direction, visiting) for item in schema.items)
     if isinstance(schema, UnionSchema):
-        return all(schema_input_directions_are_available(option, visiting) for option in schema.options)
+        return all(_schema_directions_are_available(option, direction, visiting) for option in schema.options)
     return True
 
 

@@ -15,9 +15,25 @@ from talea.declaration.models import MISSING_DEFAULT, SerializationHook, SpecDer
 from talea.declaration.policies import (
     schema_contains_representation,
     schema_input_directions_are_available,
+    schema_output_directions_are_available,
 )
 from talea.metadata import EMPTY_METADATA, DeclarationMetadata, ExampleValue, annotation_metadata
-from talea.schema.nodes import AliasSchema, ConstrainedSchema, Schema
+from talea.schema.nodes import (
+    AliasSchema,
+    ConstrainedSchema,
+    DataclassSchema,
+    FixedTupleSchema,
+    MappingSchema,
+    NamedReferenceSchema,
+    RepresentationSchema,
+    Schema,
+    SequenceSchema,
+    SpecReferenceSchema,
+    TaggedUnionSchema,
+    TypedDictSchema,
+    UnionSchema,
+    VariadicTupleSchema,
+)
 from talea.spec.declaration import _SpecDeclaration
 from talea.spec.fields import _FactoryDeclaration
 
@@ -25,6 +41,7 @@ __all__ = [
     "ContractInfo",
     "DerivationInfo",
     "FieldInfo",
+    "RepresentationInfo",
     "SpecInfo",
     "inspect_contract",
     "inspect_spec",
@@ -100,6 +117,7 @@ class SpecInfo:
     presence_aware: bool = False
     derivation: DerivationInfo | None = None
     operations: tuple[Operation, ...] = _OPERATIONS
+    representations: tuple[RepresentationInfo, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +134,18 @@ class ContractInfo:
     write_only: bool
     sensitive: bool
     operations: tuple[Operation, ...] = _OPERATIONS
+    representations: tuple[RepresentationInfo, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class RepresentationInfo:
+    """Describe directional schema truth without exposing executable callbacks."""
+
+    internal: Schema
+    input: Schema | None
+    output: Schema | None
+    has_loader: bool
+    has_dumper: bool
 
 
 def inspect_spec(spec: type[object]) -> SpecInfo:
@@ -178,6 +208,7 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                 artifacts.schema.presence_aware,
                 _derivation_info(artifacts.schema.derivation),
                 _schema_operations(tuple(field.schema for field in artifacts.schema.fields)),
+                _representation_infos(tuple(field.schema for field in artifacts.schema.fields)),
             )
             _SPEC_INFO_CACHE[spec] = cached
     return cached
@@ -207,6 +238,7 @@ def inspect_contract[T](contract: Contract[T]) -> ContractInfo:
         bool(metadata.write_only),
         bool(metadata.sensitive),
         _schema_operations((contract._artifacts.schema,)),
+        _representation_infos((contract._artifacts.schema,)),
     )
 
 
@@ -218,7 +250,84 @@ def _schema_operations(schemas: tuple[Schema, ...]) -> tuple[Operation, ...]:
     operations: tuple[Operation, ...] = ("strict_python",)
     if all(schema_input_directions_are_available(schema) for schema in schemas):
         operations = (*operations, "external_python", "json_input")
+    if all(schema_output_directions_are_available(schema) for schema in schemas):
+        operations = (*operations, "python_output", "json_output")
     return operations
+
+
+def _representation_infos(schemas: tuple[Schema, ...]) -> tuple[RepresentationInfo, ...]:
+    """Project each reachable declaration once without retaining callback authority."""
+
+    found: list[RepresentationInfo] = []
+    seen_representations: set[int] = set()
+    visited: set[object] = set()
+
+    def visit(schema: Schema) -> None:
+        while isinstance(schema, (AliasSchema, ConstrainedSchema)):
+            schema = schema.schema
+        if isinstance(schema, RepresentationSchema):
+            identity = id(schema._declaration)
+            if identity in seen_representations:
+                return
+            seen_representations.add(identity)
+            found.append(
+                RepresentationInfo(
+                    schema.internal,
+                    schema.input,
+                    schema.output,
+                    schema.input is not None,
+                    schema.output is not None,
+                )
+            )
+            visit(schema.internal)
+            if schema.input is not None:
+                visit(schema.input)
+            if schema.output is not None:
+                visit(schema.output)
+            return
+        if isinstance(schema, NamedReferenceSchema):
+            if schema.identity in visited:
+                return
+            visited.add(schema.identity)
+            visit(schema.target)
+            return
+        if isinstance(schema, SpecReferenceSchema):
+            if schema.spec_type in visited:
+                return
+            visited.add(schema.spec_type)
+            artifacts = vars(schema.spec_type)["__talea_artifacts__"]
+            for field in artifacts.schema.fields:
+                visit(field.schema)
+            return
+        if isinstance(schema, DataclassSchema):
+            identity = schema.identity or schema.dataclass_type
+            visited.add(identity)
+            for field in schema.fields:
+                visit(field.schema)
+            return
+        if isinstance(schema, SequenceSchema):
+            visit(schema.item)
+        elif isinstance(schema, MappingSchema):
+            visit(schema.key)
+            visit(schema.value)
+        elif isinstance(schema, TypedDictSchema):
+            for field in schema.fields:
+                visit(field.schema)
+        elif isinstance(schema, TaggedUnionSchema):
+            for branch in schema.branches:
+                visit(branch.schema)
+        elif isinstance(schema, VariadicTupleSchema):
+            visit(schema.item)
+        elif isinstance(schema, FixedTupleSchema):
+            for item in schema.items:
+                visit(item)
+        elif isinstance(schema, UnionSchema):
+            for option in schema.options:
+                visit(option)
+
+    for schema in schemas:
+        visit(schema)
+    return tuple(found)
 
 
 def _constraints(schema: Schema) -> tuple[Constraint, ...]:

@@ -12,6 +12,7 @@ from talea.schema.nodes import (
     FixedTupleSchema,
     MappingSchema,
     NamedReferenceSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -89,6 +90,10 @@ def _normalize_descendant(
         schema = schema.schema
     if isinstance(schema, NamedReferenceSchema):
         return _normalize_descendant(selection, schema.target, parameter, path)
+    if isinstance(schema, RepresentationSchema):
+        if schema.output is None:
+            raise ValueError(f"{parameter} cannot descend through a Representation without output")
+        return _normalize_descendant(selection, schema.output, parameter, path)
     if isinstance(schema, SpecReferenceSchema):
         artifacts = vars(schema.spec_type)["__talea_artifacts__"]
         return _normalize_object(
@@ -231,6 +236,8 @@ def _object_variants(
     try:
         if isinstance(schema, NamedReferenceSchema):
             return _object_variants(schema.target, active)
+        if isinstance(schema, RepresentationSchema):
+            return () if schema.output is None else _object_variants(schema.output, active)
         if isinstance(schema, SpecReferenceSchema):
             artifacts = vars(schema.spec_type)["__talea_artifacts__"]
             return ((artifacts.schema.fields, artifacts.schema.serializers),)
