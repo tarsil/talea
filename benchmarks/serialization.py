@@ -110,6 +110,22 @@ def make_spec(count: int) -> type[Spec]:
     return type(f"Output{count}", (Spec,), {"__annotations__": dict.fromkeys(names(count), int)})
 
 
+def make_declared_serializer_spec() -> type[Spec]:
+    """Declare one fresh Spec with a scalar serializer output contract."""
+
+    def output(value: int) -> str:
+        return str(value)
+
+    return type(
+        "DeclaredOutput",
+        (Spec,),
+        {
+            "__annotations__": {"value": int},
+            "output": serialize("value", output=str)(output),
+        },
+    )
+
+
 def make_hand_serializer(count: int) -> Callable[[object], dict[str, object]]:
     """Compile the equivalent direct hand-written dictionary literal."""
 
@@ -299,6 +315,14 @@ class ProjectionBank(Spec):
 type ProjectionPayment = Annotated[ProjectionCard | ProjectionBank, Discriminator("kind")]
 
 
+class DeclaredTagged(Spec):
+    value: int
+
+    @serialize("value", output=ProjectionPayment)
+    def output(value: int) -> ProjectionPayment:
+        return ProjectionCard(kind="card", number=str(value))
+
+
 class ProjectionTagged(Spec):
     payment: ProjectionPayment
 
@@ -365,6 +389,7 @@ PROJECTION_COLLECTION = ProjectionCollection(
 )
 PROJECTION_UNION = ProjectionUnion(subject=ProjectionAdmin(name="Ada", level=3))
 PROJECTION_TAGGED = ProjectionTagged(payment=ProjectionCard(kind="card", number="4111"))
+DECLARED_TAGGED = DeclaredTagged(value=4111)
 PROJECTION_DEEP = ProjectionDepth1(
     child=ProjectionDepth2(
         child=ProjectionDepth3(
@@ -461,6 +486,7 @@ def benchmark_python_projection() -> None:
         DECLARED_SCALAR,
         DECLARED_STRUCTURED,
         DECLARED_MODELS,
+        DECLARED_TAGGED,
         ALIASED,
     ):
         instance.to_dict()
@@ -473,6 +499,7 @@ def benchmark_python_projection() -> None:
         ("declared scalar hook", DECLARED_SCALAR.to_dict),
         ("declared structured hook", DECLARED_STRUCTURED.to_dict),
         ("declared model outputs", DECLARED_MODELS.to_dict),
+        ("declared tagged output", DECLARED_TAGGED.to_dict),
         ("alias", ALIASED.to_dict),
         ("include", partial(INHERITED.to_dict, include={"identifier", "active"})),
         ("exclude", partial(INHERITED.to_dict, exclude={"name"})),
@@ -603,6 +630,7 @@ def benchmark_json_projection() -> None:
         ("declared scalar to_json", DECLARED_SCALAR),
         ("declared structured to_json", DECLARED_STRUCTURED),
         ("declared models to_json", DECLARED_MODELS),
+        ("declared tagged to_json", DECLARED_TAGGED),
     ):
         print_measurement(name, "talea + stdlib", measure(instance.to_json))
 
@@ -626,6 +654,11 @@ def benchmark_costs() -> None:
             "serialization unused",
             measure(partial(make_spec, count), _DECLARATION_ITERATIONS),
         )
+    print_measurement(
+        "declare scalar output",
+        "serialization unused",
+        measure(make_declared_serializer_spec, _DECLARATION_ITERATIONS),
+    )
     print(f"Output first use ({_FIRST_USE_SAMPLES:,} fresh five-field declarations)")
     print_measurement("first to_dict", "compile + execute", measure_first_use("python"))
     print_measurement("first to_json", "compile + execute", measure_first_use("json"))
@@ -651,6 +684,7 @@ def benchmark_costs() -> None:
         ("declared scalar to_dict", DECLARED_SCALAR.to_dict),
         ("declared structured to_dict", DECLARED_STRUCTURED.to_dict),
         ("declared structured to_json", DECLARED_STRUCTURED.to_json),
+        ("declared models to_dict", DECLARED_MODELS.to_dict),
     ):
         result = measure_allocations(operation)
         print(f"{name:34} retained={result.retained:5} B peak={result.peak:5} B")
@@ -669,6 +703,16 @@ def benchmark_costs() -> None:
         f"cold={cold_bytes} B python-warm={warm_bytes} B instance={instance_bytes} B "
         f"json_compiled={artifacts.outputs.json_alias is not None}"
     )
+    declared_artifacts = vars(DeclaredStructured)["__talea_artifacts__"].outputs
+    assert declared_artifacts.python_alias is not None and declared_artifacts.json_alias is not None
+    declared_retained = (
+        sys.getsizeof(declared_artifacts)
+        + sys.getsizeof(declared_artifacts.python_alias)
+        + sys.getsizeof(declared_artifacts.python_alias.__globals__)
+        + sys.getsizeof(declared_artifacts.json_alias)
+        + sys.getsizeof(declared_artifacts.json_alias.__globals__)
+    )
+    print(f"Declared output retained shallow memory python+json-warm={declared_retained} B")
 
 
 def main() -> None:
