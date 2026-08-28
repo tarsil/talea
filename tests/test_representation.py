@@ -4,11 +4,12 @@ import dis
 import gc
 import weakref
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import FrozenInstanceError, dataclass
+from dataclasses import FrozenInstanceError, dataclass, make_dataclass
 from functools import partial
 from typing import Annotated, Literal, NewType, NotRequired, TypedDict
 
 import pytest
+from hypothesis import given, strategies as st
 
 import talea
 from talea import (
@@ -591,8 +592,25 @@ def test_representation_output_composes_through_specs_dataclasses_typed_dicts_an
     assert Contract[Payload](Payload).to_python({"amount": Money(9)}) == {"amount": "9"}
     assert Contract[Payload](Payload).to_json({"amount": Money(9)}) == '{"amount":"9"}'
     assert Contract[list[Money]](list[FullMoneyValue]).to_python([Money(1), Money(2)]) == ["1", "2"]
+    assert Contract[tuple[Money, ...]](tuple[FullMoneyValue, ...]).to_python((Money(1), Money(2))) == (
+        "1",
+        "2",
+    )
+    assert Contract[set[Money]](set[FullMoneyValue]).to_python({Money(1)}) == {"1"}
+    assert Contract[frozenset[Money]](frozenset[FullMoneyValue]).to_json(frozenset({Money(2)})) == '["2"]'
     assert Contract[dict[str, Money]](dict[str, FullMoneyValue]).to_json({"a": Money(3)}) == '{"a":"3"}'
     assert Contract[Money | None](FullMoneyValue | None).to_python(None) is None
+
+    UserId = NewType("UserId", int)
+    type RepresentedUserId = Annotated[UserId, Representation(output=str, dump=str)]
+    assert Contract[UserId](RepresentedUserId).to_json(UserId(4)) == '"4"'
+
+
+@given(st.integers(min_value=-1_000_000, max_value=1_000_000))
+def test_scalar_output_property_preserves_every_bounded_integer(cents: int) -> None:
+    contract = Contract[Money](FullMoneyValue)
+    assert contract.to_python(Money(cents)) == str(cents)
+    assert contract.to_json(Money(cents)) == f'"{cents}"'
 
 
 def test_schema_projection_uses_declared_directions_without_executing_callbacks() -> None:
@@ -640,6 +658,25 @@ def test_schema_projection_uses_declared_directions_without_executing_callbacks(
     output_only = Annotated[Money, Representation(output=str, dump=dump_money)]
     with pytest.raises(SchemaProjectionError, match="no input direction"):
         Contract[Money](output_only).openapi_schema(mode="input")
+
+    LeftPayload = make_dataclass("Payload", (("value", int),), module="left_contracts")
+    RightPayload = make_dataclass("Payload", (("value", str),), module="right_contracts")
+
+    def unused_collision_dump(value: Money) -> tuple[object, object]:
+        raise AssertionError("schema projection executed a dumper")
+
+    type CollisionBoundary = Annotated[
+        Money,
+        Representation(output=tuple[LeftPayload, RightPayload], dump=unused_collision_dump),
+    ]
+    collision = Contract[Money](CollisionBoundary)
+    first_document = collision.json_schema(mode="output")
+    second_document = collision.json_schema(mode="output")
+    assert first_document == second_document
+    definitions = first_document["$defs"]
+    assert isinstance(definitions, dict)
+    assert len([name for name in definitions if "Payload" in name]) == 2
+    assert "unused_collision_dump" not in repr(first_document)
 
 
 def test_representation_introspection_is_immutable_and_callback_free() -> None:
@@ -818,6 +855,28 @@ def test_output_generics_dynamic_derivation_recursion_and_tagged_composition() -
     assert tagged.to_python({"kind": "card", "amount": Money(6)}) == {"kind": "card", "amount": "6"}
     assert tagged.to_json({"kind": "cash", "amount": Money(7)}) == '{"kind":"cash","amount":"7"}'
 
+    class CardOutput(TypedDict):
+        kind: Literal["card"]
+        reference: str
+
+    class CashOutput(TypedDict):
+        kind: Literal["cash"]
+        reference: str
+
+    type TaggedOutput = Annotated[CardOutput | CashOutput, Discriminator("kind")]
+
+    def dump_tagged(value: Money) -> TaggedOutput:
+        return {"kind": "card", "reference": str(value.cents)}
+
+    type TaggedMoney = Annotated[Money, Representation(output=TaggedOutput, dump=dump_tagged)]
+
+    class TaggedEnvelope(Spec):
+        method: TaggedMoney
+
+    assert TaggedEnvelope(method=Money(8)).to_dict(include={"method": {"kind": True, "reference": True}}) == {
+        "method": {"kind": "card", "reference": "8"}
+    }
+
 
 def test_dump_side_effects_reentrancy_concurrent_compilation_cycles_and_lifetime() -> None:
     integer = Contract(int)
@@ -861,6 +920,11 @@ def test_dump_side_effects_reentrancy_concurrent_compilation_cycles_and_lifetime
     cyclic_contract = Contract[Money](Annotated[Money, Representation(output=RecursiveOutput, dump=cyclic)])
     with pytest.raises(SerializationError, match="cyclic object graphs"):
         cyclic_contract.to_json(Money(1))
+
+    amplified = Contract[Money](
+        Annotated[Money, Representation(output=list[int], dump=lambda value: list(range(value.cents)))]
+    )
+    assert len(amplified.to_python(Money(1_000))) == 1_000
 
     class CollectableDumper:
         def __call__(self, value: Money) -> str:
