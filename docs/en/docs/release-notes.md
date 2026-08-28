@@ -1,10 +1,6 @@
 # Release Notes
 
-Talea follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Release
-entries describe user-visible behavior; detailed architecture and benchmark
-evidence remain in the engineering documentation.
-
-## [0.3.0] - 2026-08-28
+## 0.3.0
 
 ### Added
 
@@ -30,7 +26,7 @@ Callbacks remain synchronous, trusted, and ungoverned by output
 `ResourcePolicy`; Representation is explicit rather than registry-driven, and
 serializers without `output=` remain structurally opaque.
 
-## [0.2.0] - 2026-08-28
+## 0.2.0
 
 ### Added
 
@@ -51,7 +47,7 @@ serializers without `output=` remain structurally opaque.
   OpenAPI. The original dataclass, constructor lifecycle, defaults,
   `__post_init__`, equality, hashing, and pickle behavior remain unchanged.
 
-## [0.1.0] - 2026-08-26
+## 0.1.0
 
 Talea 0.1.0 is the first public release of Talea, a pure-Python data-contract
 library for Python 3.14 and newer. It provides strict validation, explicit
@@ -149,7 +145,3 @@ must be specialized for execution, and external-input resource policy does not
 govern trusted construction or arbitrary callback work. See the
 [authoritative limitations list](engineering/limitations.md) for the complete
 scope and operational boundaries.
-
-[0.3.0]: https://github.com/tarsil/talea/compare/0.2.0...0.3.0
-[0.2.0]: https://github.com/tarsil/talea/compare/0.1.0...0.2.0
-[0.1.0]: https://github.com/tarsil/talea/releases/tag/0.1.0
