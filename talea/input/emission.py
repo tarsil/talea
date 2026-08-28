@@ -485,12 +485,15 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         callback = self.bind("representation_loader", loader)
         callback_error = self.variable("representation_error")
         load_failure = self.variable("representation_failure")
-        value_error = self.runtime("value_error", ValueError)
+        callback_exception = self.runtime(
+            "exception" if self.sensitive else "value_error",
+            Exception if self.sensitive else ValueError,
+        )
         load_code = self.runtime("error_code_representation_load", ErrorCode.REPRESENTATION_LOAD)
         context = self.bind("representation_load_context", (("stage", "load"),))
         self.emit(indentation, "try:")
         self.emit(indentation + 1, f"{value} = {callback}({value})")
-        self.emit(indentation, f"except {value_error} as {callback_error}:")
+        self.emit(indentation, f"except {callback_exception} as {callback_error}:")
         self.emit(
             indentation + 1,
             f"{load_failure} = {self.validation_error_name}(None, {value}, "

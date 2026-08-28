@@ -844,8 +844,8 @@ def project_hook_value(
         )
         raise failure from (None if sensitive else error)
     if mode == "python":
-        return _copy_hook_python(replacement, by_alias, location, sensitive)
-    return _project_hook_json(replacement, by_alias, location, sensitive)
+        return _copy_hook_python(replacement, by_alias, location, sensitive, None)
+    return _project_hook_json(replacement, by_alias, location, sensitive, None)
 
 
 def project_declared_hook_value(
@@ -885,39 +885,65 @@ def _copy_hook_python(
     by_alias: bool,
     location: tuple[object, ...],
     sensitive: bool,
+    active: set[int] | None,
 ) -> object:
     artifacts = getattr(type(value), "__talea_artifacts__", None)
     if artifacts is not None:
         serializer = artifacts.outputs.output_for(artifacts.schema, "python", by_alias, False)
         return _project_nested(value, serializer, location, sensitive)
-    if type(value) is list:
-        return [_copy_hook_python(item, by_alias, (*location, index), sensitive) for index, item in enumerate(value)]
-    if type(value) is tuple:
-        return tuple(
-            _copy_hook_python(item, by_alias, (*location, index), sensitive) for index, item in enumerate(value)
-        )
-    if type(value) is set:
-        return {_copy_hook_python(item, by_alias, (*location, index), sensitive) for index, item in enumerate(value)}
-    if type(value) is frozenset:
-        return frozenset(
-            _copy_hook_python(item, by_alias, (*location, index), sensitive) for index, item in enumerate(value)
-        )
-    if type(value) is dict:
+    container_type = type(value)
+    if container_type not in (list, tuple, set, frozenset, dict):
+        return value
+    if active is None:
+        active = set()
+    identity = id(value)
+    if identity in active:
+        raise SerializationError(
+            "cyclic object graphs cannot be serialized",
+            location,
+            sensitive=sensitive,
+        ) from None
+    active.add(identity)
+    try:
+        container = cast(list[object] | tuple[object, ...] | set[object] | frozenset[object], value)
+        if container_type is list:
+            return [
+                _copy_hook_python(item, by_alias, (*location, index), sensitive, active)
+                for index, item in enumerate(container)
+            ]
+        if container_type is tuple:
+            return tuple(
+                _copy_hook_python(item, by_alias, (*location, index), sensitive, active)
+                for index, item in enumerate(container)
+            )
+        if container_type is set:
+            return {
+                _copy_hook_python(item, by_alias, (*location, index), sensitive, active)
+                for index, item in enumerate(container)
+            }
+        if container_type is frozenset:
+            return frozenset(
+                _copy_hook_python(item, by_alias, (*location, index), sensitive, active)
+                for index, item in enumerate(container)
+            )
         return {
             _copy_hook_python(
                 key,
                 by_alias,
                 (*location, REDACTED if sensitive else key),
                 sensitive,
+                active,
             ): _copy_hook_python(
                 item,
                 by_alias,
                 (*location, REDACTED if sensitive else key),
                 sensitive,
+                active,
             )
-            for key, item in value.items()
+            for key, item in cast(dict[object, object], value).items()
         }
-    return value
+    finally:
+        active.remove(identity)
 
 
 def _project_hook_json(
@@ -925,6 +951,7 @@ def _project_hook_json(
     by_alias: bool,
     location: tuple[object, ...],
     sensitive: bool,
+    active: set[int] | None,
 ) -> object:
     artifacts = getattr(type(value), "__talea_artifacts__", None)
     if artifacts is not None:
@@ -948,21 +975,37 @@ def _project_hook_json(
         return str(value)
     if isinstance(value, Enum):
         return _enum_json(value, location, sensitive)
-    if type(value) in (list, tuple, set, frozenset):
-        container = cast(list[object] | tuple[object, ...] | set[object] | frozenset[object], value)
-        return [
-            _project_hook_json(item, by_alias, (*location, index), sensitive) for index, item in enumerate(container)
-        ]
-    if type(value) is dict:
-        return {
-            _json_key(key, (*location, REDACTED if sensitive else key), sensitive): _project_hook_json(
-                item,
-                by_alias,
-                (*location, REDACTED if sensitive else key),
-                sensitive,
-            )
-            for key, item in value.items()
-        }
+    container_type = type(value)
+    if container_type in (list, tuple, set, frozenset, dict):
+        if active is None:
+            active = set()
+        identity = id(value)
+        if identity in active:
+            raise SerializationError(
+                "cyclic object graphs cannot be serialized",
+                location,
+                sensitive=sensitive,
+            ) from None
+        active.add(identity)
+        try:
+            if container_type is not dict:
+                container = cast(list[object] | tuple[object, ...] | set[object] | frozenset[object], value)
+                return [
+                    _project_hook_json(item, by_alias, (*location, index), sensitive, active)
+                    for index, item in enumerate(container)
+                ]
+            return {
+                _json_key(key, (*location, REDACTED if sensitive else key), sensitive): _project_hook_json(
+                    item,
+                    by_alias,
+                    (*location, REDACTED if sensitive else key),
+                    sensitive,
+                    active,
+                )
+                for key, item in cast(dict[object, object], value).items()
+            }
+        finally:
+            active.remove(identity)
     raise SerializationError(
         f"hook returned unsupported JSON value {type(value).__qualname__}",
         location,

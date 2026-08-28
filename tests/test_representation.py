@@ -269,6 +269,17 @@ def test_sensitive_representation_failures_redact_values_messages_and_causes() -
     assert loader_error.value.__cause__ is None
     assert "token" not in str(loader_error.value)
 
+    def crash(value: str) -> Money:
+        raise RuntimeError(f"secret:{value}")
+
+    sensitive_crash = Contract[Money](Annotated[Money, Representation(input=str, load=crash), Sensitive()])
+    with pytest.raises(ValidationError) as crash_error:
+        sensitive_crash.from_python("token")
+    assert crash_error.value.code.value == "representation_load"
+    assert crash_error.value.value == "<redacted>"
+    assert crash_error.value.__cause__ is None
+    assert "token" not in str(crash_error.value)
+
     wrong = Contract[Money](Annotated[Money, Representation(input=str, load=lambda value: value), Sensitive()])
     with pytest.raises(ValidationError) as result_error:
         wrong.from_python("token")

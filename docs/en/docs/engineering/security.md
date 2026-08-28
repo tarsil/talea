@@ -82,6 +82,10 @@ synchronous and may reenter Talea, but compilation/publication locks are not
 held while they execute. `ResourcePolicy` covers external input traversal, not
 callback work or output size. See [Custom domain
 representations](../custom-representations.md) for the full contract.
+At a `Sensitive` represented input boundary, Talea normalizes ordinary loader
+exceptions into a redacted `ValidationError` with no retained cause; a
+non-sensitive loader still uses `ValueError` as its declared rejection signal
+and propagates other application defects.
 
 Declared serializer output contracts prevent a callback result from drifting
 from published output schema, but they do not sandbox the callback. Talea

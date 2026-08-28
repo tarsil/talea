@@ -298,7 +298,7 @@ is applied twice.
 
 Plain output pays no per-field selection branches. A separate filtered
 serializer remains retained for legacy top-level sets. A nested selector is
-normalized to an immutable schema-validated tree and compiled into an
+normalized to an immutable schema-validated tree and compiled into a
 direct projector. Each Spec class retains at most 32 selected projectors under
 a FIFO policy; arbitrary user shapes therefore cannot create unbounded class or
 process state. Normalization still copies caller input on every call before a
@@ -456,3 +456,7 @@ Serializer callbacks are trusted application code: they may mutate source
 state, reenter Talea, block, or amplify a small value into a large graph. Talea
 does not hold compilation locks while calling them, cannot roll back mutation,
 and does not apply input `ResourcePolicy` budgets to callback work or output.
+Opaque callback results are still traversed safely: cyclic built-in containers
+raise a field-located `SerializationError` rather than leaking Python recursion
+failures. Without `output=`, however, Talea still cannot publish or validate a
+structural contract for the result.
