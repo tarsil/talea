@@ -17,6 +17,13 @@ Talea has two outbound operations with deliberately different representations:
 There is no `to_python()` alias and no `model_dump` vocabulary. `to_dict()` is
 the one Python mapping operation; `to_json()` is the one encoded JSON operation.
 
+For `Contract(Annotated[Domain, Representation(output=..., dump=...)])`, output
+validates the internal value, calls the dumper once, validates its candidate,
+then uses the declared output schema's normal Python or JSON projector. Wrong
+results raise `SerializationError`; mutable structured results remain detached.
+The complete contract is documented in [Custom domain
+representations](custom-representations.md).
+
 ```python
 from datetime import datetime, timezone
 from uuid import UUID
@@ -278,6 +285,11 @@ for the callback's replacement. Selecting or excluding the whole field is
 valid; descending into the callback result fails before callback execution.
 `Sensitive` keeps its ordinary successful-output semantics and does not turn
 selection into redaction.
+
+A `Representation` is different: its `output=` schema makes descendants
+structurally knowable. Selection validates against that output schema before
+dump execution and compiles direct selected projection. A field-local
+`@serialize` still takes precedence and keeps that field opaque.
 
 Plain output pays no per-field selection branches. A separate filtered
 serializer remains retained for legacy top-level sets. A nested selector is

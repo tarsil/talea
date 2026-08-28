@@ -52,6 +52,7 @@ contract for JSON strings. Talea provides no global coercion policy. See
 | stdlib dataclass | Exact declared class with current stored state | Mapping/JSON constructs the original class; `init=False` is output-only |
 | PEP 695 `type` aliases and `NewType` | Underlying supported contract | Named identity is retained without runtime alias dispatch |
 | `Annotated[A | B, Discriminator(name)]` | Required single-Literal Spec or TypedDict branches | Direct tag selection; see [Tagged unions](tagged-unions.md) |
+| `Annotated[T, Representation(...)]` | Strict internal `T` plus explicitly declared directional schemas | Trusted callbacks run once and their results are validated; see [custom representations](custom-representations.md) |
 
 `date` is intentionally exact because Python defines `datetime` as a subclass
 of `date`. A field described as a calendar day should not silently accept a
@@ -144,6 +145,7 @@ recursion](recursive-generics.md).
 | untagged union | first strict branch that succeeds | branches attempted in canonical order | branches attempted in canonical order | selected runtime branch | selected branch representation | `anyOf` |
 | tagged union | nominal Spec or exact tagged dict | direct discriminator dispatch | direct external-tag dispatch | selected branch | selected branch | `oneOf`; OpenAPI discriminator |
 | recursive named graph | strict acyclic/cycle-aware graph | resource-governed traversal | resource-governed traversal | detached acyclic graph | acyclic JSON | finite definitions and references |
+| represented custom type | strict internal type/schema | declared `input=` then one validated load | same declared input after JSON decoding | one dump, declared-output validation, detached projection | same output through JSON projection/encoding | declared input/output by mode |
 
 Transforms or serializers can deliberately change a boundary domain. If their
 input or output cannot be expressed statically, the corresponding schema mode

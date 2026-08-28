@@ -134,9 +134,10 @@ class RepresentationSchema:
     """Canonical association between internal and directional schema truth.
 
     ``internal`` remains the strict Python contract. Optional directional
-    schemas and the private declaration identity supply input and future output
-    compilation without re-reading ``Annotated`` metadata or consulting a
-    registry. Callback fields remain private and are excluded from repr.
+    schemas and the private declaration identity supply input/output execution,
+    standards projection, introspection, and nested selection without re-reading
+    ``Annotated`` metadata or consulting a registry. Callback fields remain
+    private and are excluded from repr.
     """
 
     internal: "Schema"

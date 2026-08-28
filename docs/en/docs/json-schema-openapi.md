@@ -151,6 +151,13 @@ the callback has no declared return contract.
 The opposite modes remain projectable: transforms do not change output, and
 serializers do not change accepted input.
 
+`Representation` supplies the explicit contract that arbitrary callbacks lack:
+input mode projects its `input=` schema and output mode projects `output=`. A
+missing direction raises `SchemaProjectionError`. Loaders and dumpers never run
+during projection and cannot inject schema dictionaries. Named alias identity,
+not callback identity, owns `$defs` and component names. See [Custom domain
+representations](custom-representations.md).
+
 Custom `check` callbacks are different. They do not change structural shape,
 so projection emits known structure and built-in constraints. Arbitrary check
 predicates remain runtime-only and can reject documents that satisfy the

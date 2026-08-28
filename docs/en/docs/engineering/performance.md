@@ -32,6 +32,7 @@ approximately zero cost when unused.
 | `benchmark_json_schema` | standards projection, scaling, output size |
 | `benchmark_resources` | policy overhead and adversarial scaling |
 | `benchmark_dataclasses` | dataclass boundaries, cold work, memory, generated code, and zero-tax canaries |
+| `benchmark_representation` | represented strict/input/output paths, result validation, structural selection, allocation/retention, and zero-tax canaries |
 
 Run one task from the repository root, for example:
 
@@ -40,6 +41,7 @@ task benchmark_spec
 task benchmark_json
 task benchmark_resources
 task benchmark_dataclasses
+task benchmark_representation
 ```
 
 For release review, run every permanent benchmark task listed in
@@ -120,6 +122,13 @@ Mutable nested values are an intentional cost boundary. If current state can
 change after construction, later output or replacement must revalidate it.
 Permanently trusted immutable subgraphs may preserve identity and skip repeated
 deep proof.
+
+Represented output necessarily pays for the direct dumper call, full declared
+result validation, and ordinary projection. The permanent benchmark compares
+scalar output with an equivalent manual strict/dump/result-check/project path,
+measures structured output and selected projection separately, and reports
+retained callback/artifact memory. Models without `Representation` do not enter
+that machinery.
 
 ## Measure an application workload
 

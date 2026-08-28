@@ -87,6 +87,11 @@ value, so the JSON boundary owns its documented string representation. That
 separation is the core of Talea's mental model: conversion is explicit, and
 already-valid Python values do not pass through a general parsing pipeline.
 
+Application-owned types can declare the same explicit boundary truth at any
+annotation position with `Representation(input=..., load=..., output=...,
+dump=...)`; Talea validates callback results and reuses the declared schemas for
+input, output, JSON Schema, OpenAPI, and nested projection.
+
 ## Why Talea exists
 
 Python applications often need more than a typed record. At an API, event,

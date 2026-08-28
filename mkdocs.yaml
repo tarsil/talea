@@ -59,6 +59,7 @@ nav:
       - Mental model: "concepts/mental-model.md"
       - Specs: "concepts/specs.md"
       - Contracts: "contracts.md"
+      - Custom domain representations: "custom-representations.md"
       - Standard-library dataclasses: "dataclasses.md"
       - Strictness and boundaries: "concepts/strictness-boundaries.md"
       - Composition and inheritance: "composition-inheritance.md"

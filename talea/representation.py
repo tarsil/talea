@@ -2,7 +2,7 @@
 
 The declaration is immutable metadata for :class:`typing.Annotated`. Talea
 resolves it into one canonical schema node; callbacks are retained by that
-node and compiled input artifacts rather than a registry.
+node and compiled directional artifacts rather than a registry.
 """
 
 from collections.abc import Callable
@@ -42,8 +42,9 @@ class Representation[InputT, InternalT, OutputT]:
 
     ``input`` and ``load`` form one direction; ``output`` and ``dump`` form the
     other. At least one complete pair is required. Callbacks are trusted,
-    synchronous application code. Input callback results are always validated
-    against the ``Annotated`` base type before Talea returns them.
+    synchronous application code. Load results are validated against the
+    ``Annotated`` base type, and dump results are validated against ``output``
+    before Talea projects or returns them.
 
     Python 3.14 cannot describe arbitrary runtime type forms with ``TypeForm``.
     Consequently ``input`` and ``output`` accept ``object`` at the type level,

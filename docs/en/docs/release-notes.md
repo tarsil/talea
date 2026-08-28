@@ -1,5 +1,17 @@
 # Release Notes
 
+## Unreleased
+
+### Added
+
+- Reusable annotation-scoped `Representation` contracts for custom domain
+  types across strict validation, external Python/JSON input, detached
+  Python/JSON output, JSON Schema, OpenAPI, callback-free introspection, and
+  nested output selection. Declared loader and dumper results are validated,
+  one-way directions fail explicitly, and the feature composes beneath Specs,
+  dataclasses, TypedDicts, containers, unions, aliases, generics, and recursive
+  containing graphs.
+
 ## 0.2.0 — Python interoperability and boundary productivity
 
 ### Added

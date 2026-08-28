@@ -33,9 +33,12 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   because Python cannot infer runtime field mappings;
 - no automatic converters are provided for Pydantic, attrs, or foreign schema
   systems.
-- the representation declaration is currently domain-module-only: strict and
-  external input execution are implemented, while output execution and JSON
-  Schema/OpenAPI projection reject explicitly;
+- plain `Contract(ArbitraryClass)` remains unsupported unless an explicit
+  `Representation` annotates that position; there is no registry, discovery,
+  generic Representation factory, custom format namespace, or custom error-code
+  namespace;
+- Representation callbacks are synchronous trusted Python and undeclared
+  `@serialize` results remain opaque to nested selection and output schema;
 
 ## Deliberate boundaries and trust model
 
@@ -46,6 +49,9 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - a representation loader may mutate its accepted input and Talea cannot roll
   back those application side effects; subsequent Talea validation still uses
   the values already extracted by the compiled operation;
+- a representation dumper may mutate its internal value, reenter Talea, log
+  secrets, or amplify a small value into large output; Talea calls it once but
+  cannot roll back or resource-govern that application work;
 - `Sensitive` governs Talea-owned failures but cannot alter a dataclass's own
   generated repr; applications must use `field(repr=False)` where needed;
 - resource policies govern external input, not strict trusted construction,

@@ -117,6 +117,12 @@ The [supported-type finance example](../supported-types.md#financial-composition
 owns the full Order/Instrument/Money/Trade flow with constraints, a cross-field
 currency invariant, failure handling, serialization, and schema projection.
 
+When an existing Money class must keep its own identity while accepting or
+emitting a different boundary shape, annotate it with a reusable
+`Representation`. The [custom representation guide](../custom-representations.md)
+owns an executable Money/Currency payment example plus ULID-like identifiers,
+one-way contracts, nested selection, schemas, and Sensitive failures.
+
 ## Represent a recursive document or AST
 
 Choose the simplest recursive owner:

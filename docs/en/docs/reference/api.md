@@ -10,6 +10,7 @@ are not public.
 | --- | --- | --- |
 | `Spec` | Immutable declared record and boundary operations | `ValidationError`, `ResourceLimitError`, `SerializationError`, `SchemaProjectionError` |
 | `Contract` | Retained arbitrary annotation contract | annotation declaration errors and the same operation failures |
+| `Representation` | Bind explicit input/output schemas and trusted callbacks to one custom Python type position | declaration `TypeError`, `ValidationError`, `SerializationError`, `SchemaProjectionError` |
 | `field` | Declare a default factory | declaration `TypeError` |
 | `create_spec` | Build a normal Spec class from trusted runtime declarations | `TypeError` |
 | `derive_spec` | Project include/exclude, directional, and partial Specs | `TypeError`, `ValueError` |
@@ -53,7 +54,7 @@ to `Contract(...)` is retained; an explicit per-call input policy replaces it.
 ## Introspection domain
 
 `talea.introspection` exports `FieldInfo`, `DerivationInfo`, `SpecInfo`,
-`ContractInfo`, `inspect_spec`, and `inspect_contract`. See
+`ContractInfo`, `RepresentationInfo`, `inspect_spec`, and `inspect_contract`. See
 [Introspection](introspection.md).
 
 ## Error and validation domains
@@ -138,6 +139,15 @@ remaining operations compile lazily and are retained by that Contract:
 An explicit per-call policy replaces the retained policy; it is not merged.
 Contract attributes are read-only. See [Arbitrary contracts](../contracts.md)
 for TypedDict, generic, recursive, tagged, and policy examples.
+
+## `Representation`
+
+`Representation(input=..., load=..., output=..., dump=...)` is immutable
+metadata for `Annotated`. Each direction is an all-or-nothing schema/callback
+pair, and at least one direction is required. Load and dump callbacks are
+trusted synchronous Python; Talea validates each callback result before it can
+escape. See [Custom domain representations](../custom-representations.md) for
+composition, schemas, selection, security, typing, and one-way behavior.
 
 ## derive_spec and apply_patch
 

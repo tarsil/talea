@@ -127,6 +127,13 @@ required arguments, unknown keywords, and positional misuse raise native
 Parser line, column, and character position appear in `context` when available;
 they do not become Talea field-location segments.
 
+Representation dump failures belong to `SerializationError`, not the input
+`ErrorCode` vocabulary. A raised dumper and an invalid declared-output result
+have distinct safe reasons at the current canonical output location. Ordinary
+failures preserve a useful cause; Sensitive paths suppress callback and
+validation causes so secret-bearing messages cannot escape. No user-defined
+representation error-code namespace is accepted.
+
 ## Nested and constraint failures
 
 Locations compose through fields and containers. Invalid input at

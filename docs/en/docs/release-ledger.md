@@ -14,6 +14,10 @@ types, stdlib dataclass Contracts, TypedDict and PEP 695 aliases, tagged unions,
 serialization, structured errors, metadata and redaction, presence-aware
 derived/PATCH Specs, explicit input/output derived views, introspection, dynamic creation, JSON Schema Draft 2020-12,
 OpenAPI 3.1-compatible projection, and finite external-input resource policies.
+The current unreleased surface also includes root-public `Representation`
+contracts for explicit custom domain types across directional input/output,
+standards projection, introspection, and nested selection; the package version
+remains 0.2.0 until the next release convergence.
 
 ## Deliberate boundaries
 
@@ -27,7 +31,7 @@ OpenAPI 3.1-compatible projection, and finite external-input resource policies.
 | stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |
 | settings/environment loading | Separate integration or package, not core |
 | streaming batches and JSONL | Not implemented; materialized batches use `Contract(list[T])` |
-| arbitrary annotation callbacks | Not implemented; transforms/checks own custom validation |
+| arbitrary annotation callbacks | Explicit per-position `Representation` contracts are implemented; no registry/discovery |
 | retained global codec/Contract registries | Rejected for core; application boundaries own retained objects |
 | `Any`/`object` passthrough contracts | Rejected because they erase contract truth |
 | abstract Mapping/Sequence conversion | Rejected because concrete output shape is ambiguous |

@@ -22,8 +22,9 @@ contract_info = inspect_contract(Contract(list[User]))
 | --- | --- |
 | `FieldInfo` | annotation, canonical `Schema`, required/default/factory state, alias, constraints, metadata, presence |
 | `DerivationInfo` | source Spec, retained/omitted fields, include/exclude selection, partial status, input/output mode |
-| `SpecInfo` | fields, generic identity/arguments, recursion, hooks, serializers, metadata, trust, derivation |
-| `ContractInfo` | annotation, canonical `Schema`, metadata, supported operation names |
+| `SpecInfo` | fields, generic identity/arguments, recursion, hooks, serializers, metadata, trust, derivation, reachable representations |
+| `ContractInfo` | annotation, canonical `Schema`, metadata, supported operation names, reachable representations |
+| `RepresentationInfo` | frozen internal/input/output schemas and direction flags, with no callbacks |
 
 For `Contract(UserDataclass)`, `ContractInfo.schema` is a frozen
 `DataclassSchema`. It exposes exact dataclass type identity, immutable canonical
@@ -41,6 +42,12 @@ source, compiled callables, locks, lazy publication state, codec choices, and
 resource counters remain intentionally private. Tooling should not infer
 semantics from class internals when a public info object or schema node provides
 the answer.
+
+`SpecInfo.representations` and `ContractInfo.representations` contain each
+reachable represented contract once. Their `RepresentationInfo` values expose
+`internal`, optional `input`/`output`, `has_loader`, and `has_dumper`. They do
+not expose callback objects, callback names, globals, generated source, or
+compiler state; mutation cannot alter runtime truth.
 
 For a directional derived Spec, `DerivationInfo.mode` is `"input"` or
 `"output"`; it is `None` for ordinary pick/omit/partial derivation. Consumers
