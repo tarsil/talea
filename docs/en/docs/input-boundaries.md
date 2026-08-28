@@ -26,6 +26,30 @@ The decoder owns JSON syntax only. Talea's canonical schema and validation
 emitter continue to own types, constraints, hooks, error locations, nested
 trust, and immutable slot commitment.
 
+An application may explicitly derive a narrower input contract from normalized
+field metadata:
+
+```python
+from typing import Annotated
+
+from talea import ReadOnly, Spec, derive_spec
+
+
+class User(Spec):
+    id: Annotated[int, ReadOnly()]
+    name: str
+
+
+UserInput = derive_spec(User, mode="input")
+request = UserInput.from_json('{"name":"Ada"}')
+```
+
+The derived class has no effective `ReadOnly` fields, so canonical names and
+aliases for those fields are both unexpected at Mapping and JSON boundaries.
+This does not change `User.from_mapping()`, `User.from_json()`, or trusted
+`User(...)` construction. Directional derivation is shallow; nested contracts
+must be selected explicitly when an endpoint needs nested input views.
+
 ## Constructing from a Mapping
 
 `from_mapping` is the one Python external-data API:

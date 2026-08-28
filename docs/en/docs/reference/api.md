@@ -12,7 +12,7 @@ are not public.
 | `Contract` | Retained arbitrary annotation contract | annotation declaration errors and the same operation failures |
 | `field` | Declare a default factory | declaration `TypeError` |
 | `create_spec` | Build a normal Spec class from trusted runtime declarations | `TypeError` |
-| `derive_spec` | Project include/exclude and partial Specs | `TypeError`, `ValueError` |
+| `derive_spec` | Project include/exclude, directional, and partial Specs | `TypeError`, `ValueError` |
 | `apply_patch` | Apply present partial fields through `copy.replace()` | `TypeError`, `ValidationError` |
 | `transform` | Declare a pre-validation field transform | declaration `TypeError`; runtime `ValidationError` |
 | `check` | Declare a field or whole-Spec assertion | declaration `TypeError`; runtime `ValidationError` |
@@ -20,7 +20,7 @@ are not public.
 | `Alias` | Declare one external field name | `TypeError` and declaration collisions |
 | `Discriminator` | Select a Literal-tagged union branch | tagged-union declaration errors |
 | `Title`, `Description`, `Examples`, `Deprecated` | Documentation metadata | invalid marker `TypeError`/`ValueError` |
-| `ReadOnly`, `WriteOnly` | Boundary classification metadata; no runtime enforcement | invalid marker `TypeError` |
+| `ReadOnly`, `WriteOnly` | Direction metadata; ordinary runtime unchanged, explicit derived views supported | invalid marker `TypeError` |
 | `Sensitive` | Talea-owned failure redaction metadata | invalid marker `TypeError` |
 | `Gt`, `Ge`, `Lt`, `Le` | Ordered numeric constraints | declaration `TypeError`/`ValueError` |
 | `MultipleOf` | Numeric divisibility constraint | declaration `TypeError`/`ValueError` |
@@ -148,6 +148,7 @@ derive_spec(
     include=None,
     exclude=None,
     partial=False,
+    mode=None,
     name=None,
     module=None,
     qualname=None,
@@ -160,6 +161,12 @@ wins. Retained annotations, constraints, aliases, metadata, field-local hooks,
 serializers, and applicable defaults/factories come from canonical source
 truth. `partial=True` makes every retained field omittable without adding
 `None` or running omitted defaults/factories.
+
+`mode="input"` excludes effective `ReadOnly(True)` fields;
+`mode="output"` excludes effective `WriteOnly(True)` fields. The finite mode
+is declaration-time shape policy, not an operation guard. Direction composes
+with include/exclude and partial; an include that explicitly requests a field
+forbidden by the mode raises `ValueError`.
 
 Unknown, duplicate, non-string, or conflicting selections fail at derivation
 time. Open generic origins are incomplete; specialize first. Every call returns
@@ -179,6 +186,11 @@ whole-Spec validation. It raises `TypeError` for incompatible patches and
 `ValidationError` for an invalid complete candidate. It does not serialize,
 deep-copy, merge dictionaries, or rerun defaults. See [PATCH and
 presence](../presence-derived-contracts.md).
+
+An input-derived partial is compatible with its exact source. An
+output-derived partial is rejected so read-only fields cannot become a patch
+backdoor. Existing no-mode partials retain their established metadata-only
+compatibility.
 
 ## `ResourcePolicy` and `ResourceLimitError`
 

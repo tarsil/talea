@@ -4,6 +4,11 @@
 
 ### Added
 
+- `derive_spec(mode="input" | "output")` creates normal explicit request and
+  response contract classes from canonical `ReadOnly`/`WriteOnly` metadata. It
+  composes with include/exclude and partial presence, exposes immutable
+  directional provenance, and permits only input-derived partials through the
+  source patch path.
 - Standard-library dataclasses can be consumed directly through `Contract`
   across exact current-state validation, Mapping and JSON construction,
   detached Python/JSON output, resource policy, introspection, JSON Schema, and

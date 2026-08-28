@@ -13,8 +13,8 @@ This is the authoritative pre-1.0 limitations list.
   dataclass unions, and interpretation of `dataclasses.field(metadata=...)` are
   not supported;
 - JSONL, streaming JSON, and per-item streaming failure isolation are absent;
-- `ReadOnly` and `WriteOnly` are metadata and schema projection, not runtime
-  input/output enforcement;
+- directional Spec derivation is shallow; nested Specs, dataclasses, tagged
+  branches, and TypedDicts are not implicitly rewritten;
 - open generic Specs, aliases, TypedDicts, and dataclasses must be concretely
   specialized before execution;
 - an arbitrary transform can make input schema projection unknowable;
@@ -36,6 +36,9 @@ This is the authoritative pre-1.0 limitations list.
   generated repr; applications must use `field(repr=False)` where needed;
 - resource policies govern external input, not strict trusted construction,
   output size, schema tooling, or callback/application lifecycle work;
+- `ReadOnly` and `WriteOnly` do not alter ordinary source-Spec construction,
+  input, or output; only explicit directional derivation changes class shape,
+  and it is not authentication, authorization, or persistence protection;
 - cyclic runtime graphs are rejected by external conversion and serialization;
   strict current-state validation uses active-identity cycle handling;
 - no ORM-style attribute extraction or arbitrary object-to-dataclass conversion

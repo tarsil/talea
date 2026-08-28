@@ -1,4 +1,4 @@
-"""Presence-aware REST PATCH with aliases, defaults, secrets, and invariants."""
+"""Explicit request, response, and PATCH contracts from directional metadata."""
 
 from copy import replace
 from typing import Annotated, cast
@@ -7,9 +7,11 @@ from uuid import UUID
 from talea import (
     Alias,
     MinLength,
+    ReadOnly,
     Sensitive,
     Spec,
     ValidationError,
+    WriteOnly,
     apply_patch,
     check,
     derive_spec,
@@ -17,10 +19,10 @@ from talea import (
 
 
 class User(Spec):
-    user_id: Annotated[UUID, Alias("id")]
+    user_id: Annotated[UUID, Alias("id"), ReadOnly()]
     display_name: Annotated[str, Alias("displayName"), MinLength(1)]
     recovery_email: Annotated[str | None, Alias("recoveryEmail")] = None
-    api_token: Annotated[str | None, Alias("apiToken"), Sensitive()] = None
+    api_token: Annotated[str | None, Alias("apiToken"), Sensitive(), WriteOnly()] = None
     enabled: bool = True
 
     @check("display_name", "enabled")
@@ -29,12 +31,39 @@ class User(Spec):
             raise ValueError("enabled users require a display name")
 
 
-UserPatch = derive_spec(User, exclude=("user_id",), partial=True, name="UserPatch")
+UserInput = derive_spec(User, mode="input", name="UserInput")
+UserOutput = derive_spec(User, mode="output", name="UserOutput")
+UserPatch = derive_spec(User, mode="input", partial=True, name="UserPatch")
+
+request = UserInput.from_json('{"displayName":"Ada Lovelace","apiToken":"server-secret"}')
+assert request.to_dict() == {
+    "displayName": "Ada Lovelace",
+    "recoveryEmail": None,
+    "apiToken": "server-secret",
+    "enabled": True,
+}
+assert "server-secret" not in repr(request)
 user = User(
     user_id=UUID("12345678-1234-5678-1234-567812345678"),
     display_name="Ada Lovelace",
     api_token="server-secret",
 )
+
+response = UserOutput.from_mapping(
+    {
+        "id": user.user_id,
+        "displayName": user.display_name,
+        "recoveryEmail": user.recovery_email,
+        "enabled": user.enabled,
+    }
+)
+assert response.to_dict() == {
+    "id": UUID("12345678-1234-5678-1234-567812345678"),
+    "displayName": "Ada Lovelace",
+    "recoveryEmail": None,
+    "enabled": True,
+}
+assert "apiToken" not in response.to_json()
 
 # An empty JSON object means no requested changes. Defaults are not materialized.
 empty = UserPatch.from_json("{}")

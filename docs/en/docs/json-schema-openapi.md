@@ -131,8 +131,12 @@ For ordinary Specs:
   contains every stored field; `init=False` output properties are required and
   marked `readOnly`.
 
-`ReadOnly` and `WriteOnly` remain annotations in both modes. Talea does not use
-them to change runtime input or output behavior.
+For an ordinary source Spec, `ReadOnly` and `WriteOnly` remain annotations in
+both schema modes and do not change runtime input or output behavior. An
+explicit `derive_spec(..., mode="input" | "output")` first changes which fields
+exist in the derived class. Schema mode then projects that existing shape and
+never restores a directionally omitted source field. These are independent
+dimensions despite sharing the input/output vocabulary.
 
 ### Callback-defined domains
 
@@ -195,8 +199,8 @@ Canonical metadata maps as follows:
 | `Description` | `description` | Normalized precedence is already resolved |
 | `Examples` | `examples` | Fresh JSON-compatible arrays and objects |
 | `Deprecated` | `deprecated` | Boolean annotation |
-| `ReadOnly` | `readOnly` | Annotation only |
-| `WriteOnly` | `writeOnly` | Annotation only |
+| `ReadOnly` | `readOnly` | Annotation on retained fields; input derivation can omit the field |
+| `WriteOnly` | `writeOnly` | Annotation on retained fields; output derivation can omit the field |
 | `Sensitive` | omitted | No public security-classification extension |
 
 Talea does not invent `x-sensitive`. Titles, descriptions, examples, aliases,

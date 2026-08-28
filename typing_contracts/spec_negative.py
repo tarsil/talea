@@ -66,6 +66,7 @@ create_spec("Invalid", {"value": int}, base=object)  # ty: ignore[no-matching-ov
 create_spec("Invalid", {"value": int}, metadata=1)  # ty: ignore[invalid-argument-type]
 derive_spec(object)  # ty: ignore[invalid-argument-type]
 derive_spec(User, partial=1)  # ty: ignore[invalid-argument-type]
+derive_spec(User, mode="request")  # ty: ignore[invalid-argument-type]
 apply_patch(User(id=1), object())  # ty: ignore[invalid-argument-type]
 inspect_spec(User(id=1))  # ty: ignore[invalid-argument-type]
 inspect_contract(int)  # ty: ignore[invalid-argument-type]

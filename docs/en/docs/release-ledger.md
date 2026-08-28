@@ -10,7 +10,7 @@ The release includes Specs, Contracts, strict validation, constraints,
 standard-library types, defaults/factories, inheritance, recursive and generic
 types, stdlib dataclass Contracts, TypedDict and PEP 695 aliases, tagged unions, Mapping/JSON input,
 serialization, structured errors, metadata and redaction, presence-aware
-derived/PATCH Specs, introspection, dynamic creation, JSON Schema Draft 2020-12,
+derived/PATCH Specs, explicit input/output derived views, introspection, dynamic creation, JSON Schema Draft 2020-12,
 OpenAPI 3.1-compatible projection, and finite external-input resource policies.
 
 ## Deliberate boundaries
@@ -18,7 +18,8 @@ OpenAPI 3.1-compatible projection, and finite external-input resource policies.
 | Capability | Current disposition |
 | --- | --- |
 | callable argument/return validation | Not implemented; requires signature, descriptor, async, and typing policy |
-| automatic runtime ReadOnly/WriteOnly enforcement | Not implemented; metadata and schema projection are available |
+| explicit ReadOnly/WriteOnly input/output Spec views | Implemented through declaration-time `derive_spec(mode=...)` selection |
+| automatic runtime ReadOnly/WriteOnly enforcement | Deliberately absent; ordinary source-Spec behavior remains unchanged |
 | NamedTuple and ordinary-class mapping | Not implemented; core is not a general object mapper |
 | stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |
 | settings/environment loading | Separate integration or package, not core |

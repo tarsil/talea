@@ -7,9 +7,10 @@ from collections.abc import Callable
 from functools import partial
 from statistics import median
 from timeit import Timer
+from typing import Annotated
 from weakref import ref
 
-from talea import Spec, apply_patch, check, derive_spec
+from talea import ReadOnly, Spec, WriteOnly, apply_patch, check, create_spec, derive_spec
 
 _REPEATS = 5
 _HOT_ITERATIONS = 50_000
@@ -90,6 +91,25 @@ TenPatch = derive_spec(Ten, partial=True)
 CheckedPatch = derive_spec(Checked, partial=True)
 
 
+def directional_source(count: int) -> type[Spec]:
+    """Create one mixed-direction benchmark declaration."""
+
+    annotations = {
+        f"field_{index}": Annotated[int, ReadOnly()] if index % 2 == 0 else Annotated[int, WriteOnly()]
+        for index in range(count)
+    }
+    return create_spec(f"Directional{count}", annotations)
+
+
+DirectionalSources = {count: directional_source(count) for count in (1, 5, 10, 50)}
+DirectionalTen = DirectionalSources[10]
+DirectionalTenInput = derive_spec(DirectionalTen, mode="input")
+DirectionalTenOutput = derive_spec(DirectionalTen, mode="output")
+DirectionalTenInputPatch = derive_spec(DirectionalTen, mode="input", partial=True)
+ManualInput = create_spec("ManualInput", {f"field_{index}": int for index in range(1, 10, 2)})
+ManualOutput = create_spec("ManualOutput", {f"field_{index}": int for index in range(0, 10, 2)})
+
+
 class HandPartial:
     """Equivalent hand-written ten-field presence-aware slotted record."""
 
@@ -161,6 +181,43 @@ def benchmark_derivation() -> None:
     )
 
 
+def benchmark_directional_derivation() -> None:
+    """Measure directional selection as declaration-time policy."""
+
+    for count, source in DirectionalSources.items():
+        report(
+            f"input direction {count}",
+            "cold derivation",
+            measure(partial(derive_spec, source, mode="input"), _COLD_ITERATIONS),
+        )
+        report(
+            f"output direction {count}",
+            "cold derivation",
+            measure(partial(derive_spec, source, mode="output"), _COLD_ITERATIONS),
+        )
+    report(
+        "partial input 10",
+        "cold derivation",
+        measure(partial(derive_spec, DirectionalTen, mode="input", partial=True), _COLD_ITERATIONS),
+    )
+    report(
+        "input + include",
+        "cold derivation",
+        measure(
+            partial(derive_spec, DirectionalTen, mode="input", include=("field_1", "field_3")),
+            _COLD_ITERATIONS,
+        ),
+    )
+    report(
+        "output + exclude",
+        "cold derivation",
+        measure(
+            partial(derive_spec, DirectionalTen, mode="output", exclude=("field_8",)),
+            _COLD_ITERATIONS,
+        ),
+    )
+
+
 def benchmark_construction() -> None:
     """Measure supplied-field scaling against a hand-written reference."""
 
@@ -185,6 +242,30 @@ def benchmark_output() -> None:
         report(f"to_json {count} present", "Talea partial", measure(instance.to_json, 10_000))
     five = TenPatch(**values(5))
     report("present_fields 5", "frozenset projection", measure(lambda: five.present_fields))
+
+
+def benchmark_directional_runtime() -> None:
+    """Compare derived execution with manually equivalent normal Specs."""
+
+    input_values = {f"field_{index}": index for index in range(1, 10, 2)}
+    output_values = {f"field_{index}": index for index in range(0, 10, 2)}
+    input_json = "{" + ",".join(f'"{name}":{value}' for name, value in input_values.items()) + "}"
+    for label, derived, manual, supplied in (
+        ("input", DirectionalTenInput, ManualInput, input_values),
+        ("output", DirectionalTenOutput, ManualOutput, output_values),
+    ):
+        derived_instance = derived(**supplied)
+        manual_instance = manual(**supplied)
+        report(f"directional {label} construct", "derived", measure(partial(derived, **supplied)))
+        report(f"directional {label} construct", "manual", measure(partial(manual, **supplied)))
+        report(f"directional {label} mapping", "derived", measure(partial(derived.from_mapping, supplied)))
+        report(f"directional {label} mapping", "manual", measure(partial(manual.from_mapping, supplied)))
+        report(f"directional {label} to_dict", "derived", measure(derived_instance.to_dict))
+        report(f"directional {label} to_dict", "manual", measure(manual_instance.to_dict))
+        report(f"directional {label} to_json", "derived", measure(derived_instance.to_json, 10_000))
+        report(f"directional {label} to_json", "manual", measure(manual_instance.to_json, 10_000))
+    report("directional input JSON", "derived", measure(partial(DirectionalTenInput.from_json, input_json), 10_000))
+    report("directional input JSON", "manual", measure(partial(ManualInput.from_json, input_json), 10_000))
 
 
 def benchmark_patch() -> None:
@@ -232,6 +313,12 @@ def benchmark_memory() -> None:
         f"partial-empty={sys.getsizeof(empty)} B partial-five={sys.getsizeof(partial_five)} B"
     )
     print(f"presence mask shallow={sys.getsizeof(object.__getattribute__(empty, '__talea_presence__'))} B")
+    print(
+        f"directional/manual shallow="
+        f"{sys.getsizeof(DirectionalTenOutput(**{f'field_{index}': index for index in range(0, 10, 2)}))} B/"
+        f"{sys.getsizeof(ManualOutput(**{f'field_{index}': index for index in range(0, 10, 2)}))} B "
+        f"partial-input={sys.getsizeof(DirectionalTenInputPatch())} B"
+    )
     print(f"1000 discarded derivations retained={retained} bytes first_collected={collected}")
 
 
@@ -240,10 +327,14 @@ def main() -> None:
 
     print("Derived declaration")
     benchmark_derivation()
+    print("\nDirectional declaration")
+    benchmark_directional_derivation()
     print("\nPartial construction")
     benchmark_construction()
     print("\nPresence-aware output")
     benchmark_output()
+    print("\nDirectional runtime")
+    benchmark_directional_runtime()
     print("\nPatch application")
     benchmark_patch()
     print("\nMemory and retention")

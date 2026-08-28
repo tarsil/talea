@@ -21,7 +21,7 @@ contract_info = inspect_contract(Contract(list[User]))
 | Type | Important data |
 | --- | --- |
 | `FieldInfo` | annotation, canonical `Schema`, required/default/factory state, alias, constraints, metadata, presence |
-| `DerivationInfo` | source Spec, retained/omitted fields, include/exclude selection, partial status |
+| `DerivationInfo` | source Spec, retained/omitted fields, include/exclude selection, partial status, input/output mode |
 | `SpecInfo` | fields, generic identity/arguments, recursion, hooks, serializers, metadata, trust, derivation |
 | `ContractInfo` | annotation, canonical `Schema`, metadata, supported operation names |
 
@@ -41,6 +41,11 @@ source, compiled callables, locks, lazy publication state, codec choices, and
 resource counters remain intentionally private. Tooling should not infer
 semantics from class internals when a public info object or schema node provides
 the answer.
+
+For a directional derived Spec, `DerivationInfo.mode` is `"input"` or
+`"output"`; it is `None` for ordinary pick/omit/partial derivation. Consumers
+should inspect this provenance instead of inferring semantics from names such
+as `UserInput`.
 
 ## Framework adapter example
 

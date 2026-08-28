@@ -37,9 +37,20 @@ trusted Python code, as they are for any annotation-driven library.
 
 `Sensitive` redacts Talea-owned validation and serialization failures, Spec
 representation, and retained callback causes under the marked boundary. It does
-not omit values from successful serialization. `WriteOnly` is descriptive
-boundary metadata and remains distinct: it projects to standards schemas but is
-not runtime output enforcement.
+not omit values from successful serialization. `WriteOnly` remains distinct:
+ordinary source Specs still serialize it, while an explicitly derived output
+Spec structurally excludes it. Likewise, an input-derived Spec structurally
+excludes `ReadOnly` fields. The derived classes are contract shapes, not access
+control: the application still owns authentication, authorization, persistence
+permissions, and output selection at each endpoint.
+
+Directional selection uses normalized canonical field metadata during class
+derivation. Removed fields have no constructor slot, alias, Mapping/JSON input
+path, serializer hook, repr entry, introspection field, or schema property on
+that derived class. Input partials may patch their exact source; output partials
+are rejected by `apply_patch` so read-only values cannot re-enter through a
+read-oriented view. Nested Specs are not recursively rewritten, so applications
+must explicitly derive nested boundary shapes when required.
 
 For dataclasses, Talea cannot control the class's own generated `repr` without
 mutating the application type. A sensitive dataclass field may therefore appear

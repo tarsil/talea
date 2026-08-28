@@ -117,8 +117,12 @@ assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), Cont
 assert_type(Contract[User](User).validate(user), User)
 assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
 UserPatch = derive_spec(User, partial=True)
+UserInput = derive_spec(User, mode="input")
+UserOutputPatch = derive_spec(User, mode="output", partial=True)
 user_patch: Spec = UserPatch.from_mapping({"name": "Grace"})
 assert_type(UserPatch, type[Spec])
+assert_type(UserInput, type[Spec])
+assert_type(UserOutputPatch, type[Spec])
 assert_type(user_patch.present_fields, frozenset[str])
 assert_type(apply_patch(user, user_patch), User)
 assert_type(

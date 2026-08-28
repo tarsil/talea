@@ -18,7 +18,10 @@ except ValidationError as error:
     return invalid_request(error.errors())
 ```
 
-Do application work only after conversion succeeds, then construct an explicit
+When one source Spec carries read/write metadata, derive the request and
+response shapes once with `derive_spec(..., mode="input")` and
+`derive_spec(..., mode="output")`; normal source behavior remains unchanged.
+Do application work only after conversion succeeds, then construct the explicit
 response Spec and call `to_json()`. The [production service
 boundary](../getting-started/production-service.md) owns a complete asserted
 account flow with nested address/credentials, aliases, constraints, redaction,
@@ -26,10 +29,10 @@ invalid input, oversized transport, output, and OpenAPI fragments.
 
 ## Apply a REST PATCH
 
-Derive the update contract once, normally excluding server-owned fields:
+Derive the update contract once from the writable/input direction:
 
 ```python
-UserPatch = derive_spec(User, exclude=("user_id",), partial=True)
+UserPatch = derive_spec(User, mode="input", partial=True)
 patch = UserPatch.from_json(body)
 updated = apply_patch(existing, patch)
 ```

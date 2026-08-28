@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import RLock
-from typing import Annotated, cast, get_args, get_origin
+from typing import Annotated, Literal, cast, get_args, get_origin
 from weakref import WeakKeyDictionary
 
 from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
@@ -65,7 +65,7 @@ class FieldInfo:
 
 @dataclass(frozen=True, slots=True)
 class DerivationInfo:
-    """Expose immutable source and selection truth for one derived Spec."""
+    """Expose immutable source, selection, and direction truth for a derived Spec."""
 
     source: type[object]
     retained_fields: tuple[str, ...]
@@ -73,6 +73,7 @@ class DerivationInfo:
     selection: str
     partial: bool
     explicit_name: str | None
+    mode: Literal["input", "output"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,6 +336,7 @@ def _derivation_info(derivation: SpecDerivation | None) -> DerivationInfo | None
         derivation.selection,
         derivation.partial,
         derivation.explicit_name,
+        derivation.mode,
     )
 
 

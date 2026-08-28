@@ -45,8 +45,8 @@ The markers mean:
 | `Description(text)` | Documentation description | None |
 | `Examples(*values)` | Immutable documentation examples | None |
 | `Deprecated()` | Deprecated classification | No warning |
-| `ReadOnly()` | External-boundary classification | Stored only |
-| `WriteOnly()` | External-boundary classification | Stored only |
+| `ReadOnly()` | External-boundary classification | Excluded only by explicit `derive_spec(..., mode="input")` |
+| `WriteOnly()` | External-boundary classification | Excluded only by explicit `derive_spec(..., mode="output")` |
 | `Sensitive()` | Error/log safety classification | Redacts failures and `repr` |
 
 Title, description, examples, and deprecation do not participate in
@@ -191,8 +191,8 @@ Sensitive and write-only are deliberately different:
 - `Sensitive` protects errors and representation used for diagnostics.
 - `WriteOnly` classifies an external output policy for schemas and adapters.
 
-Normal `to_dict()` and `to_json()` include sensitive and write-only fields.
-Metadata does not silently change the round-trip contract:
+Normal source-Spec `to_dict()` and `to_json()` include sensitive and write-only
+fields. Metadata does not silently change the round-trip contract:
 
 ```python
 credentials = Login(password="correct horse")
@@ -206,9 +206,22 @@ Likewise, a JSON codec failure for a value graph containing sensitive metadata
 does not retain the codec exception. Successful custom hooks and codecs still
 receive the actual value because serialization was explicitly requested.
 
-Read-only and write-only are projected to JSON Schema/OpenAPI but are not
-runtime enforcement. JSON Schema words alone are not sufficient reason to
-reject Talea Mapping input or omit normal output.
+Read-only and write-only are also projected to JSON Schema/OpenAPI. They do not
+enforce ordinary source-Spec runtime operations. Applications that want a
+concrete directional shape can explicitly derive it:
+
+```python
+from talea import derive_spec
+
+LoginInput = derive_spec(Login, mode="input")
+LoginOutput = derive_spec(Login, mode="output")
+```
+
+The input view structurally lacks effective read-only fields, and the output
+view structurally lacks effective write-only fields. Retained metadata stays on
+retained fields. A field marked both ways is absent from both views; an explicit
+false marker clears inherited classification. This selection reads normalized
+`SpecField.metadata`, not the original annotation.
 
 ## Inheritance and explicit opt-out
 
@@ -299,8 +312,9 @@ schema keyword. See [JSON Schema and OpenAPI](json-schema-openapi.md).
   effects; Talea only controls its own errors.
 - Sensitive error objects discard raw input and causes. Capture separate safe
   diagnostic facts before crossing the validation boundary when required.
-- Read-only and write-only are classification and schema projection only; use
-  application-owned input/output policy for enforcement.
+- Read-only and write-only are direction classifications. Explicit derived
+  views enforce their field shape, but they do not provide authentication,
+  authorization, immutability, persistence protection, or secret handling.
 
 Metadata is class/Contract-owned cold state. Instances retain only field
 values, and metadata-free successful validation and serialization have no

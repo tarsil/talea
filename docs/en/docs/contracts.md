@@ -148,9 +148,10 @@ event = payment.from_json(
 
 Talea follows Python 3.14 required, optional, `total=False`, `Required`,
 `NotRequired`, inheritance, nested, union, and generic TypedDict semantics.
-`ReadOnly` metadata is retained in canonical schema truth but does not change
-runtime dictionary validation. TypedDict keys stay exactly as declared,
-including keys created with functional `TypedDict` syntax.
+`typing.ReadOnly` metadata is retained in canonical schema truth but does not
+change runtime dictionary validation. TypedDict is not part of Spec
+`derive_spec(mode=...)` directional selection. TypedDict keys stay exactly as
+declared, including keys created with functional `TypedDict` syntax.
 
 ## Type aliases and NewType
 
