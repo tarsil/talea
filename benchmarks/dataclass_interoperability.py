@@ -5,13 +5,18 @@ import gc
 import json
 import sys
 import tracemalloc
+from collections import UserDict
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from statistics import median
 from timeit import Timer
-from typing import cast
+from types import FunctionType
+from typing import Annotated, cast
 
-from talea import Contract, Spec
+from talea import Alias, Contract, Ge, ResourceLimitError, ResourcePolicy, Spec
+from talea.input.json import decode_json
+from talea.resources.policy import DEFAULT_RESOURCE_POLICY
+from talea.resources.state import resource_state
 
 _REPEATS = 5
 _HOT_ITERATIONS = 20_000
@@ -101,6 +106,72 @@ class Page[T]:
     items: list[T]
 
 
+@dataclass
+class Defaulted:
+    """Static-default lifecycle workload."""
+
+    value: int = 1
+
+
+@dataclass
+class FactoryDefaulted:
+    """Factory-owned lifecycle workload."""
+
+    values: list[int] = field(default_factory=list)
+
+
+@dataclass(kw_only=True)
+class KeywordOnly:
+    """Keyword-only transparent construction workload."""
+
+    value: int
+
+
+@dataclass
+class PostInitialized:
+    """Lifecycle-sensitive post-init workload."""
+
+    value: int
+
+    def __post_init__(self) -> None:
+        self.value += 1
+
+
+@dataclass
+class InitFalse:
+    """Lifecycle-sensitive derived-state workload."""
+
+    value: int
+    doubled: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.doubled = self.value * 2
+
+
+@dataclass
+class Aliased:
+    """External-name specialization workload."""
+
+    value: Annotated[int, Alias("external")]
+
+
+@dataclass
+class Constrained:
+    """Compiled constraint workload."""
+
+    value: Annotated[int, Ge(0)]
+
+
+@dataclass
+class InvalidPostInit:
+    """Retained-state failure workload."""
+
+    value: int
+
+    def __post_init__(self) -> None:
+        self.value = "invalid"  # ty: ignore[invalid-assignment]
+
+
 class OrdinarySpec(Spec):
     """Unrelated Spec execution canary."""
 
@@ -180,14 +251,87 @@ def strict_page(value: object) -> Page[OneField]:
     return cast(Page[OneField], value)
 
 
-def mapping_one(value: Mapping[str, object]) -> OneField:
-    """Implement the equivalent closed Mapping-to-dataclass boundary."""
+def mapping_one(
+    value: Mapping[str, object],
+    policy: ResourcePolicy = DEFAULT_RESOURCE_POLICY,
+) -> OneField:
+    """Implement the equivalent resource-aware Mapping-to-dataclass boundary."""
 
-    copied = dict(value)
-    if copied.keys() != {"value"} or type(copied["value"]) is not int:
+    state = resource_state(policy)
+    state.consume_node(1)
+    exact_dict = type(value) is dict
+    if not exact_dict and not isinstance(value, Mapping):
         raise TypeError
-    result = OneField(copied["value"])
-    return strict_one(result)
+    if exact_dict and len(value) == 1:
+        try:
+            member = value["value"]
+        except KeyError:
+            pass
+        else:
+            state.consume_node(1)
+            if type(member) is not int:
+                raise TypeError
+            return OneField(value=member)
+    copied = dict(value)
+    if copied.keys() != {"value"}:
+        raise TypeError
+    state.consume_node(1)
+    member = copied["value"]
+    if type(member) is not int:
+        raise TypeError
+    return OneField(value=member)
+
+
+def json_one(data: str) -> OneField:
+    """Use Talea's canonical strict decoder with the manual boundary."""
+
+    decoded = decode_json(data, None, title="OneField", policy=DEFAULT_RESOURCE_POLICY)
+    if not isinstance(decoded, Mapping):
+        raise TypeError
+    return mapping_one(decoded)
+
+
+def capture(operation: Operation) -> BaseException:
+    """Return one expected benchmark failure without rendering it."""
+
+    try:
+        operation()
+    except BaseException as error:
+        return error
+    raise AssertionError("benchmark operation did not fail")
+
+
+def audit_manual_boundary() -> None:
+    """Prove the success comparator retains the benchmarked public semantics."""
+
+    assert mapping_one({"value": 1}) == OneField(1)
+    assert mapping_one(UserDict({"value": 1})) == OneField(1)
+    for invalid in ({}, {"value": 1, "extra": 2}, {"value": "1"}):
+        assert isinstance(capture(lambda invalid=invalid: mapping_one(invalid)), TypeError)
+    resource_failure = capture(lambda: mapping_one({"value": 1}, ResourcePolicy(max_nodes=1)))
+    assert isinstance(resource_failure, ResourceLimitError)
+    assert resource_failure.code == "nodes"
+    assert json_one('{"value":1}') == OneField(1)
+
+
+def python_calls(operation: Operation, iterations: int = 1_000) -> float:
+    """Count steady-state Python frames without trusting profiler timings."""
+
+    calls = 0
+
+    def profile(frame: object, event: str, argument: object) -> None:
+        del frame, argument
+        nonlocal calls
+        if event == "call":
+            calls += 1
+
+    sys.setprofile(profile)
+    try:
+        for _ in range(iterations):
+            operation()
+    finally:
+        sys.setprofile(None)
+    return calls / iterations
 
 
 def project_nested(value: Nested) -> dict[str, object]:
@@ -238,6 +382,12 @@ def generated_code_evidence(contract: Contract[FiveFields]) -> tuple[int, tuple[
 def main() -> None:
     """Print permanent dataclass boundary, memory, and zero-tax evidence."""
 
+    audit_manual_boundary()
+    print(
+        "Handwritten audit: Mapping acceptance, exact dict, closed required shape, strict field type, "
+        "normal dataclass lifecycle, resource accounting, and canonical strict JSON decode"
+    )
+
     one = OneField(1)
     five = FiveFields(0, 1, 2, 3, 4)
     ten = TenFields(*range(10))
@@ -267,25 +417,164 @@ def main() -> None:
     encoded = '{"value":1}'
     one_contract.from_python(external)
     one_contract.from_json(encoded)
+    direct_boundary = one_contract._artifacts.python_input
+    assert direct_boundary is not None
+    assert isinstance(direct_boundary, FunctionType)
     print("\nMapping and JSON construction")
     report(
         "Mapping -> dataclass",
         "Talea Contract",
         measure(lambda: one_contract.from_python(external), _BOUNDARY_ITERATIONS),
     )
-    report("Mapping -> dataclass", "equivalent manual", measure(lambda: mapping_one(external), _BOUNDARY_ITERATIONS))
-    report("JSON decode only", "stdlib json", measure(lambda: json.loads(encoded), _BOUNDARY_ITERATIONS))
     report(
-        "decoded boundary", "Talea Contract", measure(lambda: one_contract.from_python(external), _BOUNDARY_ITERATIONS)
+        "Mapping -> dataclass",
+        "equivalent manual",
+        measure(lambda: mapping_one(external), _BOUNDARY_ITERATIONS),
     )
     report(
-        "JSON -> dataclass", "Talea Contract", measure(lambda: one_contract.from_json(encoded), _BOUNDARY_ITERATIONS)
+        "JSON decode only",
+        "bare stdlib",
+        measure(lambda: json.loads(encoded), _BOUNDARY_ITERATIONS),
+    )
+    report(
+        "JSON decode only",
+        "strict Talea semantics",
+        measure(
+            lambda: decode_json(
+                encoded,
+                None,
+                title="OneField",
+                policy=DEFAULT_RESOURCE_POLICY,
+            ),
+            _BOUNDARY_ITERATIONS,
+        ),
+    )
+    report(
+        "decoded boundary",
+        "Talea Contract",
+        measure(lambda: one_contract.from_python(external), _BOUNDARY_ITERATIONS),
+    )
+    report(
+        "JSON -> dataclass",
+        "Talea Contract",
+        measure(lambda: one_contract.from_json(encoded), _BOUNDARY_ITERATIONS),
     )
     report(
         "JSON -> dataclass",
         "equivalent manual",
-        measure(lambda: mapping_one(json.loads(encoded)), _BOUNDARY_ITERATIONS),
+        measure(lambda: json_one(encoded), _BOUNDARY_ITERATIONS),
     )
+
+    print("\nSuccessful boundary cost decomposition")
+    report("raw dataclass constructor", "stdlib lifecycle", measure(lambda: OneField(1)))
+    report(
+        "resource state allocation",
+        "required policy",
+        measure(lambda: resource_state(DEFAULT_RESOURCE_POLICY)),
+    )
+    report(
+        "retained boundary",
+        "unlimited direct",
+        measure(lambda: direct_boundary(external), _BOUNDARY_ITERATIONS),
+    )
+    report(
+        "retained boundary",
+        "finite direct",
+        measure(
+            lambda: direct_boundary(external, resource_state(DEFAULT_RESOURCE_POLICY)),
+            _BOUNDARY_ITERATIONS,
+        ),
+    )
+    OrdinarySpec.from_mapping(external)
+    print(
+        f"Contract public Python calls/op={python_calls(lambda: one_contract.from_python(external)):.1f}"
+    )
+    print(
+        f"Spec public Python calls/op={python_calls(lambda: OrdinarySpec.from_mapping(external)):.1f}"
+    )
+    print(f"manual Python calls/op={python_calls(lambda: mapping_one(external)):.1f}")
+
+    feature_cases: tuple[tuple[str, object, Mapping[str, object]], ...] = (
+        ("one field", OneField, external),
+        ("five fields", FiveFields, {f"field_{index}": index for index in range(5)}),
+        ("ten fields", TenFields, {f"field_{index}": index for index in range(10)}),
+        ("default", Defaulted, {}),
+        ("factory", FactoryDefaulted, {}),
+        ("kw_only", KeywordOnly, external),
+        ("frozen slots", FrozenSlots, {"value": 1, "label": "one"}),
+        (
+            "nested",
+            Nested,
+            {
+                "item": {f"field_{index}": index for index in range(5)},
+                "values": [1, 2, 3],
+            },
+        ),
+        ("mutable", OneField, external),
+        ("post_init", PostInitialized, external),
+        ("init_false", InitFalse, external),
+        ("alias", Aliased, {"external": 1}),
+        ("constraint", Constrained, external),
+        ("generic", Page[int], {"items": [1, 2, 3]}),
+        ("recursive", RecursiveBenchmarkNode, {"value": 1, "children": [{"value": 2}]}),
+    )
+    print("\nFeature-bearing construction")
+    for label, annotation, payload in feature_cases:
+        contract = Contract(annotation)
+        contract.from_python(payload)
+        report(
+            f"{label} Mapping",
+            "Talea Contract",
+            measure(
+                lambda contract=contract, payload=payload: contract.from_python(payload),
+                _BOUNDARY_ITERATIONS,
+            ),
+        )
+        feature_json = json.dumps(payload, separators=(",", ":"))
+        contract.from_json(feature_json)
+        report(
+            f"{label} JSON",
+            "Talea Contract",
+            measure(
+                lambda contract=contract, feature_json=feature_json: contract.from_json(
+                    feature_json
+                ),
+                _BOUNDARY_ITERATIONS,
+            ),
+        )
+
+    invalid_post_init = Contract(InvalidPostInit)
+    resource_failure_policy = ResourcePolicy(max_nodes=1)
+    failures: tuple[tuple[str, Operation], ...] = (
+        ("missing", lambda: one_contract.from_python({})),
+        ("unexpected", lambda: one_contract.from_python({"value": 1, "extra": 2})),
+        ("wrong type", lambda: one_contract.from_python({"value": "1"})),
+        (
+            "nested location",
+            lambda: nested_contract.from_python(
+                {
+                    "item": {
+                        "field_0": 0,
+                        "field_1": 1,
+                        "field_2": "invalid",
+                        "field_3": 3,
+                        "field_4": 4,
+                    },
+                    "values": [],
+                }
+            ),
+        ),
+        ("invalid post_init", lambda: invalid_post_init.from_python(external)),
+        (
+            "resource limit",
+            lambda: one_contract.from_python(external, policy=resource_failure_policy),
+        ),
+    )
+    print("\nRepresentative failures")
+    for label, operation in failures:
+        report(
+            label, "Talea Contract", measure(lambda operation=operation: capture(operation), 1_000)
+        )
 
     nested_contract.to_python(nested)
     nested_contract.to_json(nested)
@@ -318,10 +607,32 @@ def main() -> None:
     report("ordinary Spec", "to_dict", measure(ordinary_spec.to_dict))
 
     instruction_count, attributes = generated_code_evidence(five_contract)
+    boundary_instructions = tuple(dis.get_instructions(direct_boundary))
+    first_return = next(
+        instruction.offset
+        for instruction in boundary_instructions
+        if instruction.opname == "RETURN_VALUE"
+    )
+    retained_state_loads = tuple(
+        instruction.offset
+        for instruction in boundary_instructions
+        if instruction.opname == "LOAD_ATTR" and instruction.argval == "value"
+    )
     retained, peak = retained_bytes()
     assert vars(one) == {"value": 1}
+    assert retained_state_loads and all(offset > first_return for offset in retained_state_loads)
     print("\nGenerated code and memory")
     print(f"FiveFields strict instructions={instruction_count} direct_attributes={attributes}")
+    print(
+        f"OneField input instructions={len(boundary_instructions)} "
+        f"fast_return={first_return} retained_state_loads={retained_state_loads}"
+    )
+    print(
+        f"Contract shallow={sys.getsizeof(one_contract)} bytes "
+        f"warmed artifacts={sys.getsizeof(one_contract._artifacts)} bytes "
+        f"input function={sys.getsizeof(direct_boundary)} bytes "
+        f"retained globals={sys.getsizeof(direct_boundary.__globals__)} bytes"
+    )
     print(f"OneField instance shallow={sys.getsizeof(one)} bytes dict={sys.getsizeof(vars(one))} bytes")
     print(f"FrozenSlots instance shallow={sys.getsizeof(frozen)} bytes has_dict={hasattr(frozen, '__dict__')}")
     print(f"100 discarded generic dataclass Contracts retained={retained} bytes peak={peak} bytes")

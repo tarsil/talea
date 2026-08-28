@@ -203,6 +203,40 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         finally:
             self.sensitive = previous
 
+    def emit_root_schema(
+        self,
+        schema: Schema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+        *,
+        sensitive: bool | None = None,
+    ) -> None:
+        """Emit one arbitrary root, avoiding a second dataclass approval pass."""
+
+        if not isinstance(schema, DataclassSchema):
+            self.emit_schema(schema, value, location, indentation, sensitive=sensitive)
+            return
+        previous = self.sensitive
+        if sensitive is not None:
+            self.sensitive = previous or sensitive
+        try:
+            self._emit_resource_visit(schema, location, indentation)
+            self.emit_dataclass_conversion(
+                schema,
+                value,
+                location,
+                indentation,
+                return_on_construction=True,
+            )
+            self._validating = True
+            try:
+                super().emit_dataclass(schema, value, location, indentation)
+            finally:
+                self._validating = False
+        finally:
+            self.sensitive = previous
+
     def _emit_resource_visit(
         self,
         schema: Schema,
@@ -459,6 +493,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         value: str,
         location: tuple[str, ...],
         indentation: int,
+        *,
+        return_on_construction: bool = False,
     ) -> None:
         """Construct through the original dataclass lifecycle, then validate stored state."""
 
@@ -485,6 +521,51 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             frozenset(field.external_name for field in init_fields),
         )
         title = self.title_name or self.bind("dataclass_title", schema.dataclass_type.__name__)
+        if init_fields and all(field.required for field in init_fields):
+            exact_dictionary = self.runtime("dict", dict)
+            key_error = self.runtime("key_error", KeyError)
+            exact_values = tuple(self.variable("dataclass_exact_value") for _ in init_fields)
+            self.emit(
+                indentation,
+                f"if {type_name}({value}) is {exact_dictionary} "
+                f"and {self.runtime('len', len)}({value}) == {len(init_fields)}:",
+            )
+            self.emit(indentation + 1, "try:")
+            for field, converted in zip(init_fields, exact_values, strict=True):
+                self.emit(indentation + 2, f"{converted} = {value}[{field.external_name!r}]")
+            self.emit(indentation + 1, f"except {key_error}:")
+            self.emit(indentation + 2, "pass")
+            self.emit(indentation + 1, "else:")
+            for field, converted in zip(init_fields, exact_values, strict=True):
+                member_location = (*location, repr(field.external_name))
+                if schema.construction_preserves_validated_fields:
+                    self.emit_schema(
+                        field.schema,
+                        converted,
+                        member_location,
+                        indentation + 2,
+                        sensitive=bool(field.metadata.sensitive),
+                    )
+                else:
+                    self.emit_conversion(
+                        field.schema,
+                        converted,
+                        member_location,
+                        indentation + 2,
+                        sensitive=bool(field.metadata.sensitive),
+                    )
+            arguments = ", ".join(
+                f"{field.name}={converted}"
+                for field, converted in zip(init_fields, exact_values, strict=True)
+            )
+            self.emit(indentation + 2, f"{value} = {dataclass_type}({arguments})")
+            self._emit_dataclass_construction_commit(
+                schema,
+                value,
+                location,
+                indentation + 2,
+                return_on_construction,
+            )
         self.emit(indentation, f"if not {existing} and {shape}:")
         self.emit(indentation + 1, f"{source} = {dictionary}({value})")
         for index, field in enumerate(init_fields):
@@ -516,33 +597,64 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             self.emit(indentation + 1, f"if {external_names}[{index}] in {source}:")
             converted = self.variable("dataclass_value")
             self.emit(indentation + 2, f"{converted} = {source}[{external_names}[{index}]]")
-            self.emit_conversion(
-                field.schema,
-                converted,
-                (*location, f"{external_names}[{index}]"),
-                indentation + 2,
-                sensitive=bool(field.metadata.sensitive),
-            )
+            if schema.construction_preserves_validated_fields:
+                self.emit_schema(
+                    field.schema,
+                    converted,
+                    (*location, f"{external_names}[{index}]"),
+                    indentation + 2,
+                    sensitive=bool(field.metadata.sensitive),
+                )
+            else:
+                self.emit_conversion(
+                    field.schema,
+                    converted,
+                    (*location, f"{external_names}[{index}]"),
+                    indentation + 2,
+                    sensitive=bool(field.metadata.sensitive),
+                )
             self.emit(indentation + 2, f"{keywords}[{field_names}[{index}]] = {converted}")
         self.emit(indentation + 1, f"{value} = {dataclass_type}(**{keywords})")
-        previous = self._validating
-        self._validating = True
-        try:
-            super().emit_dataclass(
-                schema,
-                value,
-                location,
-                indentation + 1,
-                external_names=True,
-            )
-        finally:
-            self._validating = previous
+        self._emit_dataclass_construction_commit(
+            schema,
+            value,
+            location,
+            indentation + 1,
+            return_on_construction,
+        )
+
+    def _emit_dataclass_construction_commit(
+        self,
+        schema: DataclassSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+        return_on_construction: bool,
+    ) -> None:
+        """Approve retained lifecycle state or return proven transparent state."""
+
+        if not schema.construction_preserves_validated_fields:
+            previous = self._validating
+            self._validating = True
+            try:
+                super().emit_dataclass(
+                    schema,
+                    value,
+                    location,
+                    indentation,
+                    external_names=True,
+                )
+            finally:
+                self._validating = previous
+        if return_on_construction:
+            self.emit(indentation, f"return {value}")
+            return
         assert self.trusted_instances is not None
         set_type = self.runtime("set", set)
-        self.emit(indentation + 1, f"if {self.trusted_instances} is None:")
-        self.emit(indentation + 2, f"{self.trusted_instances} = {set_type}()")
+        self.emit(indentation, f"if {self.trusted_instances} is None:")
+        self.emit(indentation + 1, f"{self.trusted_instances} = {set_type}()")
         self.emit(
-            indentation + 1,
+            indentation,
             f"{self.trusted_instances}.add({self.runtime('id', id)}({value}))",
         )
 

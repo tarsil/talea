@@ -4,7 +4,7 @@ from dataclasses import MISSING, Field, InitVar, fields as dataclass_fields, is_
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from enum import Enum, IntEnum, StrEnum
-from inspect import Parameter, signature
+from inspect import Parameter, getattr_static, signature
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -13,8 +13,9 @@ from ipaddress import (
     IPv6Interface,
     IPv6Network,
 )
+from opcode import opmap
 from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
-from types import GenericAlias, NoneType, UnionType
+from types import FunctionType, GenericAlias, MemberDescriptorType, NoneType, UnionType
 from typing import (
     Annotated,
     ClassVar,
@@ -79,6 +80,7 @@ __all__ = [
 ]
 
 _CONSTRAINT_TYPES = (Gt, Ge, Lt, Le, MultipleOf, MinLength, MaxLength, Pattern)
+_ABSENT_ATTRIBUTE = object()
 _EXACT_STANDARD_TYPES = frozenset(
     {
         date,
@@ -408,7 +410,17 @@ def _resolve_dataclass(
                     metadata,
                 )
             )
-        resolved = DataclassSchema(dataclass_type, tuple(resolved_fields), params.frozen, identity)
+        resolved = DataclassSchema(
+            dataclass_type,
+            tuple(resolved_fields),
+            params.frozen,
+            identity,
+            _dataclass_constructor_preserves_validated_fields(
+                dataclass_type,
+                declared_fields,
+                params.frozen,
+            ),
+        )
         target.finalize(resolved)
         return resolved
     except BaseException:
@@ -433,6 +445,122 @@ def _validate_dataclass_constructor(
         has_default = field.default is not MISSING or field.default_factory is not MISSING
         if parameter.kind is not expected_kind or (parameter.default is not Parameter.empty) is not has_default:
             raise TypeError(f"dataclass {dataclass_type.__qualname__!r} has an incompatible constructor signature")
+
+
+def _dataclass_constructor_preserves_validated_fields(
+    dataclass_type: type[object],
+    fields: tuple[Field[object], ...],
+    frozen: bool,
+) -> bool:
+    """Prove that construction only stores already-validated required fields."""
+
+    if any(
+        not field.init or field.default is not MISSING or field.default_factory is not MISSING
+        for field in fields
+    ):
+        return False
+    initializer = dataclass_type.__init__
+    if not isinstance(initializer, FunctionType) or initializer.__code__.co_filename != "<string>":
+        return False
+    if (
+        dataclass_type.__new__ is not object.__new__
+        or type(dataclass_type).__call__ is not type.__call__
+    ):
+        return False
+    if dataclass_type.__getattribute__ is not object.__getattribute__:
+        return False
+    if not frozen and dataclass_type.__setattr__ is not object.__setattr__:
+        return False
+    for item in fields:
+        storage = getattr_static(dataclass_type, item.name, _ABSENT_ATTRIBUTE)
+        if storage is not _ABSENT_ATTRIBUTE and not isinstance(storage, MemberDescriptorType):
+            return False
+    return _matches_direct_dataclass_initializer(initializer, fields, frozen)
+
+
+def _matches_direct_dataclass_initializer(
+    initializer: FunctionType,
+    fields: tuple[Field[object], ...],
+    frozen: bool,
+) -> bool:
+    """Match the Python 3.14 dataclass initializer's direct-storage bytecode."""
+
+    code = initializer.__code__
+    cache = opmap["CACHE"]
+    instructions = tuple(
+        (code.co_code[offset], code.co_code[offset + 1])
+        for offset in range(0, len(code.co_code), 2)
+        if code.co_code[offset] != cache
+    )
+    index = 0
+
+    def consume(opname: str, argument: int) -> bool:
+        nonlocal index
+        if index == len(instructions):
+            return False
+        if instructions[index] != (opmap[opname], argument):
+            return False
+        index += 1
+        return True
+
+    if frozen:
+        if code.co_freevars != ("__dataclass_builtins_object__",) or code.co_names != (
+            "__setattr__",
+        ):
+            return False
+        closure = initializer.__closure__
+        if closure is None or len(closure) != 1 or closure[0].cell_contents is not object:
+            return False
+        try:
+            none_constant = code.co_consts.index(None)
+        except ValueError:
+            return False
+        if not consume("COPY_FREE_VARS", 1):
+            return False
+    else:
+        if (
+            code.co_freevars
+            or code.co_names != tuple(item.name for item in fields)
+            or code.co_consts != (None,)
+        ):
+            return False
+    if not consume("RESUME", 0):
+        return False
+    for item in fields:
+        try:
+            field_local = code.co_varnames.index(item.name)
+        except ValueError:
+            return False
+        if frozen:
+            try:
+                field_constant = code.co_consts.index(item.name)
+            except ValueError:
+                return False
+            matched = (
+                consume("LOAD_DEREF", code.co_nlocals)
+                and consume("LOAD_ATTR", 1)
+                and consume("LOAD_FAST_BORROW", 0)
+                and consume("LOAD_CONST", field_constant)
+                and consume("LOAD_FAST_BORROW", field_local)
+                and consume("CALL", 3)
+                and consume("POP_TOP", 0)
+            )
+        else:
+            if field_local > 15:
+                return False
+            matched = consume(
+                "LOAD_FAST_BORROW_LOAD_FAST_BORROW",
+                field_local << 4,
+            ) and consume("STORE_ATTR", code.co_names.index(item.name))
+        if not matched:
+            return False
+    if frozen:
+        return (
+            consume("LOAD_CONST", none_constant)
+            and consume("RETURN_VALUE", 0)
+            and index == len(instructions)
+        )
+    return consume("LOAD_CONST", 0) and consume("RETURN_VALUE", 0) and index == len(instructions)
 
 
 def _dataclass_field_metadata(annotation: object) -> tuple[str | None, DeclarationMetadata]:

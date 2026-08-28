@@ -6,6 +6,9 @@ import weakref
 from collections import UserDict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import InitVar, dataclass, field, fields, make_dataclass
+from dis import get_instructions
+from opcode import opmap
+from types import FunctionType
 from typing import Annotated, ClassVar, Literal, TypedDict
 
 import pytest
@@ -356,6 +359,261 @@ def test_dataclass_schema_invariants_and_policy_recursion_are_explicit() -> None
     assert static.default is not DATACLASS_MISSING
 
 
+def test_transparent_lifecycle_requires_proven_direct_stdlib_storage() -> None:
+    class LifecycleMeta(type):
+        def __call__(cls, value: int) -> object:
+            return super().__call__(value)
+
+    @dataclass
+    class Plain:
+        value: int
+
+    @dataclass(frozen=True, slots=True, kw_only=True)
+    class FrozenSlotsKeyword:
+        value: int
+
+    @dataclass
+    class WithDefault:
+        value: int = 1
+
+    @dataclass
+    class WithFactory:
+        values: list[int] = field(default_factory=list)
+
+    @dataclass
+    class WithPostInit:
+        value: int
+
+        def __post_init__(self) -> None:
+            self.value += 1
+
+    @dataclass
+    class WithInitFalse:
+        value: int
+        derived: int = field(init=False, default=1)
+
+    @dataclass(init=False)
+    class WithCustomConstructor:
+        value: int
+
+        def __init__(self, value: int) -> None:
+            self.value = value
+
+    @dataclass
+    class WithCustomMetaclass(metaclass=LifecycleMeta):
+        value: int
+
+    schemas = tuple(
+        Contract(annotation)._artifacts.schema
+        for annotation in (
+            Plain,
+            FrozenSlotsKeyword,
+            WithDefault,
+            WithFactory,
+            WithPostInit,
+            WithInitFalse,
+            WithCustomConstructor,
+            WithCustomMetaclass,
+        )
+    )
+
+    assert all(isinstance(schema, DataclassSchema) for schema in schemas)
+    assert tuple(schema.construction_preserves_validated_fields for schema in schemas) == (
+        True,
+        True,
+        False,
+        False,
+        False,
+        False,
+        False,
+        False,
+    )
+
+
+def test_lifecycle_bytecode_proof_rejects_altered_initializer_shapes() -> None:
+    from talea.schema.resolution import _matches_direct_dataclass_initializer
+
+    @dataclass
+    class Plain:
+        value: int
+
+    @dataclass(frozen=True)
+    class Frozen:
+        value: int
+
+    plain = Plain.__init__
+    frozen = Frozen.__init__
+    plain_fields = fields(Plain)
+    frozen_fields = fields(Frozen)
+
+    def clone(
+        function: FunctionType,
+        *,
+        code: object | None = None,
+        closure: tuple[object, ...] | None = None,
+    ) -> FunctionType:
+        selected_code = function.__code__ if code is None else code
+        selected_closure = function.__closure__ if closure is None else closure
+        return FunctionType(  # ty: ignore[invalid-argument-type]
+            selected_code,
+            function.__globals__,
+            function.__name__,
+            function.__defaults__,
+            selected_closure,
+        )
+
+    def altered(
+        function: FunctionType,
+        offset: int,
+        *,
+        opname: str | None = None,
+        argument: int | None = None,
+    ):
+        bytecode = bytearray(function.__code__.co_code)
+        if opname is not None:
+            bytecode[offset] = opmap[opname]
+        if argument is not None:
+            bytecode[offset + 1] = argument
+        return function.__code__.replace(co_code=bytes(bytecode))
+
+    def closure_cell(value: object) -> object:
+        def retain() -> object:
+            return value
+
+        assert retain.__closure__ is not None
+        return retain.__closure__[0]
+
+    assert _matches_direct_dataclass_initializer(plain, plain_fields, False) is True
+    assert _matches_direct_dataclass_initializer(frozen, frozen_fields, True) is True
+    truncated = plain.__code__.replace(co_code=plain.__code__.co_code[:2])
+    assert (
+        _matches_direct_dataclass_initializer(clone(plain, code=truncated), plain_fields, False)
+        is False
+    )
+    assert (
+        _matches_direct_dataclass_initializer(
+            clone(plain, code=altered(plain, 0, opname="NOP")),
+            plain_fields,
+            False,
+        )
+        is False
+    )
+    assert _matches_direct_dataclass_initializer(plain, plain_fields, True) is False
+    wrong_closure = clone(frozen, closure=(closure_cell("not object"),))
+    assert _matches_direct_dataclass_initializer(wrong_closure, frozen_fields, True) is False
+    no_none = frozen.__code__.replace(co_consts=("value",))
+    assert (
+        _matches_direct_dataclass_initializer(clone(frozen, code=no_none), frozen_fields, True)
+        is False
+    )
+    wrong_copy = altered(frozen, 0, opname="NOP")
+    assert (
+        _matches_direct_dataclass_initializer(clone(frozen, code=wrong_copy), frozen_fields, True)
+        is False
+    )
+    no_field_local = plain.__code__.replace(co_varnames=("self", "other"))
+    assert (
+        _matches_direct_dataclass_initializer(
+            clone(plain, code=no_field_local), plain_fields, False
+        )
+        is False
+    )
+    no_field_constant = frozen.__code__.replace(co_consts=(None, None))
+    assert (
+        _matches_direct_dataclass_initializer(
+            clone(frozen, code=no_field_constant), frozen_fields, True
+        )
+        is False
+    )
+    wide_varnames = ("self", *(f"field_{index}" for index in range(15)), "value")
+    wide_local = plain.__code__.replace(
+        co_nlocals=len(wide_varnames),
+        co_varnames=wide_varnames,
+    )
+    assert (
+        _matches_direct_dataclass_initializer(clone(plain, code=wide_local), plain_fields, False)
+        is False
+    )
+    store_offset = next(
+        offset
+        for offset in range(0, len(plain.__code__.co_code), 2)
+        if plain.__code__.co_code[offset] == opmap["STORE_ATTR"]
+    )
+    wrong_store = altered(plain, store_offset, argument=1)
+    assert (
+        _matches_direct_dataclass_initializer(clone(plain, code=wrong_store), plain_fields, False)
+        is False
+    )
+
+
+def test_transparent_exact_dict_path_does_not_reload_constructed_state() -> None:
+    @dataclass
+    class User:
+        name: str
+        age: int
+
+    contract = Contract(User)
+    value = contract.from_python({"name": "Ada", "age": 37})
+    compiled = contract._artifacts.python_input
+
+    assert value == User("Ada", 37)
+    assert compiled is not None
+    instructions = tuple(get_instructions(compiled))
+    fast_return = next(
+        instruction.offset for instruction in instructions if instruction.opname == "RETURN_VALUE"
+    )
+    stored_field_loads = tuple(
+        instruction.offset
+        for instruction in instructions
+        if instruction.opname == "LOAD_ATTR" and instruction.argval in {"name", "age"}
+    )
+    assert stored_field_loads
+    assert all(offset > fast_return for offset in stored_field_loads)
+
+
+def test_custom_storage_and_access_remain_lifecycle_sensitive() -> None:
+    class InvalidDescriptor:
+        def __get__(self, instance: object, owner: type[object] | None = None) -> object:
+            del owner
+            if instance is None:
+                return self
+            return vars(instance)["value"]
+
+        def __set__(self, instance: object, value: object) -> None:
+            del value
+            vars(instance)["value"] = "invalid"
+
+    @dataclass
+    class DescriptorRecord:
+        value: int
+
+    DescriptorRecord.value = InvalidDescriptor()  # ty: ignore[invalid-assignment]
+    descriptor_contract = Contract(DescriptorRecord)
+    descriptor_schema = descriptor_contract._artifacts.schema
+
+    assert isinstance(descriptor_schema, DataclassSchema)
+    assert descriptor_schema.construction_preserves_validated_fields is False
+    with pytest.raises(ValidationError) as descriptor_error:
+        descriptor_contract.from_python({"value": 1})
+    assert descriptor_error.value.errors()[0]["location"] == ["value"]
+
+    @dataclass
+    class CustomStorage:
+        value: int
+
+        def __setattr__(self, name: str, value: object) -> None:
+            object.__setattr__(self, name, "invalid" if name == "value" else value)
+
+    storage_contract = Contract(CustomStorage)
+    storage_schema = storage_contract._artifacts.schema
+
+    assert isinstance(storage_schema, DataclassSchema)
+    assert storage_schema.construction_preserves_validated_fields is False
+    with pytest.raises(ValidationError) as storage_error:
+        storage_contract.from_python({"value": 1})
+    assert storage_error.value.errors()[0]["location"] == ["value"]
+
+
 def test_compatible_custom_constructor_uses_named_boundary_and_validates_result() -> None:
     calls = 0
 
@@ -668,6 +926,11 @@ def test_resource_policy_counts_nested_dataclass_work() -> None:
     with pytest.raises(ResourceLimitError) as captured:
         contract.from_python({"child": {"value": 1}}, policy=ResourcePolicy(max_nodes=1))
     assert captured.value.code == "nodes"
+
+    child = Contract(ResourceChild)
+    with pytest.raises(ResourceLimitError) as transparent:
+        child.from_python({"value": 1}, policy=ResourcePolicy(max_nodes=1))
+    assert transparent.value.code == "nodes"
 
 
 def test_concurrent_lazy_publication_reuses_contract_artifacts() -> None:

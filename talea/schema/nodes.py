@@ -281,14 +281,18 @@ class DataclassSchema:
 
     The original class remains the runtime representation. This immutable node
     records only the effective stored fields, constructor participation,
-    frozen binding policy, and recursive declaration identity needed by Talea
-    consumers; no dataclass class or instance is mutated.
+    frozen binding policy, lifecycle classification, and recursive declaration
+    identity needed by Talea consumers; no dataclass class or instance is
+    mutated. ``construction_preserves_validated_fields`` is true only when
+    resolution proved that ordinary construction directly stores every
+    already-validated required field without another lifecycle mutation route.
     """
 
     dataclass_type: type[object]
     fields: tuple[DataclassField, ...]
     frozen: bool
     identity: NamedSchemaIdentity | None = field(default=None, repr=False, compare=False)
+    construction_preserves_validated_fields: bool = False
 
     def __post_init__(self) -> None:
         names = tuple(item.name for item in self.fields)
