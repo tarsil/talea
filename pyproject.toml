@@ -144,6 +144,7 @@ benchmark_recursive_named = "python benchmarks/recursive_named_graphs.py"
 benchmark_presence = "python benchmarks/presence_derivation.py"
 benchmark_json_schema = "python benchmarks/json_schema.py"
 benchmark_resources = "python benchmarks/resource_security.py"
+benchmark_dataclasses = "python benchmarks/dataclass_interoperability.py"
 
 [tool.isort]
 profile = "black"
