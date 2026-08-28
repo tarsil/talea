@@ -124,6 +124,10 @@ class _ErrorDetail:
             return f"Spec check {self.hook!r} rejected the values"
         if self.code is ErrorCode.FACTORY:
             return "Default factory failed"
+        if self.code is ErrorCode.REPRESENTATION_LOAD:
+            return "Representation loader rejected the input"
+        if self.code is ErrorCode.REPRESENTATION_RESULT:
+            return f"Representation loader returned a value outside {safe_text(self.expected or '')}"
         if self.code is ErrorCode.JSON_INVALID:
             return "Invalid JSON input"
         if self.code is ErrorCode.JSON_DUPLICATE:

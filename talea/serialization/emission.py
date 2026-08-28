@@ -31,6 +31,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -320,6 +321,8 @@ class _ValueProjectionCompiler:
                 _NamedOutputReference(schema, self.mode, self.by_alias, self.sensitive),
             )
             return f"{projector}({value}, {location})"
+        if isinstance(schema, RepresentationSchema):
+            raise SerializationError("Representation output execution is not available")
         if isinstance(schema, PrimitiveSchema):
             if self.mode == "json" and schema.kind == "bytes":
                 encoder = self._bind(names, namespace, "encode_bytes", encode_bytes)

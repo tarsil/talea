@@ -32,6 +32,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -132,6 +133,8 @@ class _StandardsProjector:
                 identity.name,
                 schema.target,
             )
+        if isinstance(schema, RepresentationSchema):
+            raise SchemaProjectionError("Representation schema projection is not available")
         if isinstance(schema, PrimitiveSchema):
             return self._primitive(schema)
         if isinstance(schema, TypeSchema):

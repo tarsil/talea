@@ -29,6 +29,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -150,6 +151,12 @@ def _referenced_specs(
         return ()
     if isinstance(schema, ConstrainedSchema):
         return _referenced_specs(schema.schema, visiting)
+    if isinstance(schema, RepresentationSchema):
+        directions = tuple(item for item in (schema.input, schema.output) if item is not None)
+        return (
+            *_referenced_specs(schema.internal, visiting),
+            *(target for item in directions for target in _referenced_specs(item, visiting)),
+        )
     if isinstance(schema, AliasSchema):
         return _referenced_specs(schema.schema, visiting)
     if isinstance(schema, NamedReferenceSchema):

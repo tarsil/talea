@@ -193,3 +193,8 @@ tasks:
     desc: Benchmarks stdlib dataclass Contract interoperability and zero-tax canaries
     cmds:
       - hatch run test:benchmark_dataclasses
+
+  benchmark_representation:
+    desc: Benchmarks canonical representation input execution and zero-tax canaries
+    cmds:
+      - hatch run test:benchmark_representation

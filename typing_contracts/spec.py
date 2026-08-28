@@ -38,6 +38,7 @@ from talea import (
     transform,
 )
 from talea.introspection import ContractInfo, SpecInfo, inspect_contract, inspect_spec
+from talea.representation import Representation
 
 
 @dataclass
@@ -112,6 +113,53 @@ assert_type(Contract[list[int]](list[int]).openapi_schema(mode="output"), dict[s
 
 schema_projection_error: type[TypeError] = SchemaProjectionError
 resource_limit_error: type[Exception] = ResourceLimitError
+
+
+class TypedMoney:
+    pass
+
+
+def typed_money_from_text(value: str) -> TypedMoney:
+    return TypedMoney()
+
+
+def typed_money_to_text(value: TypedMoney) -> str:
+    return "money"
+
+
+typed_input: Representation[str, TypedMoney, object] = Representation(
+    input=str,
+    load=typed_money_from_text,
+)
+typed_full: Representation[str, TypedMoney, str] = Representation(
+    input=str,
+    load=typed_money_from_text,
+    output=str,
+    dump=typed_money_to_text,
+)
+type TypedMoneyValue = Annotated[TypedMoney, typed_input]
+typed_money_contract: Contract[TypedMoney] = Contract(TypedMoneyValue)
+assert_type(typed_money_contract.validate(TypedMoney()), TypedMoney)
+assert_type(typed_money_contract.from_python("money"), TypedMoney)
+assert_type(Contract[list[TypedMoney]](list[TypedMoneyValue]).from_python(["money"]), list[TypedMoney])
+
+
+class TypedMoneySpec(Spec):
+    amount: TypedMoneyValue
+
+
+@dataclass
+class TypedMoneyDataclass:
+    amount: TypedMoneyValue
+
+
+class TypedMoneyPayload(TypedDict):
+    amount: TypedMoneyValue
+
+
+assert_type(TypedMoneySpec(amount=TypedMoney()).amount, TypedMoney)
+assert_type(Contract(TypedMoneyDataclass).from_python({"amount": "money"}), TypedMoneyDataclass)
+assert_type(Contract[TypedMoneyPayload](TypedMoneyPayload).from_python({"amount": "money"}), TypedMoneyPayload)
 
 
 class ContractPayload(TypedDict):

@@ -14,6 +14,7 @@ from talea.schema.nodes import (
     MappingSchema,
     NamedReferenceSchema,
     PrimitiveSchema,
+    RepresentationSchema,
     Schema,
     SequenceSchema,
     SpecReferenceSchema,
@@ -32,6 +33,8 @@ def schema_values_are_immutable(schema: Schema, visiting: frozenset[object] = fr
         return True
     if isinstance(schema, ConstrainedSchema):
         return schema_values_are_immutable(schema.schema, visiting)
+    if isinstance(schema, RepresentationSchema):
+        return not schema.opaque_internal and schema_values_are_immutable(schema.internal, visiting)
     if isinstance(schema, AliasSchema):
         return schema_values_are_immutable(schema.schema, visiting)
     if isinstance(schema, NamedReferenceSchema):
@@ -115,6 +118,11 @@ def schema_contains_sensitive_metadata(
         return False
     if isinstance(schema, ConstrainedSchema):
         return schema_contains_sensitive_metadata(schema.schema, visiting)
+    if isinstance(schema, RepresentationSchema):
+        directions = tuple(item for item in (schema.input, schema.output) if item is not None)
+        return schema_contains_sensitive_metadata(schema.internal, visiting) or any(
+            schema_contains_sensitive_metadata(item, visiting) for item in directions
+        )
     if isinstance(schema, AliasSchema):
         return bool(schema.metadata.sensitive) or schema_contains_sensitive_metadata(schema.schema, visiting)
     if isinstance(schema, NamedReferenceSchema):
@@ -175,6 +183,11 @@ def schema_contains_tagged_union(
 
     if isinstance(schema, TaggedUnionSchema):
         return True
+    if isinstance(schema, RepresentationSchema):
+        directions = tuple(item for item in (schema.input, schema.output) if item is not None)
+        return schema_contains_tagged_union(schema.internal, visiting) or any(
+            schema_contains_tagged_union(item, visiting) for item in directions
+        )
     if isinstance(schema, (PrimitiveSchema, TypeSchema, LiteralSchema, EnumSchema)):
         return False
     if isinstance(schema, SpecReferenceSchema):
@@ -219,6 +232,11 @@ def schema_contains_named_reference(schema: Schema) -> bool:
 
     if isinstance(schema, NamedReferenceSchema):
         return True
+    if isinstance(schema, RepresentationSchema):
+        directions = tuple(item for item in (schema.input, schema.output) if item is not None)
+        return schema_contains_named_reference(schema.internal) or any(
+            schema_contains_named_reference(item) for item in directions
+        )
     if isinstance(schema, (PrimitiveSchema, TypeSchema, LiteralSchema, EnumSchema, SpecReferenceSchema)):
         return False
     if isinstance(schema, (ConstrainedSchema, AliasSchema)):
@@ -239,6 +257,84 @@ def schema_contains_named_reference(schema: Schema) -> bool:
         return any(schema_contains_named_reference(item) for item in schema.items)
     assert isinstance(schema, UnionSchema)
     return any(schema_contains_named_reference(option) for option in schema.options)
+
+
+def schema_contains_representation(
+    schema: Schema,
+    visiting: frozenset[object] = frozenset(),
+) -> bool:
+    """Return whether one schema graph reaches representation truth."""
+
+    if isinstance(schema, RepresentationSchema):
+        return True
+    if isinstance(schema, (ConstrainedSchema, AliasSchema)):
+        return schema_contains_representation(schema.schema, visiting)
+    if isinstance(schema, NamedReferenceSchema):
+        if schema.identity in visiting:
+            return False
+        return schema_contains_representation(schema.target, visiting | {schema.identity})
+    if isinstance(schema, DataclassSchema):
+        identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return False
+        return any(schema_contains_representation(field.schema, visiting | {identity}) for field in schema.fields)
+    if isinstance(schema, SequenceSchema):
+        return schema_contains_representation(schema.item, visiting)
+    if isinstance(schema, MappingSchema):
+        return schema_contains_representation(schema.key, visiting) or schema_contains_representation(
+            schema.value, visiting
+        )
+    if isinstance(schema, TypedDictSchema):
+        return any(schema_contains_representation(field.schema, visiting) for field in schema.fields)
+    if isinstance(schema, TaggedUnionSchema):
+        return any(schema_contains_representation(branch.schema, visiting) for branch in schema.branches)
+    if isinstance(schema, VariadicTupleSchema):
+        return schema_contains_representation(schema.item, visiting)
+    if isinstance(schema, FixedTupleSchema):
+        return any(schema_contains_representation(item, visiting) for item in schema.items)
+    if isinstance(schema, UnionSchema):
+        return any(schema_contains_representation(option, visiting) for option in schema.options)
+    return False
+
+
+def schema_input_directions_are_available(
+    schema: Schema,
+    visiting: frozenset[object] = frozenset(),
+) -> bool:
+    """Return whether every representation reached by input has that direction."""
+
+    if isinstance(schema, RepresentationSchema):
+        return schema.input is not None and schema_input_directions_are_available(schema.input, visiting)
+    if isinstance(schema, (ConstrainedSchema, AliasSchema)):
+        return schema_input_directions_are_available(schema.schema, visiting)
+    if isinstance(schema, NamedReferenceSchema):
+        if schema.identity in visiting:
+            return True
+        return schema_input_directions_are_available(schema.target, visiting | {schema.identity})
+    if isinstance(schema, DataclassSchema):
+        identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return True
+        return all(
+            schema_input_directions_are_available(field.schema, visiting | {identity}) for field in schema.fields
+        )
+    if isinstance(schema, SequenceSchema):
+        return schema_input_directions_are_available(schema.item, visiting)
+    if isinstance(schema, MappingSchema):
+        return schema_input_directions_are_available(schema.key, visiting) and schema_input_directions_are_available(
+            schema.value, visiting
+        )
+    if isinstance(schema, TypedDictSchema):
+        return all(schema_input_directions_are_available(field.schema, visiting) for field in schema.fields)
+    if isinstance(schema, TaggedUnionSchema):
+        return all(schema_input_directions_are_available(branch.schema, visiting) for branch in schema.branches)
+    if isinstance(schema, VariadicTupleSchema):
+        return schema_input_directions_are_available(schema.item, visiting)
+    if isinstance(schema, FixedTupleSchema):
+        return all(schema_input_directions_are_available(item, visiting) for item in schema.items)
+    if isinstance(schema, UnionSchema):
+        return all(schema_input_directions_are_available(option, visiting) for option in schema.options)
+    return True
 
 
 def _unwrap(schema: Schema) -> tuple[Schema, tuple[object, ...]]:

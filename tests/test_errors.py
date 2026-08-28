@@ -35,6 +35,8 @@ def test_error_code_vocabulary_is_public_stable_and_string_serializable() -> Non
         "field_check",
         "spec_check",
         "factory",
+        "representation_load",
+        "representation_result",
         "json_invalid",
         "json_duplicate",
         "cycle",

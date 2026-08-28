@@ -49,12 +49,50 @@ representations:
 | external-input budgets | operation-local `ResourcePolicy` state | Mapping and JSON input compilers |
 | JSON representations | canonical JSON representation owner | JSON input, JSON output, and standards projection |
 | public validation failures | `ErrorCode`, `ErrorData`, and `ValidationError` | every validation and input execution target |
+| represented domain values | one immutable `RepresentationSchema` association between internal, input, output, and callback identity | strict validation and external input compilation |
 
 Dataclass execution specializes from `DataclassSchema`; it does not retain a
 second field map or rediscover `dataclasses.fields()`. Directional derivation
 projects normal Spec declarations from one provenance record. Nested selection
 copies caller input into an immutable tree before field access, compiles only
 when a nested selector is used, and has no process-global cache.
+
+### Representation input ownership
+
+The representation declaration accepted for the 0.3 input slice is
+`Annotated[Internal, Representation(...)]`. Resolution creates one
+`RepresentationSchema`; execution does not scan metadata again and there is no
+callback registry. Strict validation consumes only the internal schema. An
+external Python or decoded-JSON value is processed by the declared input
+schema, passed to the synchronous loader once, and the result is validated by
+the internal schema before it can escape.
+
+Callbacks are trusted application code: their own work is not budgeted or
+rolled back. Talea-owned traversal before and after the callback shares the
+same operation-local `ResourcePolicy` state, so a small input expanded into a
+large structural result remains bounded. Opaque represented classes receive an
+exact runtime-type check, not permanent trust in hidden state. Existing
+supported internal schemas retain their normal structural and trust rules.
+
+Ordinary unions keep Talea's canonical branch ordering. A represented branch
+is attempted only when its declared input schema is structurally plausible;
+its loader `ValueError` becomes a branch validation failure and may allow the
+next branch to run, while other exceptions propagate. Consequently trusted
+loader side effects can occur in more than one attempted branch, and every
+attempted input/result traversal consumes the shared resource budget. A union
+with multiple representation declarations for the same internal contract is
+rejected because callback ordering would otherwise be indistinguishable.
+
+Python 3.14 has no `TypeForm`, so the runtime `input` and `output` type-form
+parameters use `object` annotations. Generic callback relationships still
+express `InputT -> InternalT` and `InternalT -> OutputT`; runtime resolution
+validates the actual type forms. Moving to Python 3.15 `TypeForm` can strengthen
+those two annotations without changing declaration vocabulary or behavior.
+
+This declaration is intentionally not root-exported in the input slice.
+Representation output execution and JSON Schema/OpenAPI projection fail
+explicitly until their canonical owner lands; neither operation falls through
+to the internal type or invokes `dump` prematurely.
 
 ## Why compile generated Python
 

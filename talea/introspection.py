@@ -12,6 +12,10 @@ from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, 
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
 from talea.declaration.models import MISSING_DEFAULT, SerializationHook, SpecDerivation
+from talea.declaration.policies import (
+    schema_contains_representation,
+    schema_input_directions_are_available,
+)
 from talea.metadata import EMPTY_METADATA, DeclarationMetadata, ExampleValue, annotation_metadata
 from talea.schema.nodes import AliasSchema, ConstrainedSchema, Schema
 from talea.spec.declaration import _SpecDeclaration
@@ -173,6 +177,7 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                 bool(artifacts.schema.metadata.deprecated),
                 artifacts.schema.presence_aware,
                 _derivation_info(artifacts.schema.derivation),
+                _schema_operations(tuple(field.schema for field in artifacts.schema.fields)),
             )
             _SPEC_INFO_CACHE[spec] = cached
     return cached
@@ -201,7 +206,19 @@ def inspect_contract[T](contract: Contract[T]) -> ContractInfo:
         bool(metadata.read_only),
         bool(metadata.write_only),
         bool(metadata.sensitive),
+        _schema_operations((contract._artifacts.schema,)),
     )
+
+
+def _schema_operations(schemas: tuple[Schema, ...]) -> tuple[Operation, ...]:
+    """Project only operations implemented for reachable representation truth."""
+
+    if not any(schema_contains_representation(schema) for schema in schemas):
+        return _OPERATIONS
+    operations: tuple[Operation, ...] = ("strict_python",)
+    if all(schema_input_directions_are_available(schema) for schema in schemas):
+        operations = (*operations, "external_python", "json_input")
+    return operations
 
 
 def _constraints(schema: Schema) -> tuple[Constraint, ...]:

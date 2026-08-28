@@ -12,6 +12,7 @@ from typing import Literal
 
 from talea.constraints import Constraint
 from talea.metadata import EMPTY_METADATA, DeclarationMetadata
+from talea.representation import Representation
 from talea.schema.references import NamedReferenceSchema, NamedSchemaIdentity
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "NamedSchemaIdentity",
     "PrimitiveKind",
     "PrimitiveSchema",
+    "RepresentationSchema",
     "Schema",
     "SequenceKind",
     "SequenceSchema",
@@ -125,6 +127,23 @@ class TypeSchema:
             raise TypeError("a type schema requires a runtime type")
         if self.mode not in ("exact", "nominal"):
             raise ValueError("a type schema requires exact or nominal checking")
+
+
+@dataclass(frozen=True, slots=True)
+class RepresentationSchema:
+    """Canonical association between internal and directional schema truth.
+
+    ``internal`` remains the strict Python contract. Optional directional
+    schemas and the private declaration identity supply input and future output
+    compilation without re-reading ``Annotated`` metadata or consulting a
+    registry. Callback fields remain private and are excluded from repr.
+    """
+
+    internal: "Schema"
+    input: "Schema | None"
+    output: "Schema | None"
+    _declaration: Representation[object, object, object] = field(repr=False)
+    opaque_internal: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -418,6 +437,7 @@ type Schema = (
     | DataclassSchema
     | NamedReferenceSchema
     | TypeSchema
+    | RepresentationSchema
     | LiteralSchema
     | EnumSchema
     | SequenceSchema

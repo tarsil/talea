@@ -110,6 +110,8 @@ location remains structured and unchanged.
 | `field_check` | field-local assertion raised | satisfy the business invariant |
 | `spec_check` | multi-field/whole-Spec assertion raised | inspect `locations` and satisfy the invariant |
 | `factory` | default factory raised | repair it; inspect a non-sensitive `__cause__` |
+| `representation_load` | trusted representation loader rejected accepted external input | correct the input or loader behavior |
+| `representation_result` | loader result failed the internal contract at the containing path | repair the loader return value |
 | `json_invalid` | decoder could not produce valid JSON input | correct syntax or codec contract |
 | `json_duplicate` | default decoder found a duplicate object key | emit each key once |
 | `cycle` | repeated object identity formed an unsupported cycle | replace back-references with IDs or an acyclic representation |
