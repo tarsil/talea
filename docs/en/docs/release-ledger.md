@@ -1,8 +1,10 @@
 # Version, maturity, and support
 
-Talea is currently version 0.1.0 and remains pre-1.0. The implemented runtime is
-substantial, but compatibility, deprecation windows, long-term support, and
-formal vulnerability-reporting governance are not yet frozen.
+Talea is currently version 0.2.0 and deliberately remains in the 0.x release
+series. The implemented runtime is substantial, but compatibility, deprecation
+windows, long-term support, and formal vulnerability-reporting governance are
+not yet frozen. The 0.x series is an ongoing product stage, not an indication
+that a 1.0 compatibility freeze is imminent.
 
 ## Implemented product surface
 

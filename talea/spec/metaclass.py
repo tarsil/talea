@@ -424,7 +424,7 @@ class _SpecMeta(type):
         field_names: tuple[object, ...],
         inherited_names: frozenset[str],
     ) -> None:
-        """Reject declaration forms whose lifecycle is outside this campaign."""
+        """Reject declaration forms whose lifecycle is owned by Spec."""
 
         if "__slots__" in namespace:
             raise TypeError("Spec manages instance slots from declared fields")

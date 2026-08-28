@@ -34,6 +34,28 @@ identity, and discriminator truth are not reinterpreted by each branch.
 | resources | operation-local input budgets |
 | standards projection | Draft 2020-12 and OpenAPI Schema Objects |
 
+## Talea 0.2 owner map
+
+The 0.2 capabilities extend existing owners rather than creating parallel
+representations:
+
+| Truth | Canonical owner | Consumers |
+| --- | --- | --- |
+| dataclass stored fields and lifecycle classification | immutable `DataclassSchema` resolved by `schema` | validation, input, serialization, introspection, standards projection |
+| `ReadOnly`, `WriteOnly`, aliases, and `Sensitive` | normalized declaration metadata | derivation, input/output, errors, introspection, standards projection |
+| derived source, retained/omitted fields, selection, partial state, mode, and explicit name | immutable declaration provenance | presence, patching, introspection, standards projection |
+| nested include/exclude grammar and immutable selection tree | serialization selection owner validated against canonical schema | class-owned compiled output plans |
+| selected-plan retention | each Spec declaration's output artifacts | that class only, bounded to 32 immutable plans |
+| external-input budgets | operation-local `ResourcePolicy` state | Mapping and JSON input compilers |
+| JSON representations | canonical JSON representation owner | JSON input, JSON output, and standards projection |
+| public validation failures | `ErrorCode`, `ErrorData`, and `ValidationError` | every validation and input execution target |
+
+Dataclass execution specializes from `DataclassSchema`; it does not retain a
+second field map or rediscover `dataclasses.fields()`. Directional derivation
+projects normal Spec declarations from one provenance record. Nested selection
+copies caller input into an immutable tree before field access, compiles only
+when a nested selector is used, and has no process-global cache.
+
 ## Why compile generated Python
 
 Repeated validation should not reflect on annotations or interpret a generic

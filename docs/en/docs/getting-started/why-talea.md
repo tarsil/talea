@@ -264,12 +264,13 @@ Talea is likely a poor fit when:
   attrs simpler;
 - the contract is small or specialized enough that manually written Python is
   clearer;
-- pre-1.0 API maturity, a small ecosystem, or the current limitations do not
+- 0.x API maturity, a small ecosystem, or the current limitations do not
   meet organizational support requirements.
 
 ## Maturity and evidence
 
-Talea is pre-1.0 and its ecosystem is much smaller than Pydantic's or msgspec's.
+Talea deliberately remains in the 0.x series, and its ecosystem is much smaller
+than Pydantic's or msgspec's.
 Adopters accept that compatibility, deprecation, support, and release governance
 are not yet frozen. The [known limitations](../engineering/limitations.md) page
 is the authoritative boundary.

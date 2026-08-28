@@ -486,12 +486,8 @@ def main() -> None:
         ),
     )
     OrdinarySpec.from_mapping(external)
-    print(
-        f"Contract public Python calls/op={python_calls(lambda: one_contract.from_python(external)):.1f}"
-    )
-    print(
-        f"Spec public Python calls/op={python_calls(lambda: OrdinarySpec.from_mapping(external)):.1f}"
-    )
+    print(f"Contract public Python calls/op={python_calls(lambda: one_contract.from_python(external)):.1f}")
+    print(f"Spec public Python calls/op={python_calls(lambda: OrdinarySpec.from_mapping(external)):.1f}")
     print(f"manual Python calls/op={python_calls(lambda: mapping_one(external)):.1f}")
 
     feature_cases: tuple[tuple[str, object, Mapping[str, object]], ...] = (
@@ -536,9 +532,7 @@ def main() -> None:
             f"{label} JSON",
             "Talea Contract",
             measure(
-                lambda contract=contract, feature_json=feature_json: contract.from_json(
-                    feature_json
-                ),
+                lambda contract=contract, feature_json=feature_json: contract.from_json(feature_json),
                 _BOUNDARY_ITERATIONS,
             ),
         )
@@ -572,9 +566,7 @@ def main() -> None:
     )
     print("\nRepresentative failures")
     for label, operation in failures:
-        report(
-            label, "Talea Contract", measure(lambda operation=operation: capture(operation), 1_000)
-        )
+        report(label, "Talea Contract", measure(lambda operation=operation: capture(operation), 1_000))
 
     nested_contract.to_python(nested)
     nested_contract.to_json(nested)
@@ -609,9 +601,7 @@ def main() -> None:
     instruction_count, attributes = generated_code_evidence(five_contract)
     boundary_instructions = tuple(dis.get_instructions(direct_boundary))
     first_return = next(
-        instruction.offset
-        for instruction in boundary_instructions
-        if instruction.opname == "RETURN_VALUE"
+        instruction.offset for instruction in boundary_instructions if instruction.opname == "RETURN_VALUE"
     )
     retained_state_loads = tuple(
         instruction.offset

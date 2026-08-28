@@ -454,18 +454,12 @@ def _dataclass_constructor_preserves_validated_fields(
 ) -> bool:
     """Prove that construction only stores already-validated required fields."""
 
-    if any(
-        not field.init or field.default is not MISSING or field.default_factory is not MISSING
-        for field in fields
-    ):
+    if any(not field.init or field.default is not MISSING or field.default_factory is not MISSING for field in fields):
         return False
     initializer = dataclass_type.__init__
     if not isinstance(initializer, FunctionType) or initializer.__code__.co_filename != "<string>":
         return False
-    if (
-        dataclass_type.__new__ is not object.__new__
-        or type(dataclass_type).__call__ is not type.__call__
-    ):
+    if dataclass_type.__new__ is not object.__new__ or type(dataclass_type).__call__ is not type.__call__:
         return False
     if dataclass_type.__getattribute__ is not object.__getattribute__:
         return False
@@ -504,9 +498,7 @@ def _matches_direct_dataclass_initializer(
         return True
 
     if frozen:
-        if code.co_freevars != ("__dataclass_builtins_object__",) or code.co_names != (
-            "__setattr__",
-        ):
+        if code.co_freevars != ("__dataclass_builtins_object__",) or code.co_names != ("__setattr__",):
             return False
         closure = initializer.__closure__
         if closure is None or len(closure) != 1 or closure[0].cell_contents is not object:
@@ -518,11 +510,7 @@ def _matches_direct_dataclass_initializer(
         if not consume("COPY_FREE_VARS", 1):
             return False
     else:
-        if (
-            code.co_freevars
-            or code.co_names != tuple(item.name for item in fields)
-            or code.co_consts != (None,)
-        ):
+        if code.co_freevars or code.co_names != tuple(item.name for item in fields) or code.co_consts != (None,):
             return False
     if not consume("RESUME", 0):
         return False
@@ -555,11 +543,7 @@ def _matches_direct_dataclass_initializer(
         if not matched:
             return False
     if frozen:
-        return (
-            consume("LOAD_CONST", none_constant)
-            and consume("RETURN_VALUE", 0)
-            and index == len(instructions)
-        )
+        return consume("LOAD_CONST", none_constant) and consume("RETURN_VALUE", 0) and index == len(instructions)
     return consume("LOAD_CONST", 0) and consume("RETURN_VALUE", 0) and index == len(instructions)
 
 

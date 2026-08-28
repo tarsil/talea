@@ -15,6 +15,23 @@ separate response contract, JSON output, and input/output OpenAPI fragments.
 
 {!> ../../../../docs_src/tutorials/production_service.py !}
 
+## Compose the 0.2 boundary capabilities
+
+Talea 0.2 can keep a standard-library dataclass as a domain representation,
+validate and construct it through `Contract`, embed it in one canonical Spec
+API contract, derive explicit request/response/PATCH shapes, and project only
+the nested response fields an endpoint needs. No duplicate dataclass Spec,
+hand-maintained read/write field list, or recursive post-serialization filter
+is required.
+
+The following executable flow uses canonical names for selection while aliases
+remain the emitted external names. The output-derived view cannot contain the
+write-only Sensitive password, the input-derived partial cannot contain the
+read-only request identifier, and `apply_patch()` preserves the source
+contract's complete-state validation.
+
+{!> ../../../../docs_src/tutorials/python_interoperability.py !}
+
 ## Follow the ownership boundary
 
 `UserCreate.from_json()` owns JSON decoding and contract conversion. Once it

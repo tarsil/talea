@@ -1,6 +1,6 @@
 # Known limitations
 
-This is the authoritative pre-1.0 limitations list.
+This is the authoritative limitations list for Talea's ongoing 0.x series.
 
 ## Current capability limits
 
@@ -62,8 +62,8 @@ This is the authoritative pre-1.0 limitations list.
   normal module annotation namespace; Contract does not inspect caller frames
   to reconstruct function-local names;
 - concrete path-class availability follows the running platform;
-- the package is pre-1.0, so compatibility, deprecation, and long-term support
-  policy are not yet frozen.
+- compatibility, deprecation, and long-term support policy remain intentionally
+  evolvable across the 0.x series.
 
 ## Rejected or separate concerns
 

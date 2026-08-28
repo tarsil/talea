@@ -1,6 +1,6 @@
 # Release Notes
 
-## Unreleased
+## 0.2.0 — Python interoperability and boundary productivity
 
 ### Added
 
@@ -104,8 +104,9 @@ release gates.
 - Python 3.14 or newer is required.
 - Talea is implemented in pure Python and declares zero required runtime
   dependencies.
-- This is a pre-1.0 release. Public APIs, compatibility policy, deprecation
-  windows, and long-term support policy may evolve prior to 1.0.
+- Talea deliberately remains in the 0.x release series. Public APIs,
+  compatibility policy, deprecation windows, and long-term support policy may
+  evolve between 0.x releases.
 - The ecosystem and integration surface are new; Talea deliberately does not
   include settings management, ORM extraction, or callable-signature validation
   in core.

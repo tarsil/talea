@@ -5,7 +5,7 @@ Last updated: 2026-08-26
 Maintained by: Talea maintainers
 
 This contributor artifact records the pre-rewrite audit and the evidence used
-to converge the pre-1.0 manual. It is intentionally outside the built user
+to converge the 0.x manual. It is intentionally outside the built user
 documentation.
 
 ## Initial page classification
@@ -277,4 +277,4 @@ paths before the site build.
 | repetitive generated prose | manual pass removed duplicated snippet blocks, merged recursive owners, used domain-specific explanations, and kept landing pages short only when they route rather than teach a feature |
 
 No valid rejection from this pass remains open. This is documentation evidence,
-not a claim that a pre-1.0 ecosystem or support policy is mature.
+not a claim that a 0.x ecosystem or support policy is mature.

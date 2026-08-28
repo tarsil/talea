@@ -117,7 +117,7 @@ does not provide, or produces mostly msgspec-native codec workloads already
 served well. Also stop if the new declaration is less clear than a tiny manual
 validator and none of Contract's additional boundaries are useful.
 
-Pre-1.0 adoption should pin versions, review release notes, keep boundary tests
+Adoption during the evolving 0.x series should pin versions, review release notes, keep boundary tests
 in the application repository, and assign an owner for compatibility decisions.
 The absence of required runtime dependencies reduces deployment surface; it
 does not remove the normal operational cost of adopting a young library.

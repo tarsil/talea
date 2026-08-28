@@ -216,7 +216,9 @@ on older Python, wants broad coercion, needs settings/ORM ecosystems in one
 package, already has an ideal msgspec workflow, needs only a tiny internal
 record, or can express a specialized check more clearly by hand.
 
-Talea is pre-1.0 and has a much smaller ecosystem than mature alternatives.
+Talea deliberately remains in the 0.x series and has a much smaller ecosystem
+than mature alternatives. Its compatibility and support policy may continue to
+evolve across 0.x releases.
 The [limitations](engineering/limitations.md) and [maturity/support
 page](release-ledger.md) make that cost explicit.
 

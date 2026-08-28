@@ -486,10 +486,7 @@ def test_lifecycle_bytecode_proof_rejects_altered_initializer_shapes() -> None:
     assert _matches_direct_dataclass_initializer(plain, plain_fields, False) is True
     assert _matches_direct_dataclass_initializer(frozen, frozen_fields, True) is True
     truncated = plain.__code__.replace(co_code=plain.__code__.co_code[:2])
-    assert (
-        _matches_direct_dataclass_initializer(clone(plain, code=truncated), plain_fields, False)
-        is False
-    )
+    assert _matches_direct_dataclass_initializer(clone(plain, code=truncated), plain_fields, False) is False
     assert (
         _matches_direct_dataclass_initializer(
             clone(plain, code=altered(plain, 0, opname="NOP")),
@@ -502,48 +499,26 @@ def test_lifecycle_bytecode_proof_rejects_altered_initializer_shapes() -> None:
     wrong_closure = clone(frozen, closure=(closure_cell("not object"),))
     assert _matches_direct_dataclass_initializer(wrong_closure, frozen_fields, True) is False
     no_none = frozen.__code__.replace(co_consts=("value",))
-    assert (
-        _matches_direct_dataclass_initializer(clone(frozen, code=no_none), frozen_fields, True)
-        is False
-    )
+    assert _matches_direct_dataclass_initializer(clone(frozen, code=no_none), frozen_fields, True) is False
     wrong_copy = altered(frozen, 0, opname="NOP")
-    assert (
-        _matches_direct_dataclass_initializer(clone(frozen, code=wrong_copy), frozen_fields, True)
-        is False
-    )
+    assert _matches_direct_dataclass_initializer(clone(frozen, code=wrong_copy), frozen_fields, True) is False
     no_field_local = plain.__code__.replace(co_varnames=("self", "other"))
-    assert (
-        _matches_direct_dataclass_initializer(
-            clone(plain, code=no_field_local), plain_fields, False
-        )
-        is False
-    )
+    assert _matches_direct_dataclass_initializer(clone(plain, code=no_field_local), plain_fields, False) is False
     no_field_constant = frozen.__code__.replace(co_consts=(None, None))
-    assert (
-        _matches_direct_dataclass_initializer(
-            clone(frozen, code=no_field_constant), frozen_fields, True
-        )
-        is False
-    )
+    assert _matches_direct_dataclass_initializer(clone(frozen, code=no_field_constant), frozen_fields, True) is False
     wide_varnames = ("self", *(f"field_{index}" for index in range(15)), "value")
     wide_local = plain.__code__.replace(
         co_nlocals=len(wide_varnames),
         co_varnames=wide_varnames,
     )
-    assert (
-        _matches_direct_dataclass_initializer(clone(plain, code=wide_local), plain_fields, False)
-        is False
-    )
+    assert _matches_direct_dataclass_initializer(clone(plain, code=wide_local), plain_fields, False) is False
     store_offset = next(
         offset
         for offset in range(0, len(plain.__code__.co_code), 2)
         if plain.__code__.co_code[offset] == opmap["STORE_ATTR"]
     )
     wrong_store = altered(plain, store_offset, argument=1)
-    assert (
-        _matches_direct_dataclass_initializer(clone(plain, code=wrong_store), plain_fields, False)
-        is False
-    )
+    assert _matches_direct_dataclass_initializer(clone(plain, code=wrong_store), plain_fields, False) is False
 
 
 def test_transparent_exact_dict_path_does_not_reload_constructed_state() -> None:
@@ -559,9 +534,7 @@ def test_transparent_exact_dict_path_does_not_reload_constructed_state() -> None
     assert value == User("Ada", 37)
     assert compiled is not None
     instructions = tuple(get_instructions(compiled))
-    fast_return = next(
-        instruction.offset for instruction in instructions if instruction.opname == "RETURN_VALUE"
-    )
+    fast_return = next(instruction.offset for instruction in instructions if instruction.opname == "RETURN_VALUE")
     stored_field_loads = tuple(
         instruction.offset
         for instruction in instructions

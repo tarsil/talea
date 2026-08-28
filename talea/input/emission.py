@@ -555,8 +555,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                         sensitive=bool(field.metadata.sensitive),
                     )
             arguments = ", ".join(
-                f"{field.name}={converted}"
-                for field, converted in zip(init_fields, exact_values, strict=True)
+                f"{field.name}={converted}" for field, converted in zip(init_fields, exact_values, strict=True)
             )
             self.emit(indentation + 2, f"{value} = {dataclass_type}({arguments})")
             self._emit_dataclass_construction_commit(

@@ -143,13 +143,16 @@ Talea currently provides:
 - aliases, titles, descriptions, examples, deprecation, read/write metadata,
   and sensitive-value handling;
 - `Contract` for primitives, containers, unions, `TypedDict`, type aliases,
-  recursive graphs, tagged unions, and concrete generic specializations;
+  stdlib dataclasses, recursive graphs, tagged unions, and concrete generic
+  specializations;
 - first-class Mapping and JSON input with structured nested errors;
 - finite transport-size, depth, traversal-node, and error-aggregation policy;
 - presence-aware partial Specs, `derive_spec()`, and `apply_patch()` for PATCH
   semantics where absent is not confused with `None`;
+- explicit input/output Spec views derived from `ReadOnly` and `WriteOnly`;
 - canonical discriminator-based union dispatch and OpenAPI discriminator maps;
-- Python and JSON serialization with explicit per-call codec boundaries;
+- Python and JSON serialization with explicit per-call codec boundaries and
+  finite nested include/exclude selection;
 - JSON Schema Draft 2020-12 and OpenAPI 3.1-compatible Schema Objects;
 - public immutable introspection and runtime `create_spec()` declarations;
 - compile-once specialized pure-Python execution with permanent benchmark
@@ -235,7 +238,8 @@ It is likely the wrong choice when:
 - the only requirement is a small internal record, where a dataclass or attrs
   class is simpler;
 - specialized validation is shorter and clearer as manually written Python;
-- adopting a pre-1.0 library with a small ecosystem is unacceptable.
+- adopting a 0.x library with an evolving API and small ecosystem is
+  unacceptable.
 
 ## Documentation
 
@@ -257,13 +261,14 @@ builds the site; `task build_with_checks` verifies release artifacts.
 
 ## Maturity and evidence
 
-Talea is pre-1.0. Compatibility, deprecation, support, and release governance
-are not yet frozen, and its ecosystem is necessarily much smaller than mature
-alternatives. The project does not call that tradeoff complete or invisible.
+Talea deliberately remains in the 0.x release series. Compatibility,
+deprecation, support, and release governance are not yet frozen, and its
+ecosystem is necessarily much smaller than mature alternatives. This is an
+ongoing product stage, not a signal that a 1.0 freeze is imminent.
 
 Repository gates include unit and integration tests, 100% line coverage,
 linting, formatting, static typing, package checks, executable documentation,
-standards-conformance tests, security/adversarial cases, and 18 permanent
+standards-conformance tests, security/adversarial cases, and 19 permanent
 benchmark workloads. Performance comparisons require semantically equivalent
 operations; no claim is based on removing validation from one side.
 
