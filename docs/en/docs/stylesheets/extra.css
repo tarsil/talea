@@ -1,31 +1,150 @@
-:root {
-  --talea-primary: #1f4f9f;
-  --talea-primary-strong: #173b78;
-  --talea-colour-default: #ffffff;
-}
+/* ==========================================================================
+   Talea — Zensical
+   Graphite + mineral identity
+   ========================================================================== */
 
 :root {
-  --talea-primary: #02a6f2;
-  --talea-primary-strong: #007db3;
-  --talea-colour-default: #ffffff;
+  --talea-ink: #171a18;
+  --talea-deep: #20372f;
+  --talea-primary: #287a61;
+  --talea-accent: #35a47f;
+  --talea-soft: #edf7f3;
+
+  --talea-white: #ffffff;
+  --talea-text: #1b211e;
+  --talea-muted: #65716b;
+  --talea-border: #dce5e1;
 }
+
+
+/* Zensical tokens */
+
+[data-md-color-scheme="default"] {
+  --md-primary-fg-color: var(--talea-deep);
+  --md-primary-fg-color--light: var(--talea-primary);
+  --md-primary-fg-color--dark: var(--talea-ink);
+  --md-accent-fg-color: var(--talea-primary);
+}
+
+
+/* ==========================================================================
+   Main header
+
+   Deliberately subtle. The brand should frame the documentation rather
+   than becoming the dominant visual element.
+   ========================================================================== */
 
 [data-md-color-scheme="default"] .md-header {
-  background: linear-gradient(90deg, var(--talea-primary), var(--talea-primary-strong));
-  color: #fff;
+  background: linear-gradient(
+    105deg,
+    var(--talea-ink) 0%,
+    var(--talea-deep) 72%,
+    #285b49 100%
+  );
+
+  color: var(--talea-white);
 }
+
+
+/* Header content */
 
 [data-md-color-scheme="default"] .md-header .md-header__button,
 [data-md-color-scheme="default"] .md-header .md-header__topic,
 [data-md-color-scheme="default"] .md-header .md-header__title,
 [data-md-color-scheme="default"] .md-header .md-source__repository,
 [data-md-color-scheme="default"] .md-header .md-source__icon {
-  color: #fff;
+  color: var(--talea-white);
 }
 
+
+/* ==========================================================================
+   Top navigation
+
+   Do NOT use another dark slab beneath the header.
+   Let it become part of the documentation surface.
+   ========================================================================== */
+
 [data-md-color-scheme="default"] .md-tabs {
-  background-color: var(--talea-primary-strong);
-  color: var(--talea-colour-default);
+  background: var(--talea-white);
+  color: var(--talea-text);
+  border-bottom: 1px solid var(--talea-border);
+  box-shadow: none;
+}
+
+[data-md-color-scheme="default"] .md-tabs__link {
+  color: var(--talea-muted);
+  opacity: 1;
+  font-weight: 500;
+}
+
+[data-md-color-scheme="default"] .md-tabs__link:hover {
+  color: var(--talea-primary);
+}
+
+[data-md-color-scheme="default"] .md-tabs__item--active .md-tabs__link {
+  color: var(--talea-ink);
+  font-weight: 650;
+}
+
+
+/* ==========================================================================
+   Content links
+   ========================================================================== */
+
+[data-md-color-scheme="default"] .md-typeset a {
+  color: var(--talea-primary);
+}
+
+[data-md-color-scheme="default"] .md-typeset a:hover {
+  color: var(--talea-accent);
+}
+
+
+/* ==========================================================================
+   Side navigation
+   ========================================================================== */
+
+[data-md-color-scheme="default"] .md-nav__link {
+  color: var(--talea-muted);
+}
+
+[data-md-color-scheme="default"] .md-nav__link:hover {
+  color: var(--talea-primary);
+}
+
+[data-md-color-scheme="default"] .md-nav__link--active {
+  color: var(--talea-primary);
+  font-weight: 600;
+}
+
+
+/* ==========================================================================
+   Search / focus
+   ========================================================================== */
+
+[data-md-color-scheme="default"] :focus-visible {
+  outline-color: var(--talea-accent);
+}
+
+
+/* ==========================================================================
+   Text selection
+   ========================================================================== */
+
+[data-md-color-scheme="default"] ::selection {
+  background: var(--talea-soft);
+  color: var(--talea-ink);
+}
+
+
+/* ==========================================================================
+   Main content
+
+   Keep the actual manual neutral.
+   ========================================================================== */
+
+[data-md-color-scheme="default"] .md-typeset {
+  color: var(--talea-text);
 }
 
 [data-md-color-scheme="default"] .md-header .md-search__button {
