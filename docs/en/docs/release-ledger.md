@@ -16,8 +16,9 @@ derived/PATCH Specs, explicit input/output derived views, introspection, dynamic
 OpenAPI 3.1-compatible projection, and finite external-input resource policies.
 The current unreleased surface also includes root-public `Representation`
 contracts for explicit custom domain types across directional input/output,
-standards projection, introspection, and nested selection; the package version
-remains 0.2.0 until the next release convergence.
+standards projection, introspection, and nested selection, plus optional
+declared output contracts on field serializers. The package version remains
+0.2.0 until the next release convergence.
 
 ## Deliberate boundaries
 
@@ -32,6 +33,7 @@ remains 0.2.0 until the next release convergence.
 | settings/environment loading | Separate integration or package, not core |
 | streaming batches and JSONL | Not implemented; materialized batches use `Contract(list[T])` |
 | arbitrary annotation callbacks | Explicit per-position `Representation` contracts are implemented; no registry/discovery |
+| field-local serializer output truth | Optional `@serialize(..., output=...)` contracts are implemented; undeclared hooks remain opaque |
 | retained global codec/Contract registries | Rejected for core; application boundaries own retained objects |
 | `Any`/`object` passthrough contracts | Rejected because they erase contract truth |
 | abstract Mapping/Sequence conversion | Rejected because concrete output shape is ambiguous |

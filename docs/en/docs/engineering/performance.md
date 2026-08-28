@@ -130,6 +130,14 @@ measures structured output and selected projection separately, and reports
 retained callback/artifact memory. Models without `Representation` do not enter
 that machinery.
 
+The serialization benchmark separately measures opaque hooks, declared scalar
+and structured outputs, model/container/Representation outputs, JSON output,
+nested include/exclude, callback lower bounds, invalid-result and callback
+failures, allocations, and retained artifacts. Generated declared-hook paths
+bind the callback, schema-specialized validator, and projector directly. Hooks
+without `output=` and Specs without hooks contain no declared-result branch or
+runtime Schema walk.
+
 ## Measure an application workload
 
 1. Identify the exact operation: constructor, strict validation, Mapping input,

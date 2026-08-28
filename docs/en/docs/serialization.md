@@ -280,16 +280,21 @@ Nested selection follows canonical structure:
   expose only their actual derived shape;
 - finite selection trees bound recursive projection depth.
 
-An arbitrary `@serialize` result is a leaf because Talea has no declared schema
-for the callback's replacement. Selecting or excluding the whole field is
-valid; descending into the callback result fails before callback execution.
-`Sensitive` keeps its ordinary successful-output semantics and does not turn
-selection into redaction.
+An `@serialize` result without `output=` is a leaf because Talea has no declared
+schema for the callback's replacement. Selecting or excluding the whole field
+is valid; descending into the opaque callback result fails before callback
+execution. With `@serialize("field", output=Payload)`, nested selection instead
+validates against `Payload` before callback execution and applies the normal
+Spec, dataclass, TypedDict, container, tuple, union, and discriminator rules to
+the returned value. `Sensitive` keeps its ordinary successful-output semantics
+and does not turn selection into redaction.
 
-A `Representation` is different: its `output=` schema makes descendants
-structurally knowable. Selection validates against that output schema before
-dump execution and compiles direct selected projection. A field-local
-`@serialize` still takes precedence and keeps that field opaque.
+A `Representation` similarly makes descendants structurally knowable, but its
+contract belongs to every occurrence of one annotated type. A declared field
+serializer belongs only to that field and overrides the original field's
+normal Representation output. Its callback result is validated and projected
+through the serializer's own output schema, so neither Representation dumper
+is applied twice.
 
 Plain output pays no per-field selection branches. A separate filtered
 serializer remains retained for legacy top-level sets. A nested selector is
@@ -331,6 +336,46 @@ operation. `to_dict()` copies supported containers in the returned value;
 `to_json()` recursively requires a JSON-compatible result and applies the same
 standard scalar representations. A hook runs once in `to_dict()` and once in
 `to_json()`—`to_json()` never calls `to_dict()` internally.
+
+Declare `output=` when the callback replacement has a stable contract:
+
+```python
+class AccountSummary(Spec):
+    display_name: str
+    identifier: int
+
+
+class Response(Spec):
+    account: Account
+
+    @serialize("account", output=AccountSummary)
+    def summarize(account: Account) -> AccountSummary:
+        return AccountSummary(
+            display_name=account.display_name,
+            identifier=account.identifier,
+        )
+```
+
+Talea validates the complete callback result before output escapes, then uses
+the normal output compiler for `AccountSummary`. Python and JSON output,
+aliases, constraints, JSON Schema, OpenAPI, and nested include/exclude all
+consume the same `output_schema`. A wrong result raises `SerializationError` at
+the source field location; a callback exception remains a distinct
+`SerializationError` with the existing cause policy. Schema projection,
+introspection, and selector normalization never call the callback.
+
+`output=` accepts the same supported annotation forms as fields, including
+constraints, Specs, dataclasses, TypedDicts, containers, concrete generics,
+recursive named graphs, tagged unions, and `Representation`. The callback must
+return the internal value required by that contract. Omitting `output=` keeps
+the historical opaque semantics exactly; Talea never infers contract truth
+from a return annotation.
+
+This executable example uses a field-local account summary because the view
+belongs to one response field, rather than every occurrence of the account
+type:
+
+{!> ../../../docs_src/tutorials/serializer_outputs.py !}
 
 Serializer method names follow normal Python/MRO identity. A subclass method
 with the same name replaces an inherited serializer in place; an ordinary
@@ -383,6 +428,12 @@ serializer calls. Repeated output does not walk `SpecSchema`, inspect
 annotations, or dispatch through a serializer registry. Serializer metadata is
 class-owned; instance slots and size are unchanged.
 
+A declared serializer binds its callback, result validator, and Python/JSON
+projector into generated code. The callback runs once; complete result
+validation and projection are separate traversals so selected output cannot
+escape before the declaration is proven. Undeclared hooks and Specs without
+hooks do not enter this machinery.
+
 The serialization benchmark reports direct `to_dict()` versus equivalent
 hand-written dictionary construction, nested/container/standard/hook/alias and
 filter cases, JSON projection separately from dumps, full `to_json()`, cold
@@ -401,3 +452,7 @@ application-owned, already-validated values rather than an external transport.
 Recursive Specs and named graphs are supported by separately compiled back
 edges, with deliberate cycle rejection. Applications that serialize mutable or
 otherwise unbounded graphs own output size, deadlines, and process isolation.
+Serializer callbacks are trusted application code: they may mutate source
+state, reenter Talea, block, or amplify a small value into a large graph. Talea
+does not hold compilation locks while calling them, cannot roll back mutation,
+and does not apply input `ResourcePolicy` budgets to callback work or output.

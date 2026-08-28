@@ -17,7 +17,7 @@ are not public.
 | `apply_patch` | Apply present partial fields through `copy.replace()` | `TypeError`, `ValidationError` |
 | `transform` | Declare a pre-validation field transform | declaration `TypeError`; runtime `ValidationError` |
 | `check` | Declare a field or whole-Spec assertion | declaration `TypeError`; runtime `ValidationError` |
-| `serialize` | Declare a field output serializer | declaration `TypeError`; runtime `SerializationError` |
+| `serialize` | Declare a field output serializer, optionally with `output=` result truth | declaration `TypeError`; runtime `SerializationError` |
 | `Alias` | Declare one external field name | `TypeError` and declaration collisions |
 | `Discriminator` | Select a Literal-tagged union branch | tagged-union declaration errors |
 | `Title`, `Description`, `Examples`, `Deprecated` | Documentation metadata | invalid marker `TypeError`/`ValueError` |
@@ -54,7 +54,8 @@ to `Contract(...)` is retained; an explicit per-call input policy replaces it.
 ## Introspection domain
 
 `talea.introspection` exports `FieldInfo`, `DerivationInfo`, `SpecInfo`,
-`ContractInfo`, `RepresentationInfo`, `inspect_spec`, and `inspect_contract`. See
+`ContractInfo`, `RepresentationInfo`, `SerializerInfo`, `inspect_spec`, and
+`inspect_contract`. See
 [Introspection](introspection.md).
 
 ## Error and validation domains
@@ -260,8 +261,10 @@ Specs](../dynamic-utilities.md).
   broaden one input domain. Callback failures become transform errors.
 - `@check(*fields)` asserts one field or a complete field set after structural
   validation. Callback failures become field/spec-check errors.
-- `@serialize(field)` changes that field's output projection. Failures become
-  `SerializationError`.
+- `@serialize(field)` changes that field's output projection and keeps the
+  result opaque. `@serialize(field, output=Payload)` validates and projects the
+  callback result through `Payload`, enabling output schema and nested
+  selection. Failures become `SerializationError`.
 
 Decorator target names, signatures, inheritance, and ordering are validated at
 declaration. Arbitrary callback domains can prevent honest input/output schema

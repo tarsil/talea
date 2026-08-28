@@ -18,13 +18,14 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - open generic Specs, aliases, TypedDicts, and dataclasses must be concretely
   specialized before execution;
 - an arbitrary transform can make input schema projection unknowable;
-- an arbitrary serializer can make output schema projection unknowable;
+- a serializer without declared `output=` makes output schema projection
+  unknowable;
 - nested serialization selection uses canonical field names only; aliases are
   output keys, not selector identities;
 - nested selection has no per-index sequence selection, mapping-key selection,
   wildcards, predicates, path expressions, or query-language callbacks;
-- custom serializer output is a leaf because no replacement-output contract is
-  declared;
+- serializer output without `output=` is a leaf; declared output contracts use
+  the normal structural selection rules;
 - recursive selection requires an explicitly finite selection tree;
 - heterogeneous fixed tuples require one subtree valid for every position;
 - structured `set`/`frozenset` member selection is JSON-only because projected
@@ -37,8 +38,9 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   `Representation` annotates that position; there is no registry, discovery,
   generic Representation factory, custom format namespace, or custom error-code
   namespace;
-- Representation callbacks are synchronous trusted Python and undeclared
-  `@serialize` results remain opaque to nested selection and output schema;
+- Representation and serializer callbacks are synchronous trusted Python;
+  undeclared `@serialize` results remain opaque to nested selection and output
+  schema;
 
 ## Deliberate boundaries and trust model
 

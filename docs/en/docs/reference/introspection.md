@@ -25,6 +25,7 @@ contract_info = inspect_contract(Contract(list[User]))
 | `SpecInfo` | fields, generic identity/arguments, recursion, hooks, serializers, metadata, trust, derivation, reachable representations |
 | `ContractInfo` | annotation, canonical `Schema`, metadata, supported operation names, reachable representations |
 | `RepresentationInfo` | frozen internal/input/output schemas and direction flags, with no callbacks |
+| `SerializerInfo` | serializer name, target field, declared-output flag, and optional output `Schema`, with no callback |
 
 For `Contract(UserDataclass)`, `ContractInfo.schema` is a frozen
 `DataclassSchema`. It exposes exact dataclass type identity, immutable canonical
@@ -48,6 +49,12 @@ reachable represented contract once. Their `RepresentationInfo` values expose
 `internal`, optional `input`/`output`, `has_loader`, and `has_dumper`. They do
 not expose callback objects, callback names, globals, generated source, or
 compiler state; mutation cannot alter runtime truth.
+
+`SpecInfo.serializers` contains one frozen `SerializerInfo` per effective field
+serializer. `has_declared_output` distinguishes legacy opaque hooks from hooks
+whose `output_schema` is canonical truth. Callback objects, globals, code
+objects, generated projectors, and caches are not exposed. Reading this
+information does not execute the callback.
 
 For a directional derived Spec, `DerivationInfo.mode` is `"input"` or
 `"output"`; it is `None` for ordinary pick/omit/partial derivation. Consumers

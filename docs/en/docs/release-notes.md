@@ -4,6 +4,11 @@
 
 ### Added
 
+- Optional declared `output=` contracts for field serializers, with callback
+  result validation, canonical Python/JSON projection, output-only JSON
+  Schema/OpenAPI truth, callback-free introspection, and nested output
+  selection. Serializers without `output=` retain their opaque behavior.
+
 - Reusable annotation-scoped `Representation` contracts for custom domain
   types across strict validation, external Python/JSON input, detached
   Python/JSON output, JSON Schema, OpenAPI, callback-free introspection, and

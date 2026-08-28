@@ -76,7 +76,11 @@ not serialize a complete dictionary and recursively post-filter it.
 
 A field-local `@serialize` hook still overrides ordinary field output. Its
 return structure is undeclared and therefore remains an opaque selection leaf.
-Declared serializer output contracts are a separate future capability.
+Declared field-serializer output contracts are separate: `@serialize(...,
+output=Summary)` overrides one Spec field and projects the callback result
+through `Summary`. `Representation` remains the reusable annotation-position
+owner wherever a domain type occurs. Both reuse canonical Schema validation
+and output compilation, but neither declaration mechanism owns the other.
 
 ## JSON Schema, OpenAPI, and introspection
 

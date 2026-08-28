@@ -123,6 +123,12 @@ emitting a different boundary shape, annotate it with a reusable
 owns an executable Money/Currency payment example plus ULID-like identifiers,
 one-way contracts, nested selection, schemas, and Sensitive failures.
 
+Use `@serialize("field", output=Summary)` when one response field needs a
+stable summary that should not redefine the represented domain type everywhere.
+The [serialization guide](../serialization.md#field-serializers) includes an
+executable account-summary recipe, nested selection, result enforcement, and
+the contrast with an opaque legacy serializer.
+
 ## Represent a recursive document or AST
 
 Choose the simplest recursive owner:
