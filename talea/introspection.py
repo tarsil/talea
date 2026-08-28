@@ -11,7 +11,12 @@ from weakref import WeakKeyDictionary
 from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
-from talea.declaration.models import MISSING_DEFAULT, SerializationHook, SpecDerivation
+from talea.declaration.models import (
+    MISSING_DEFAULT,
+    MISSING_SERIALIZER_OUTPUT,
+    SerializationHook,
+    SpecDerivation,
+)
 from talea.declaration.policies import (
     schema_contains_representation,
     schema_input_directions_are_available,
@@ -42,6 +47,7 @@ __all__ = [
     "DerivationInfo",
     "FieldInfo",
     "RepresentationInfo",
+    "SerializerInfo",
     "SpecInfo",
     "inspect_contract",
     "inspect_spec",
@@ -118,6 +124,7 @@ class SpecInfo:
     derivation: DerivationInfo | None = None
     operations: tuple[Operation, ...] = _OPERATIONS
     representations: tuple[RepresentationInfo, ...] = ()
+    serializers: tuple[SerializerInfo, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +153,16 @@ class RepresentationInfo:
     output: Schema | None
     has_loader: bool
     has_dumper: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SerializerInfo:
+    """Describe one field serializer without exposing its callback."""
+
+    name: str
+    field: str
+    has_declared_output: bool
+    output_schema: Schema | None
 
 
 def inspect_spec(spec: type[object]) -> SpecInfo:
@@ -209,6 +226,7 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                 _derivation_info(artifacts.schema.derivation),
                 _schema_operations(tuple(field.schema for field in artifacts.schema.fields)),
                 _representation_infos(tuple(field.schema for field in artifacts.schema.fields)),
+                tuple(_serializer_info(serializer) for serializer in artifacts.schema.serializers),
             )
             _SPEC_INFO_CACHE[spec] = cached
     return cached
@@ -394,6 +412,7 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
         )
     hooks = tuple(hook for schema in declaration.inherited_schemas for hook in schema.hooks)
     serializers = tuple(serializer for schema in declaration.inherited_schemas for serializer in schema.serializers)
+    effective_serializers = (*serializers, *cast(tuple[SerializationHook, ...], declaration.declared_serializers))
     spec_metadata = EMPTY_METADATA
     for schema in reversed(declaration.inherited_schemas):
         spec_metadata = spec_metadata.merged(schema.metadata)
@@ -407,14 +426,23 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
         None,
         False,
         tuple(hook.name for hook in (*hooks, *declaration.declared_hooks)),
-        tuple(
-            serializer.name
-            for serializer in (*serializers, *cast(tuple[SerializationHook, ...], declaration.declared_serializers))
-        ),
+        tuple(serializer.name for serializer in effective_serializers),
         spec_metadata.title,
         spec_metadata.description,
         spec_metadata.examples or (),
         bool(spec_metadata.deprecated),
+        serializers=tuple(_serializer_info(serializer) for serializer in effective_serializers),
+    )
+
+
+def _serializer_info(serializer: SerializationHook) -> SerializerInfo:
+    """Project safe serializer declaration truth without retaining execution."""
+
+    return SerializerInfo(
+        serializer.name,
+        serializer.field,
+        serializer.output_schema is not None or serializer.output_annotation is not MISSING_SERIALIZER_OUTPUT,
+        serializer.output_schema,
     )
 
 

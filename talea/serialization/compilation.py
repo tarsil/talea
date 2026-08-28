@@ -6,8 +6,15 @@ from typing import cast
 
 from talea.codegen import _GeneratedNames
 from talea.declaration.models import SerializationHook, SpecField, SpecSchema
-from talea.serialization.emission import OutputMode, _ValueProjectionCompiler, project_hook_value
+from talea.declaration.policies import schema_contains_sensitive_metadata
+from talea.serialization.emission import (
+    OutputMode,
+    _ValueProjectionCompiler,
+    project_declared_hook_value,
+    project_hook_value,
+)
 from talea.serialization.selection import _Selection
+from talea.validation import compile_validator
 
 type SpecSerializer = Callable[[object], dict[str, object]]
 type FilteredSpecSerializer = Callable[
@@ -183,6 +190,31 @@ class _SerializationCompiler:
                 exclude=exclude,
                 exclude_none=exclude_none,
             )
+        if hook.output_schema is not None:
+            sensitive_output = bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(hook.output_schema)
+            project = self._bind(names, namespace, "project_declared_hook", project_declared_hook_value)
+            function = self._bind(names, namespace, "serialization_hook", hook.function)
+            hook_name = self._bind(names, namespace, "serialization_hook_name", hook.name)
+            validator = self._bind(
+                names,
+                namespace,
+                "serialization_output_validator",
+                compile_validator(hook.output_schema, sensitive=sensitive_output),
+            )
+            projector = self._bind(
+                names,
+                namespace,
+                "serialization_output_projector",
+                _ValueProjectionCompiler(self.mode, self.by_alias).compile(
+                    hook.output_schema,
+                    sensitive=sensitive_output,
+                    include=include,
+                    exclude=exclude,
+                    exclude_none=exclude_none,
+                ),
+            )
+            sensitive = ", True" if sensitive_output else ""
+            return f"{project}({function}, {hook_name}, {validator}, {projector}, {value}, {location}{sensitive})"
         projector = self._bind(names, namespace, "project_hook", project_hook_value)
         function = self._bind(names, namespace, "serialization_hook", hook.function)
         sensitive = ", True" if field.metadata.sensitive else ""

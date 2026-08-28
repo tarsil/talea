@@ -325,6 +325,28 @@ class Serialized(Spec):
 assert_type(Serialized.output(1), str)
 
 
+class DeclaredSerialized(Spec):
+    value: int
+
+    @serialize("value", output=str)
+    def output(value: int) -> str:
+        return str(value)
+
+
+assert_type(DeclaredSerialized.output(1), str)
+
+
+class SerializedBox[T](Spec):
+    value: T
+
+    @serialize("value", output=T)
+    def output(value: T) -> T:
+        return value
+
+
+assert_type(SerializedBox[int].output(1), int)
+
+
 class Person(Spec):
     name: str
     active: bool = True

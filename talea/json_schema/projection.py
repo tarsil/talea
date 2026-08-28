@@ -15,7 +15,7 @@ from typing import Literal, assert_never, cast
 from uuid import UUID
 
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
-from talea.declaration.models import MISSING_DEFAULT, SpecField, SpecSchema
+from talea.declaration.models import MISSING_DEFAULT, SerializationHook, SpecField, SpecSchema
 from talea.declaration.policies import schema_contains_sensitive_metadata
 from talea.json.representations import standard_json_representation
 from talea.metadata import DeclarationMetadata, ExampleValue
@@ -409,12 +409,18 @@ class _StandardsProjector:
                     f"input schema for Spec {qualname!r} is unknowable because transform {transforms[0]!r} "
                     "does not declare its accepted domain"
                 )
-        elif schema.serializers:
+        elif undeclared := next(
+            (serializer for serializer in schema.serializers if serializer.output_schema is None),
+            None,
+        ):
             raise SchemaProjectionError(
                 f"output schema for Spec {qualname!r} is unknowable because serializer "
-                f"{schema.serializers[0].name!r} does not declare its return contract"
+                f"{undeclared.name!r} does not declare its return contract"
             )
-        properties = {field.external_name: self._spec_field(field) for field in schema.fields}
+        serializer_by_field = {serializer.field: serializer for serializer in schema.serializers}
+        properties = {
+            field.external_name: self._spec_field(field, serializer_by_field.get(field.name)) for field in schema.fields
+        }
         projected: dict[str, object] = {
             "type": "object",
             "properties": properties,
@@ -429,11 +435,19 @@ class _StandardsProjector:
         self._apply_metadata(projected, schema.metadata)
         return projected
 
-    def _spec_field(self, field: SpecField) -> dict[str, object]:
-        projected = self._project(field.schema)
+    def _spec_field(
+        self,
+        field: SpecField,
+        serializer: SerializationHook | None = None,
+    ) -> dict[str, object]:
+        output_schema = None if serializer is None else serializer.output_schema
+        projected = self._project(
+            output_schema if self._mode == "output" and output_schema is not None else field.schema
+        )
         self._apply_metadata(projected, field.metadata)
         if (
-            field.default is not MISSING_DEFAULT
+            (self._mode == "input" or serializer is None)
+            and field.default is not MISSING_DEFAULT
             and not field.metadata.sensitive
             and not schema_contains_sensitive_metadata(field.schema)
             and not self._contains_serializer(field.schema)

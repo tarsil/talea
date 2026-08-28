@@ -848,6 +848,38 @@ def project_hook_value(
     return _project_hook_json(replacement, by_alias, location, sensitive)
 
 
+def project_declared_hook_value(
+    function: FunctionType,
+    hook_name: str,
+    validator: Callable[[object], object],
+    projector: ValueProjector,
+    value: object,
+    location: tuple[object, ...],
+    sensitive: bool = False,
+) -> object:
+    """Run one field serializer once and enforce its declared result schema."""
+
+    try:
+        replacement = function(value)
+    except Exception as error:
+        failure = SerializationError(
+            f"serialization hook {hook_name!r} failed",
+            location,
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
+    try:
+        validator(replacement)
+    except ValidationError as error:
+        failure = SerializationError(
+            f"serialization hook {hook_name!r} returned a value outside its declared output contract",
+            location,
+            sensitive=sensitive,
+        )
+        raise failure from (None if sensitive else error)
+    return projector(replacement, location)
+
+
 def _copy_hook_python(
     value: object,
     by_alias: bool,
