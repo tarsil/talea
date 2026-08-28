@@ -83,6 +83,11 @@ assert_type(User.json_schema(mode="output"), dict[str, object])
 assert_type(User.openapi_schema(), dict[str, object])
 assert_type(user.to_dict(), dict[str, object])
 assert_type(user.to_dict(include={"id"}, exclude_none=True), dict[str, object])
+assert_type(
+    user.to_dict(include={"id": True, "tags": {"unused": True}}),
+    dict[str, object],
+)
+assert_type(user.to_dict(exclude=frozenset({"active"})), dict[str, object])
 assert_type(user.to_json(), str)
 assert_type(replace(user, name="Grace"), User)
 assert_type(inspect_spec(User), SpecInfo)

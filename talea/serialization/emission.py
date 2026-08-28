@@ -15,7 +15,7 @@ from ipaddress import (
 from math import isfinite
 from pathlib import PurePath
 from types import FunctionType
-from typing import assert_never, cast
+from typing import Protocol, assert_never, cast
 from uuid import UUID
 
 from talea.codegen import _GeneratedNames
@@ -47,6 +47,7 @@ from talea.serialization.references import (
     _NamedOutputReference,
     _NamedOutputRoot,
 )
+from talea.serialization.selection import _Selection
 from talea.tagged.dispatch import nominal_dispatch
 from talea.validation import ValidationError, compile_validator
 from talea.validation.failure_contracts import schema_order_key
@@ -195,7 +196,15 @@ class _ValueProjectionCompiler:
         self.by_alias = by_alias
         self.sensitive = False
 
-    def compile(self, schema: Schema, *, sensitive: bool = False) -> FunctionType:
+    def compile(
+        self,
+        schema: Schema,
+        *,
+        sensitive: bool = False,
+        include: _Selection | None = None,
+        exclude: _Selection | None = None,
+        exclude_none: bool = False,
+    ) -> FunctionType:
         """Compile one schema-specialized ``(value, location)`` projector."""
 
         names = _GeneratedNames(("value", "location"))
@@ -207,6 +216,9 @@ class _ValueProjectionCompiler:
             names,
             namespace,
             sensitive=sensitive,
+            include=include,
+            exclude=exclude,
+            exclude_none=exclude_none,
         )
         source = f"def project(value, location):\n    return {expression}"
         exec(compile(source, f"<talea {self.mode} value serialization>", "exec"), namespace)
@@ -221,14 +233,35 @@ class _ValueProjectionCompiler:
         namespace: dict[str, object],
         *,
         sensitive: bool | None = None,
+        include: _Selection | None = None,
+        exclude: _Selection | None = None,
+        exclude_none: bool = False,
     ) -> str:
         """Return specialized source for one value and its dynamic location."""
 
         if not sensitive or self.sensitive:
-            return self._expression(schema, value, location, names, namespace)
+            return self._expression(
+                schema,
+                value,
+                location,
+                names,
+                namespace,
+                include,
+                exclude,
+                exclude_none,
+            )
         self.sensitive = True
         try:
-            return self._expression(schema, value, location, names, namespace)
+            return self._expression(
+                schema,
+                value,
+                location,
+                names,
+                namespace,
+                include,
+                exclude,
+                exclude_none,
+            )
         finally:
             self.sensitive = False
 
@@ -239,11 +272,23 @@ class _ValueProjectionCompiler:
         location: str,
         names: _GeneratedNames,
         namespace: dict[str, object],
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
     ) -> str:
         """Project one schema while inheriting compile-time sensitivity."""
 
         if isinstance(schema, ConstrainedSchema):
-            return self.expression(schema.schema, value, location, names, namespace)
+            return self.expression(
+                schema.schema,
+                value,
+                location,
+                names,
+                namespace,
+                include=include,
+                exclude=exclude,
+                exclude_none=exclude_none,
+            )
         if isinstance(schema, AliasSchema):
             return self.expression(
                 schema.schema,
@@ -252,8 +297,22 @@ class _ValueProjectionCompiler:
                 names,
                 namespace,
                 sensitive=bool(schema.metadata.sensitive),
+                include=include,
+                exclude=exclude,
+                exclude_none=exclude_none,
             )
         if isinstance(schema, NamedReferenceSchema):
+            if include is not None or exclude is not None or exclude_none:
+                return self.expression(
+                    schema.target,
+                    value,
+                    location,
+                    names,
+                    namespace,
+                    include=include,
+                    exclude=exclude,
+                    exclude_none=exclude_none,
+                )
             projector = self._bind(
                 names,
                 namespace,
@@ -297,27 +356,44 @@ class _ValueProjectionCompiler:
             return f"{converter}({value}, {location}{self._sensitive_argument()})"
         if isinstance(schema, SpecReferenceSchema):
             artifacts = vars(schema.spec_type)["__talea_artifacts__"]
-            serializer = artifacts.outputs.reference_for(
-                artifacts.schema,
-                self.mode,
-                self.by_alias,
-            )
+            if include is None and exclude is None and not exclude_none:
+                serializer = artifacts.outputs.reference_for(
+                    artifacts.schema,
+                    self.mode,
+                    self.by_alias,
+                )
+            else:
+                from talea.serialization.compilation import compile_selected_serialization
+
+                serializer = compile_selected_serialization(
+                    artifacts.schema,
+                    self.mode,
+                    self.by_alias,
+                    include,
+                    exclude,
+                    exclude_none,
+                )
             nested = self._bind(names, namespace, "nested_serializer", serializer)
             project = self._bind(names, namespace, "project_nested", _project_nested)
             return f"{project}({value}, {nested}, {location}{self._sensitive_argument()})"
         if isinstance(schema, DataclassSchema):
-            return self._dataclass_expression(schema, value, location, names, namespace)
+            return self._dataclass_expression(schema, value, location, names, namespace, include, exclude, exclude_none)
         if isinstance(schema, SequenceSchema):
-            return self._sequence_expression(schema, value, location, names, namespace)
+            return self._sequence_expression(schema, value, location, names, namespace, include, exclude, exclude_none)
         if isinstance(schema, MappingSchema):
-            return self._mapping_expression(schema, value, location, names, namespace)
+            return self._mapping_expression(schema, value, location, names, namespace, include, exclude, exclude_none)
         if isinstance(schema, TypedDictSchema):
-            return self._typed_dict_expression(schema, value, location, names, namespace)
+            return self._typed_dict_expression(
+                schema, value, location, names, namespace, include, exclude, exclude_none
+            )
         if isinstance(schema, TaggedUnionSchema):
             projectors = tuple(
                 _ValueProjectionCompiler(self.mode, self.by_alias).compile(
                     branch.schema,
                     sensitive=self.sensitive or schema.sensitive,
+                    include=include,
+                    exclude=exclude,
+                    exclude_none=exclude_none,
                 )
                 for branch in schema.branches
             )
@@ -344,17 +420,25 @@ class _ValueProjectionCompiler:
             )
             return f"{projector}({value}, {location})"
         if isinstance(schema, VariadicTupleSchema):
-            return self._variadic_tuple_expression(schema, value, location, names, namespace)
+            return self._variadic_tuple_expression(
+                schema, value, location, names, namespace, include, exclude, exclude_none
+            )
         if isinstance(schema, FixedTupleSchema):
-            return self._fixed_tuple_expression(schema, value, location, names, namespace)
+            return self._fixed_tuple_expression(
+                schema, value, location, names, namespace, include, exclude, exclude_none
+            )
         if isinstance(schema, UnionSchema):
             options = sorted(schema.options, key=schema_order_key)
+            selected = include is not None or exclude is not None or exclude_none
             branches = tuple(
                 (
                     compile_validator(option, sensitive=True) if self.sensitive else compile_validator(option),
                     _ValueProjectionCompiler(self.mode, self.by_alias).compile(
                         option,
                         sensitive=self.sensitive,
+                        include=include if selected and _schema_accepts_selection(option) else None,
+                        exclude=exclude if selected and _schema_accepts_selection(option) else None,
+                        exclude_none=exclude_none if selected and _schema_accepts_selection(option) else False,
                     ),
                 )
                 for option in options
@@ -375,7 +459,17 @@ class _ValueProjectionCompiler:
         location: str,
         names: _GeneratedNames,
         namespace: dict[str, object],
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
     ) -> str:
+        if (
+            self.mode == "python"
+            and schema.kind != "list"
+            and (include is not None or exclude is not None)
+            and _schema_accepts_selection(schema.item)
+        ):
+            raise ValueError(f"nested selection for {schema.kind} output cannot preserve hashable structural members")
         index = names.allocate("index")
         item = names.allocate("item")
         enumerate_name = self._bind(names, namespace, "enumerate", enumerate)
@@ -385,6 +479,9 @@ class _ValueProjectionCompiler:
             f"(*{location}, {index})",
             names,
             namespace,
+            include=include,
+            exclude=exclude,
+            exclude_none=exclude_none,
         )
         generator = f"({projected} for {index}, {item} in {enumerate_name}({value}))"
         if self.mode == "json" or schema.kind == "list":
@@ -402,6 +499,9 @@ class _ValueProjectionCompiler:
         location: str,
         names: _GeneratedNames,
         namespace: dict[str, object],
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
     ) -> str:
         key = names.allocate("key")
         item = names.allocate("item")
@@ -415,7 +515,16 @@ class _ValueProjectionCompiler:
         else:
             unsupported = self._bind(names, namespace, "unsupported_key", _unsupported_python_key)
             key_expression = f"{unsupported}({key}, {member_location}{self._sensitive_argument()})"
-        item_expression = self.expression(schema.value, item, member_location, names, namespace)
+        item_expression = self.expression(
+            schema.value,
+            item,
+            member_location,
+            names,
+            namespace,
+            include=include,
+            exclude=exclude,
+            exclude_none=exclude_none,
+        )
         return f"{{{key_expression}: {item_expression} for {key}, {item} in {value}.items()}}"
 
     def _typed_dict_expression(
@@ -425,11 +534,14 @@ class _ValueProjectionCompiler:
         location: str,
         names: _GeneratedNames,
         namespace: dict[str, object],
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
     ) -> str:
         """Project present declared keys into a detached dictionary."""
 
         fields = []
-        for field in schema.fields:
+        for field, child_include, child_exclude in _selected_output_fields(schema.fields, include, exclude):
             key = self._bind(names, namespace, "typed_dict_key", field.name)
             projected = self.expression(
                 field.schema,
@@ -438,8 +550,14 @@ class _ValueProjectionCompiler:
                 names,
                 namespace,
                 sensitive=bool(field.metadata.sensitive),
+                include=child_include,
+                exclude=child_exclude,
+                exclude_none=exclude_none and (child_include is not None or child_exclude is not None),
             )
-            fields.append(f"**({{{key}: {projected}}} if {key} in {value} else {{}})")
+            condition = f"{key} in {value}"
+            if exclude_none:
+                condition += f" and {value}[{key}] is not None"
+            fields.append(f"**({{{key}: {projected}}} if {condition} else {{}})")
         return f"{{{', '.join(fields)}}}"
 
     def _dataclass_expression(
@@ -449,11 +567,14 @@ class _ValueProjectionCompiler:
         location: str,
         names: _GeneratedNames,
         namespace: dict[str, object],
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
     ) -> str:
         """Project declared stored fields directly into a detached dictionary."""
 
         entries = []
-        for field in schema.fields:
+        for field, child_include, child_exclude in _selected_output_fields(schema.fields, include, exclude):
             key = field.external_name if self.by_alias else field.name
             key_name = self._bind(names, namespace, "dataclass_key", key)
             projected = self.expression(
@@ -463,8 +584,14 @@ class _ValueProjectionCompiler:
                 names,
                 namespace,
                 sensitive=bool(field.metadata.sensitive),
+                include=child_include,
+                exclude=child_exclude,
+                exclude_none=exclude_none and (child_include is not None or child_exclude is not None),
             )
-            entries.append(f"{key_name}: {projected}")
+            if exclude_none:
+                entries.append(f"**({{{key_name}: {projected}}} if {value}.{field.name} is not None else {{}})")
+            else:
+                entries.append(f"{key_name}: {projected}")
         return f"{{{', '.join(entries)}}}"
 
     def _variadic_tuple_expression(
@@ -474,11 +601,23 @@ class _ValueProjectionCompiler:
         location: str,
         names: _GeneratedNames,
         namespace: dict[str, object],
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
     ) -> str:
         index = names.allocate("index")
         item = names.allocate("item")
         enumerate_name = self._bind(names, namespace, "enumerate", enumerate)
-        projected = self.expression(schema.item, item, f"(*{location}, {index})", names, namespace)
+        projected = self.expression(
+            schema.item,
+            item,
+            f"(*{location}, {index})",
+            names,
+            namespace,
+            include=include,
+            exclude=exclude,
+            exclude_none=exclude_none,
+        )
         generator = f"({projected} for {index}, {item} in {enumerate_name}({value}))"
         constructor = self._bind(
             names, namespace, "list" if self.mode == "json" else "tuple", list if self.mode == "json" else tuple
@@ -492,9 +631,21 @@ class _ValueProjectionCompiler:
         location: str,
         names: _GeneratedNames,
         namespace: dict[str, object],
+        include: _Selection | None,
+        exclude: _Selection | None,
+        exclude_none: bool,
     ) -> str:
         items = tuple(
-            self.expression(item, f"{value}[{index}]", f"(*{location}, {index})", names, namespace)
+            self.expression(
+                item,
+                f"{value}[{index}]",
+                f"(*{location}, {index})",
+                names,
+                namespace,
+                include=include,
+                exclude=exclude,
+                exclude_none=exclude_none,
+            )
             for index, item in enumerate(schema.items)
         )
         if self.mode == "json":
@@ -536,6 +687,64 @@ class _ValueProjectionCompiler:
 
     def _sensitive_argument(self) -> str:
         return ", True" if self.sensitive else ""
+
+
+class _SelectableField(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def schema(self) -> Schema: ...
+
+
+def _selected_output_fields[F: _SelectableField](
+    fields: tuple[F, ...],
+    include: _Selection | None,
+    exclude: _Selection | None,
+) -> tuple[tuple[F, _Selection | None, _Selection | None], ...]:
+    """Resolve nested compile-time field selection for one structural object."""
+
+    include_by_name = None if include is None else dict(include.entries)
+    exclude_by_name = None if exclude is None else dict(exclude.entries)
+    selected = []
+    for field in fields:
+        if include_by_name is not None and field.name not in include_by_name:
+            continue
+        if exclude_by_name is not None and field.name in exclude_by_name and exclude_by_name[field.name] is None:
+            continue
+        child_include = None if include_by_name is None else include_by_name.get(field.name)
+        child_exclude = None if exclude_by_name is None else exclude_by_name.get(field.name)
+        selected.append((field, child_include, child_exclude))
+    return tuple(selected)
+
+
+def _schema_accepts_selection(schema: Schema, active: set[int] | None = None) -> bool:
+    """Return whether one branch has structural descendants for a validated plan."""
+
+    if active is None:
+        active = set()
+    while isinstance(schema, (AliasSchema, ConstrainedSchema)):
+        schema = schema.schema
+    identity = id(schema)
+    if identity in active:
+        return False
+    active.add(identity)
+    try:
+        if isinstance(schema, NamedReferenceSchema):
+            return _schema_accepts_selection(schema.target, active)
+        if isinstance(schema, (SpecReferenceSchema, DataclassSchema, TypedDictSchema, TaggedUnionSchema)):
+            return True
+        if isinstance(schema, (SequenceSchema, VariadicTupleSchema)):
+            return _schema_accepts_selection(schema.item, active)
+        if isinstance(schema, MappingSchema):
+            return _schema_accepts_selection(schema.value, active)
+        if isinstance(schema, FixedTupleSchema):
+            return all(_schema_accepts_selection(item, active) for item in schema.items)
+        if isinstance(schema, UnionSchema):
+            return any(_schema_accepts_selection(option, active) for option in schema.options)
+        return False
+    finally:
+        active.remove(identity)
 
 
 def compile_value_projector(

@@ -1,12 +1,15 @@
 """Implement the public Spec outbound methods at their domain owner."""
 
-from collections.abc import Set
 from typing import Protocol, cast
 
 from talea.declaration.models import SpecSchema
 from talea.serialization.artifacts import _OutputArtifacts
-from talea.serialization.compilation import FilteredSpecSerializer, SpecSerializer
+from talea.serialization.compilation import (
+    FilteredSpecSerializer,
+    SpecSerializer,
+)
 from talea.serialization.json import JsonDumps, encode_json
+from talea.serialization.selection import SerializationSelection, normalize_selection
 
 
 class _SpecOutputOwner(Protocol):
@@ -25,33 +28,12 @@ class _SpecInstance(Protocol):
     def __talea_artifacts__(self) -> _SpecOutputOwner: ...
 
 
-def _normalize_field_selection(
-    selection: Set[str] | None,
-    schema: SpecSchema,
-    parameter: str,
-) -> frozenset[str] | None:
-    """Validate and freeze one dynamic canonical-field selection."""
-
-    if selection is None:
-        return None
-    if not isinstance(selection, Set) or isinstance(selection, (str, bytes)):
-        raise TypeError(f"{parameter} must be a set of canonical field names")
-    normalized = frozenset(selection)
-    if any(type(name) is not str for name in normalized):
-        raise TypeError(f"{parameter} field names must be exact strings")
-    known = frozenset(field.name for field in schema.fields)
-    unknown = normalized - known
-    if unknown:
-        raise ValueError(f"{parameter} contains unknown field {min(unknown)!r}")
-    return normalized
-
-
 def to_dict(
     self: _SpecInstance,
     *,
     by_alias: bool = True,
-    include: Set[str] | None = None,
-    exclude: Set[str] | None = None,
+    include: SerializationSelection | None = None,
+    exclude: SerializationSelection | None = None,
     exclude_none: bool = False,
 ) -> dict[str, object]:
     """Return a detached Python mapping representation of this Spec.
@@ -64,9 +46,11 @@ def to_dict(
     Args:
         by_alias: Use declared external aliases as output keys. This is the
             default so the result feeds the same external input contract.
-        include: Optional set of canonical Python field names to retain.
-        exclude: Optional set of canonical Python field names to omit;
-            exclusion wins when a name appears in both selections.
+        include: Optional canonical-name set or nested mapping to retain.
+            Mapping values are ``True`` for a complete field or another
+            selection for structural descendants.
+        exclude: Optional canonical-name set or nested mapping to omit;
+            exclusion wins recursively.
         exclude_none: Omit selected fields whose current value is ``None``.
 
     Returns:
@@ -111,13 +95,30 @@ def to_dict(
         return plain(self)
     if type(by_alias) is not bool or type(exclude_none) is not bool:
         raise TypeError("by_alias and exclude_none must be bool values")
-    normalized_include = _normalize_field_selection(include, artifacts.schema, "include")
-    normalized_exclude = _normalize_field_selection(exclude, artifacts.schema, "exclude")
+    normalized_include = normalize_selection(include, artifacts.schema, "include")
+    normalized_exclude = normalize_selection(exclude, artifacts.schema, "exclude")
+    if (normalized_include is not None and normalized_include.descends) or (
+        normalized_exclude is not None and normalized_exclude.descends
+    ):
+        serializer = artifacts.outputs.selected_for(
+            artifacts.schema,
+            "python",
+            by_alias,
+            normalized_include,
+            normalized_exclude,
+            exclude_none,
+        )
+        return serializer(self)
     serializer = cast(
         FilteredSpecSerializer,
         artifacts.outputs.output_for(artifacts.schema, "python", by_alias, True),
     )
-    return serializer(self, normalized_include, normalized_exclude, exclude_none)
+    return serializer(
+        self,
+        None if normalized_include is None else normalized_include.fields(),
+        None if normalized_exclude is None else normalized_exclude.fields(),
+        exclude_none,
+    )
 
 
 def to_json(
@@ -125,8 +126,8 @@ def to_json(
     *,
     dumps: JsonDumps | None = None,
     by_alias: bool = True,
-    include: Set[str] | None = None,
-    exclude: Set[str] | None = None,
+    include: SerializationSelection | None = None,
+    exclude: SerializationSelection | None = None,
     exclude_none: bool = False,
 ) -> str:
     """Project this Spec to strict JSON and return UTF-8 text.
@@ -141,8 +142,8 @@ def to_json(
             may return ``str``, UTF-8 ``bytes``, or UTF-8 ``bytearray``; Talea
             normalizes every successful result to ``str``.
         by_alias: Use declared external aliases as object keys.
-        include: Optional set of canonical Python field names to retain.
-        exclude: Optional set of canonical Python field names to omit.
+        include: Optional canonical-name set or nested mapping to retain.
+        exclude: Optional canonical-name set or nested mapping to omit.
         exclude_none: Omit selected fields whose value is ``None``.
 
     Returns:
@@ -173,11 +174,29 @@ def to_json(
         return encode_json(plain(self), dumps, sensitive=artifacts.contains_sensitive)
     if type(by_alias) is not bool or type(exclude_none) is not bool:
         raise TypeError("by_alias and exclude_none must be bool values")
-    normalized_include = _normalize_field_selection(include, artifacts.schema, "include")
-    normalized_exclude = _normalize_field_selection(exclude, artifacts.schema, "exclude")
-    serializer = cast(
-        FilteredSpecSerializer,
-        artifacts.outputs.output_for(artifacts.schema, "json", by_alias, True),
-    )
-    projected = serializer(self, normalized_include, normalized_exclude, exclude_none)
+    normalized_include = normalize_selection(include, artifacts.schema, "include")
+    normalized_exclude = normalize_selection(exclude, artifacts.schema, "exclude")
+    if (normalized_include is not None and normalized_include.descends) or (
+        normalized_exclude is not None and normalized_exclude.descends
+    ):
+        selected = artifacts.outputs.selected_for(
+            artifacts.schema,
+            "json",
+            by_alias,
+            normalized_include,
+            normalized_exclude,
+            exclude_none,
+        )
+        projected = selected(self)
+    else:
+        serializer = cast(
+            FilteredSpecSerializer,
+            artifacts.outputs.output_for(artifacts.schema, "json", by_alias, True),
+        )
+        projected = serializer(
+            self,
+            None if normalized_include is None else normalized_include.fields(),
+            None if normalized_exclude is None else normalized_exclude.fields(),
+            exclude_none,
+        )
     return encode_json(projected, dumps, sensitive=artifacts.contains_sensitive)
