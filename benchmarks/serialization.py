@@ -22,7 +22,15 @@ from types import FunctionType, MethodType
 from typing import Annotated, Literal, TypedDict, cast
 from uuid import UUID
 
-from talea import Alias, Discriminator, Representation, Sensitive, SerializationError, Spec, serialize
+from talea import (
+    Alias,
+    Discriminator,
+    Representation,
+    Sensitive,
+    SerializationError,
+    Spec,
+    serialize,
+)
 from talea.serialization.compilation import compile_selected_serialization
 from talea.serialization.json import _default_dumps
 from talea.serialization.selection import SerializationSelection, normalize_selection

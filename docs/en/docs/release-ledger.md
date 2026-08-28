@@ -1,10 +1,12 @@
 # Version, maturity, and support
 
-Talea is currently version 0.2.0 and deliberately remains in the 0.x release
+Talea is currently version 0.3.0 and deliberately remains in the 0.x release
 series. The implemented runtime is substantial, but compatibility, deprecation
 windows, long-term support, and formal vulnerability-reporting governance are
 not yet frozen. The 0.x series is an ongoing product stage, not an indication
 that a 1.0 compatibility freeze is imminent.
+Meaningful 0.4.x, 0.5.x, 0.6.x, and later 0.x releases are expected over the
+coming years; there is no declared 1.0 target date.
 
 ## Implemented product surface
 
@@ -14,11 +16,10 @@ types, stdlib dataclass Contracts, TypedDict and PEP 695 aliases, tagged unions,
 serialization, structured errors, metadata and redaction, presence-aware
 derived/PATCH Specs, explicit input/output derived views, introspection, dynamic creation, JSON Schema Draft 2020-12,
 OpenAPI 3.1-compatible projection, and finite external-input resource policies.
-The current unreleased surface also includes root-public `Representation`
-contracts for explicit custom domain types across directional input/output,
-standards projection, introspection, and nested selection, plus optional
-declared output contracts on field serializers. The package version remains
-0.2.0 until the next release convergence.
+Talea 0.3.0 also includes root-public `Representation` contracts for explicit
+custom domain types across directional input/output, standards projection,
+introspection, and nested selection, plus optional declared output contracts on
+field serializers.
 
 ## Deliberate boundaries
 

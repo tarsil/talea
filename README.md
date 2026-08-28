@@ -158,6 +158,10 @@ Talea currently provides:
 - canonical discriminator-based union dispatch and OpenAPI discriminator maps;
 - Python and JSON serialization with explicit per-call codec boundaries and
   finite nested include/exclude selection;
+- reusable annotation-scoped `Representation` contracts for explicit custom
+  domain input/output across runtime, schemas, introspection, and selection;
+- optional declared `output=` contracts for field serializers, while legacy
+  undeclared serializer results remain opaque;
 - JSON Schema Draft 2020-12 and OpenAPI 3.1-compatible Schema Objects;
 - public immutable introspection and runtime `create_spec()` declarations;
 - compile-once specialized pure-Python execution with permanent benchmark

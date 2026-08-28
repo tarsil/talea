@@ -104,7 +104,7 @@ generated source, lock, or cache.
 | constraints | predicates on the schema where they are declared |
 | `transform` | field-local construction preprocessing; its accepted input schema is undeclared |
 | `check` | field or Spec invariant checks after strict validation |
-| `@serialize` | field-local output replacement whose structure is currently opaque |
+| `@serialize` | field-local output replacement; opaque without `output=`, executable declared truth with it |
 | `NewType` | static/named identity over an existing supported runtime contract |
 | dataclass support | structural boundaries for the dataclass itself |
 | custom `loads`/`dumps` | JSON syntax codec selection, not domain conversion |
@@ -114,6 +114,22 @@ Output constraints belong inside `output=`, for example
 `output=Annotated[str, Pattern(...)]`. Outer constraints still apply to the
 internal schema when meaningful. Metadata such as `Title`, `Alias`, and
 `Sensitive` retains its existing owner; `Representation` does not duplicate it.
+
+## Performance model
+
+Representation adds work only at annotated positions. Warm generated input
+binds the loader and strict result validator directly; warm output binds the
+dumper, declared result validator, and mode-specific projector directly. It
+does not walk Schema metadata, acquire a lock, or consult a registry. Strict
+validation uses only the internal schema and never binds or calls the loader.
+
+The permanent `benchmark_representation` task measures strict validation,
+scalar and structured Python/JSON input and output, containers, Spec,
+dataclass, TypedDict, generics, recursion, nested selection, failures,
+allocations, callback retention, generated call sites, and unrelated
+`Contract(int)`/ordinary-Spec canaries. Retain a `Contract` when it is reused;
+creating one inside every request turns schema resolution and compilation into
+hot-path work.
 
 ## Trust, security, and round trips
 

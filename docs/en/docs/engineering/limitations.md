@@ -6,7 +6,10 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 
 - custom transforms, checks, serializers, and codecs are synchronous trusted
   callables; Talea does not sandbox them;
-- callable-signature and return-value validation are not implemented;
+- full callable argument/return annotation validation is not implemented;
+  callback shape is checked where declared, and Representation plus
+  `@serialize(..., output=...)` results are runtime-validated against their
+  explicit contracts;
 - NamedTuple, attrs, ordinary-class, ORM-object, and settings-source mapping
   are not part of core;
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
@@ -41,6 +44,9 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - Representation and serializer callbacks are synchronous trusted Python;
   undeclared `@serialize` results remain opaque to nested selection and output
   schema;
+- Python 3.14 has no `TypeForm`, so `Representation.input` and `.output` are
+  typed as `object` while declaration-time resolution still rejects unsupported
+  forms;
 
 ## Deliberate boundaries and trust model
 
@@ -54,6 +60,11 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - a representation dumper may mutate its internal value, reenter Talea, log
   secrets, or amplify a small value into large output; Talea calls it once but
   cannot roll back or resource-govern that application work;
+- callbacks have no timeout or cancellation boundary, and callback CPU,
+  allocation, I/O, and output size remain application-owned;
+- Talea validates each declared direction but does not guarantee
+  `dump(load(value)) == value`, `load(dump(value)) == value`, or byte-for-byte
+  round trips;
 - `Sensitive` governs Talea-owned failures but cannot alter a dataclass's own
   generated repr; applications must use `field(repr=False)` where needed;
 - resource policies govern external input, not strict trusted construction,
