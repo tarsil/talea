@@ -245,13 +245,6 @@ def test_method_composes_with_dataclass_and_typed_dict_contracts() -> None:
 
 
 def test_unsupported_method_execution_forms_remain_rejected() -> None:
-    with pytest.raises(TypeError, match="async functions"):
-
-        class AsyncService:
-            @validate_call
-            async def execute(self, value: int) -> int:
-                return value
-
     with pytest.raises(TypeError, match="generator functions"):
 
         class GeneratorService:

@@ -164,6 +164,57 @@ class TypedService:
         return value
 
 
+@validate_call
+async def typed_async_complete(
+    identifier: int,
+    /,
+    value: str,
+    *items: int,
+    flag: bool,
+    **metadata: str,
+) -> tuple[int, str]:
+    del items, flag, metadata
+    return identifier, value
+
+
+@validate_call
+async def typed_async_unpack(**kwargs: Unpack[CallableOptions]) -> CallableOptions:
+    return kwargs
+
+
+class TypedAsyncService:
+    @validate_call
+    async def method(self, value: int, /, *, enabled: bool = True) -> int:
+        return value if enabled else 0
+
+    @validate_call
+    @classmethod
+    async def create(cls, value: int) -> int:
+        del cls
+        return value
+
+    @validate_call
+    @staticmethod
+    async def normalize(value: int) -> int:
+        return value
+
+
+async def check_invalid_async_calls() -> None:
+    await typed_async_complete("1", "value", flag=True)  # ty: ignore[invalid-argument-type]
+    await typed_async_complete(identifier=1, value="value", flag=True)  # ty: ignore[missing-argument, invalid-argument-type]
+    await typed_async_complete(1, "value")  # ty: ignore[missing-argument]
+    await typed_async_complete(1, "value", "bad", flag=True)  # ty: ignore[invalid-argument-type]
+    await typed_async_complete(1, "value", flag=True, source=1)  # ty: ignore[invalid-argument-type]
+    await typed_async_unpack()  # ty: ignore[missing-argument]
+    await typed_async_unpack(timeout="1")  # ty: ignore[invalid-argument-type]
+    service = TypedAsyncService()
+    await service.method("1")  # ty: ignore[invalid-argument-type]
+    await TypedAsyncService.create("1")  # ty: ignore[invalid-argument-type]
+    await TypedAsyncService.normalize("1")  # ty: ignore[invalid-argument-type]
+    wrong_result: str = await typed_async_complete(1, "value", flag=True)  # ty: ignore[invalid-assignment]
+    del wrong_result
+
+
 typed_complete(identifier=1, value="value", flag=True)  # ty: ignore[missing-argument, invalid-argument-type]
 typed_complete(1, "value", "bad", flag=True)  # ty: ignore[invalid-argument-type]
 typed_complete(1, "value")  # ty: ignore[missing-argument]

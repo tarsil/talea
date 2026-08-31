@@ -1,4 +1,4 @@
-"""Declare strict synchronous callable boundaries from Python annotations."""
+"""Declare strict synchronous and asynchronous callable boundaries."""
 
 import inspect
 from annotationlib import Format, get_annotations
@@ -6,7 +6,7 @@ from collections.abc import Callable
 from types import FrameType, FunctionType, MethodType, SimpleNamespace
 from typing import ParamSpec, TypeVar, Unpack, cast, get_args, get_origin, get_type_hints
 
-from talea.callables.compilation import compile_sync_wrapper
+from talea.callables.compilation import compile_async_wrapper, compile_sync_wrapper
 from talea.callables.models import (
     MISSING_DEFAULT,
     CallableKind,
@@ -27,7 +27,7 @@ _CONTRACT_ATTRIBUTE = "__talea_callable_contract__"
 
 
 def validate_call(function: Callable[P, R], /) -> Callable[P, R]:
-    """Compile strict argument and return validation for a synchronous function.
+    """Compile strict argument and return validation for a Python function.
 
     Every user-value parameter and the return value must have a Talea-supported
     annotation. Positional-only, positional-or-keyword, keyword-only, variadic
@@ -37,14 +37,17 @@ def validate_call(function: Callable[P, R], /) -> Callable[P, R]:
     raise :class:`~talea.ValidationError` at the parameter or ``return``
     location. Validation never coerces, serializes, or applies external input
     policy, and the original function runs exactly once after arguments pass.
+    Async wrappers validate inside their coroutine, await the original exactly
+    once, and validate its awaited result.
 
     The returned callable has the same static ``ParamSpec`` and return type as
     ``function``. Standard wrapper metadata and ``__wrapped__`` preserve normal
     Python inspection. Decorating an existing Talea wrapper returns it unchanged.
 
     Args:
-        function: A synchronous Python function, or a ``classmethod`` or
-            ``staticmethod`` descriptor when ``validate_call`` is outermost.
+        function: A synchronous or asynchronous Python function, or a
+            ``classmethod`` or ``staticmethod`` descriptor when
+            ``validate_call`` is outermost.
 
     Returns:
         A generated same-signature wrapper retaining one immutable contract.
@@ -212,22 +215,24 @@ def _decorate_function(
         raise TypeError(f"{function.__qualname__} requires a return annotation")
     return_annotation = annotations["return"]
     return_schema = resolve_annotation(return_annotation)
+    is_async = inspect.iscoroutinefunction(function)
     contract = _CallableSchema(
         function,
         signature,
         parameters,
         return_schema,
         bool(annotation_metadata(return_annotation).sensitive),
-        False,
+        is_async,
         callable_kind,
     )
-    wrapper = cast(FunctionType, compile_sync_wrapper(contract))
+    compiler = compile_async_wrapper if is_async else compile_sync_wrapper
+    wrapper = cast(FunctionType, compiler(contract))
     setattr(wrapper, _CONTRACT_ATTRIBUTE, contract)
     return wrapper
 
 
 def _validate_function(function: object) -> None:
-    """Reject targets whose execution semantics are outside the sync kernel."""
+    """Reject targets whose execution semantics are outside callable kernels."""
 
     function_type = type(function)
     if function_type is not FunctionType:
@@ -236,8 +241,6 @@ def _validate_function(function: object) -> None:
         raise TypeError("validate_call does not support async generator functions")
     if inspect.isgeneratorfunction(function):
         raise TypeError("validate_call does not support generator functions")
-    if inspect.iscoroutinefunction(function):
-        raise TypeError("validate_call does not yet support async functions")
     if getattr(function, "__type_params__", ()):
         raise TypeError("validate_call requires concrete runtime annotations; generic functions are not supported")
 

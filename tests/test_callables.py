@@ -377,9 +377,6 @@ def test_missing_parameter_annotation_is_rejected() -> None:
 
 
 def test_unsupported_targets_are_rejected_explicitly() -> None:
-    async def coroutine(value: int) -> int:
-        return value
-
     def generator(value: int) -> int:
         yield value  # type: ignore[misc]
 
@@ -401,7 +398,6 @@ def test_unsupported_targets_are_rejected_explicitly() -> None:
             return value
 
     targets = (
-        (coroutine, "async functions"),
         (generator, "generator functions"),
         (async_generator, "async generator functions"),
         (CallableObject(), "ordinary Python function"),

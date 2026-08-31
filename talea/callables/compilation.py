@@ -1,4 +1,4 @@
-"""Compile canonical callable contracts into strict synchronous wrappers."""
+"""Compile canonical callable contracts into strict sync and async wrappers."""
 
 from collections.abc import Callable
 from functools import update_wrapper
@@ -12,7 +12,19 @@ from talea.validation.emission import _ValidationEmitter
 
 
 def compile_sync_wrapper(contract: _CallableSchema) -> Callable[..., object]:
-    """Compile one native-binding wrapper with inline strict validation.
+    """Compile one synchronous native-binding wrapper."""
+
+    return _compile_wrapper(contract, asynchronous=False)
+
+
+def compile_async_wrapper(contract: _CallableSchema) -> Callable[..., object]:
+    """Compile one coroutine-function native-binding wrapper."""
+
+    return _compile_wrapper(contract, asynchronous=True)
+
+
+def _compile_wrapper(contract: _CallableSchema, *, asynchronous: bool) -> Callable[..., object]:
+    """Emit one native-binding wrapper with inline strict validation.
 
     Parameter names are Python identifiers supplied by ``inspect.Signature``;
     every other runtime object, including defaults and error-location labels,
@@ -32,7 +44,8 @@ def compile_sync_wrapper(contract: _CallableSchema) -> Callable[..., object]:
             default_names[parameter.name] = default_name
 
     declaration = _signature_declaration(contract, default_names)
-    lines = [f"def {wrapper_name}({declaration}):"]
+    declaration_prefix = "async def" if asynchronous else "def"
+    lines = [f"{declaration_prefix} {wrapper_name}({declaration}):"]
     emitter = _ValidationEmitter(
         lines,
         names,
@@ -82,7 +95,8 @@ def compile_sync_wrapper(contract: _CallableSchema) -> Callable[..., object]:
 
     original = emitter.bind("original_callable", contract.function)
     result = emitter.variable("result")
-    emitter.emit(1, f"{result} = {original}({_call_arguments(contract)})")
+    await_prefix = "await " if asynchronous else ""
+    emitter.emit(1, f"{result} = {await_prefix}{original}({_call_arguments(contract)})")
     return_location = emitter.bind("return_location", "return")
     emitter.emit_schema(
         contract.return_schema,
