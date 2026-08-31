@@ -1,18 +1,22 @@
-"""Measure compiled strict callable execution, failures, and retained artifacts."""
+"""Measure compiled strict sync/async callable execution and retained artifacts."""
 
+import asyncio
 import dis
 import gc
 import inspect
+import platform
 import sys
 import tracemalloc
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import partial
 from statistics import median
+from time import perf_counter_ns
 from timeit import Timer
 from typing import Annotated, NotRequired, TypedDict, Unpack
 
 from talea import Ge, Representation, Spec, ValidationError, validate_call
+from talea.introspection import inspect_callable
 
 _REPEATS = 5
 _HOT_ITERATIONS = 100_000
@@ -20,8 +24,12 @@ _FAILURE_ITERATIONS = 10_000
 _COLD_ITERATIONS = 500
 _ALLOCATION_SAMPLES = 1_000
 _RETAINED_WRAPPERS = 200
+_ASYNC_HOT_ITERATIONS = 20_000
+_ASYNC_FAILURE_ITERATIONS = 5_000
+_ASYNC_ALLOCATION_SAMPLES = 500
 
 type Operation = Callable[[], object]
+type AsyncOperation = Callable[[], Awaitable[object]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +68,39 @@ def measure_allocations(operation: Operation) -> AllocationMeasurement:
         before, _ = tracemalloc.get_traced_memory()
         tracemalloc.reset_peak()
         operation()
+        current, peak = tracemalloc.get_traced_memory()
+        samples.append((current - before, peak - before))
+    tracemalloc.stop()
+    return AllocationMeasurement(
+        min(retained for retained, _ in samples),
+        min(peak for _, peak in samples),
+    )
+
+
+async def measure_async(operation: AsyncOperation, iterations: int = _ASYNC_HOT_ITERATIONS) -> Measurement:
+    """Measure awaited operations inside the caller's already-running loop."""
+
+    await operation()
+    samples: list[float] = []
+    for _ in range(_REPEATS):
+        started = perf_counter_ns()
+        for _ in range(iterations):
+            await operation()
+        samples.append((perf_counter_ns() - started) / iterations)
+    return Measurement(min(samples), median(samples))
+
+
+async def measure_async_allocations(operation: AsyncOperation) -> AllocationMeasurement:
+    """Measure traced allocation deltas for awaited operations in one loop."""
+
+    await operation()
+    gc.collect()
+    tracemalloc.start()
+    samples: list[tuple[int, int]] = []
+    for _ in range(_ASYNC_ALLOCATION_SAMPLES):
+        before, _ = tracemalloc.get_traced_memory()
+        tracemalloc.reset_peak()
+        await operation()
         current, peak = tracemalloc.get_traced_memory()
         samples.append((current - before, peak - before))
     tracemalloc.stop()
@@ -806,6 +847,371 @@ def benchmark_compilation_memory_and_bytecode() -> None:
         print(f"bytecode {name:20} instructions={len(instructions):3} calls={calls:2} loops={loops}")
 
 
+async def direct_async_one(value: int) -> int:
+    """Return one integer through the direct async lower bound."""
+
+    return value
+
+
+async def handwritten_async_one(value: int) -> int:
+    """Apply equivalent handwritten strict async boundary semantics."""
+
+    if type(value) is not int:
+        raise TypeError
+    result = await direct_async_one(value)
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+async def talea_async_one(value: int) -> int:
+    """Return one integer through Talea's compiled async boundary."""
+
+    return value
+
+
+async def direct_async_two(left: int, right: int) -> int:
+    """Add two integers through the direct async lower bound."""
+
+    return left + right
+
+
+async def handwritten_async_two(left: int, right: int) -> int:
+    """Apply equivalent handwritten two-argument async validation."""
+
+    if type(left) is not int or type(right) is not int:
+        raise TypeError
+    result = await direct_async_two(left, right)
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+async def talea_async_two(left: int, right: int) -> int:
+    """Add two integers through Talea's compiled async boundary."""
+
+    return left + right
+
+
+async def direct_async_five(a: int, b: int, c: int, d: int, e: int) -> int:
+    """Sum five integers through the direct async lower bound."""
+
+    return a + b + c + d + e
+
+
+async def handwritten_async_five(a: int, b: int, c: int, d: int, e: int) -> int:
+    """Apply equivalent handwritten five-argument async validation."""
+
+    if any(type(value) is not int for value in (a, b, c, d, e)):
+        raise TypeError
+    result = await direct_async_five(a, b, c, d, e)
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+async def talea_async_five(a: int, b: int, c: int, d: int, e: int) -> int:
+    """Sum five integers through Talea's compiled async boundary."""
+
+    return a + b + c + d + e
+
+
+@validate_call
+async def talea_async_keyword(*, value: int) -> int:
+    """Measure async keyword-only binding."""
+
+    return value
+
+
+@validate_call
+async def talea_async_args(*values: int) -> int:
+    """Measure async variadic positional validation."""
+
+    return sum(values)
+
+
+@validate_call
+async def talea_async_kwargs(**values: int) -> int:
+    """Measure async variadic keyword validation."""
+
+    return sum(values.values())
+
+
+@validate_call
+async def talea_async_unpack(**kwargs: Unpack[SmallOptions]) -> int:
+    """Measure async unpacked TypedDict validation."""
+
+    return kwargs["retries"]
+
+
+class DirectAsyncMethods:
+    """Direct async descriptor lower bounds."""
+
+    async def instance(self, value: int) -> int:
+        return value
+
+    @classmethod
+    async def class_method(cls, value: int) -> int:
+        del cls
+        return value
+
+    @staticmethod
+    async def static_method(value: int) -> int:
+        return value
+
+
+class HandwrittenAsyncMethods:
+    """Equivalent handwritten strict async descriptor boundaries."""
+
+    async def instance(self, value: int) -> int:
+        if type(value) is not int:
+            raise TypeError
+        result = value
+        if type(result) is not int:
+            raise TypeError
+        return result
+
+    @classmethod
+    async def class_method(cls, value: int) -> int:
+        del cls
+        if type(value) is not int:
+            raise TypeError
+        result = value
+        if type(result) is not int:
+            raise TypeError
+        return result
+
+    @staticmethod
+    async def static_method(value: int) -> int:
+        if type(value) is not int:
+            raise TypeError
+        result = value
+        if type(result) is not int:
+            raise TypeError
+        return result
+
+
+class TaleaAsyncMethods:
+    """Compiled Talea async descriptor boundaries."""
+
+    @validate_call
+    async def instance(self, value: int) -> int:
+        return value
+
+    @validate_call
+    @classmethod
+    async def class_method(cls, value: int) -> int:
+        del cls
+        return value
+
+    @validate_call
+    @staticmethod
+    async def static_method(value: int) -> int:
+        return value
+
+
+DIRECT_ASYNC_METHODS = DirectAsyncMethods()
+HANDWRITTEN_ASYNC_METHODS = HandwrittenAsyncMethods()
+TALEA_ASYNC_METHODS = TaleaAsyncMethods()
+
+
+@validate_call
+async def talea_async_invalid_return(value: int) -> int:
+    """Return one invalid awaited result."""
+
+    del value
+    return "invalid"  # ty: ignore[invalid-return-type]
+
+
+@validate_call
+async def talea_async_application_failure(value: int) -> int:
+    """Raise one application exception through an async boundary."""
+
+    del value
+    raise ApplicationFailure
+
+
+@validate_call
+async def talea_async_cancel(value: int) -> int:
+    """Suspend until benchmark cancellation reaches the application body."""
+
+    await asyncio.Event().wait()
+    return value
+
+
+async def capture_async(operation: AsyncOperation, error_type: type[BaseException]) -> BaseException:
+    """Await one expected async failure without letting it escape timing."""
+
+    try:
+        await operation()
+    except error_type as error:
+        return error
+    raise AssertionError("async callable failure benchmark succeeded")
+
+
+def declare_async() -> Callable[[int], Awaitable[int]]:
+    """Compile and retain one fresh async callable boundary."""
+
+    async def local(value: int) -> int:
+        return value
+
+    return validate_call(local)
+
+
+async def cancel_once() -> None:
+    """Create, start, cancel, and observe one Talea application task."""
+
+    task = asyncio.create_task(talea_async_cancel(1))
+    await asyncio.sleep(0)
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        return
+    raise AssertionError("cancellation did not propagate")
+
+
+async def gather_once() -> list[int]:
+    """Run one representative concurrent batch."""
+
+    return await asyncio.gather(*(talea_async_one(value) for value in range(20)))
+
+
+async def benchmark_async_execution() -> None:
+    """Measure the complete async surface within one running event loop."""
+
+    print(f"Async callable warm execution ({_REPEATS} samples x {_ASYNC_HOT_ITERATIONS:,} awaits in one running loop)")
+    cases: tuple[tuple[str, AsyncOperation, AsyncOperation, AsyncOperation], ...] = (
+        (
+            "async one int",
+            lambda: direct_async_one(1),
+            lambda: handwritten_async_one(1),
+            lambda: talea_async_one(1),
+        ),
+        (
+            "async two int",
+            lambda: direct_async_two(1, 2),
+            lambda: handwritten_async_two(1, 2),
+            lambda: talea_async_two(1, 2),
+        ),
+        (
+            "async five primitive",
+            lambda: direct_async_five(1, 2, 3, 4, 5),
+            lambda: handwritten_async_five(1, 2, 3, 4, 5),
+            lambda: talea_async_five(1, 2, 3, 4, 5),
+        ),
+    )
+    for name, direct, handwritten, talea in cases:
+        report(name, "direct", await measure_async(direct))
+        report(name, "handwritten", await measure_async(handwritten))
+        report(name, "talea", await measure_async(talea))
+
+    forms: tuple[tuple[str, AsyncOperation], ...] = (
+        ("async keyword-only", lambda: talea_async_keyword(value=1)),
+        ("async *args", lambda: talea_async_args(1, 2, 3, 4, 5)),
+        ("async **kwargs", lambda: talea_async_kwargs(a=1, b=2, c=3, d=4, e=5)),
+        ("async Unpack", lambda: talea_async_unpack(retries=1, timeout=1.0)),
+        ("async instance method", lambda: TALEA_ASYNC_METHODS.instance(1)),
+        ("async classmethod", lambda: TaleaAsyncMethods.class_method(1)),
+        ("async staticmethod", lambda: TaleaAsyncMethods.static_method(1)),
+    )
+    for name, operation in forms:
+        report(name, "talea", await measure_async(operation))
+    for name, direct, handwritten in (
+        (
+            "async instance method",
+            lambda: DIRECT_ASYNC_METHODS.instance(1),
+            lambda: HANDWRITTEN_ASYNC_METHODS.instance(1),
+        ),
+        (
+            "async classmethod",
+            lambda: DirectAsyncMethods.class_method(1),
+            lambda: HandwrittenAsyncMethods.class_method(1),
+        ),
+        (
+            "async staticmethod",
+            lambda: DirectAsyncMethods.static_method(1),
+            lambda: HandwrittenAsyncMethods.static_method(1),
+        ),
+    ):
+        report(name, "direct", await measure_async(direct))
+        report(name, "handwritten", await measure_async(handwritten))
+
+    failures: tuple[tuple[str, AsyncOperation, type[BaseException]], ...] = (
+        (
+            "async invalid argument",
+            lambda: talea_async_one("bad"),  # ty: ignore[invalid-argument-type]
+            ValidationError,
+        ),
+        ("async invalid return", lambda: talea_async_invalid_return(1), ValidationError),
+        ("async application exception", lambda: talea_async_application_failure(1), ApplicationFailure),
+    )
+    for name, operation, error_type in failures:
+        report(
+            name,
+            "talea",
+            await measure_async(
+                lambda operation=operation, error_type=error_type: capture_async(operation, error_type),
+                _ASYNC_FAILURE_ITERATIONS,
+            ),
+        )
+
+    report("async cancellation", "talea", await measure_async(cancel_once, 1_000))
+    report("async gather 20", "talea batch", await measure_async(gather_once, 1_000))
+    assert await gather_once() == list(range(20))
+
+    print(f"Async traced allocations ({_ASYNC_ALLOCATION_SAMPLES:,} warmed awaits)")
+    allocations: tuple[tuple[str, AsyncOperation], ...] = (
+        ("async direct success", lambda: direct_async_one(1)),
+        ("async handwritten success", lambda: handwritten_async_one(1)),
+        ("async Talea success", lambda: talea_async_one(1)),
+        (
+            "async Talea argument failure",
+            lambda: capture_async(lambda: talea_async_one("bad"), ValidationError),  # ty: ignore[invalid-argument-type]
+        ),
+        (
+            "async Talea return failure",
+            lambda: capture_async(lambda: talea_async_invalid_return(1), ValidationError),
+        ),
+    )
+    for name, operation in allocations:
+        result = await measure_async_allocations(operation)
+        print(f"{name:36} retained={result.retained:6} B peak={result.peak:6} B")
+
+    report("cold async decoration/compilation", "talea", measure(declare_async, _COLD_ITERATIONS))
+    gc.collect()
+    tracemalloc.start()
+    before, _ = tracemalloc.get_traced_memory()
+    wrappers = [declare_async() for _ in range(_RETAINED_WRAPPERS)]
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    print(
+        "retained async callable artifact       "
+        f"retained={(current - before) / len(wrappers):8.1f} B "
+        f"peak={(peak - before) / len(wrappers):8.1f} B"
+    )
+    info = inspect_callable(talea_async_one)
+    print(
+        "async introspection shallow size       "
+        f"info={sys.getsizeof(info):8} B parameters={sys.getsizeof(info.parameters):8} B"
+    )
+
+    instructions = tuple(dis.get_instructions(talea_async_one))
+    calls = sum(instruction.opname == "CALL" for instruction in instructions)
+    sends = sum(instruction.opname == "SEND" for instruction in instructions)
+    globals_loaded = tuple(instruction.argval for instruction in instructions if instruction.opname == "LOAD_GLOBAL")
+    forbidden = {"bind", "Signature", "Parameter", "BoundArguments", "isawaitable", "iscoroutinefunction"}
+    assert forbidden.isdisjoint(globals_loaded)
+    assert all("schema" not in str(name).lower() and "lock" not in str(name).lower() for name in globals_loaded)
+    print(
+        "bytecode async one argument: "
+        f"instructions={len(instructions)} calls={calls} sends={sends} globals={globals_loaded}"
+    )
+
+
 def main() -> None:
     """Print the permanent callable timing and memory scorecard."""
 
@@ -821,6 +1227,9 @@ def main() -> None:
     benchmark_failures()
     print("\nCompilation, memory, and bytecode")
     benchmark_compilation_memory_and_bytecode()
+    print("\nAsync execution")
+    print(f"Interpreter: {sys.version.split()[0]} Platform: {platform.platform()}")
+    asyncio.run(benchmark_async_execution())
 
 
 if __name__ == "__main__":
