@@ -53,7 +53,10 @@ accepted: bool = transfer(amount=1, reference="invoice-1843")
 ```
 
 Static tooling rejects a wrong positional value, unknown keyword, or wrong
-result assignment. ParamSpec is typing preservation, not a runtime binder or
+result assignment. It also retains positional-only and keyword-only rules,
+variadic item/value contracts, `Unpack[TypedDict]` required and optional keys,
+and bound instance/class/static method result types. ParamSpec is typing
+preservation, not a runtime binder or
 TypeVar-inference engine. Runtime generic functions with unresolved type
 parameters remain unsupported; the concrete implementation behind
 `typing.overload` declarations owns runtime annotations. See

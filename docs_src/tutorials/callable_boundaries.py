@@ -1,25 +1,28 @@
-"""A strict payment-service boundary over already-constructed Python values."""
+"""A payment execution service exercising complete synchronous Python binding."""
 
 import inspect
-from typing import Annotated, Literal
+from dataclasses import dataclass
+from typing import Annotated, Literal, NotRequired, TypedDict, Unpack
 
 from talea import Ge, MinLength, Sensitive, Spec, ValidationError, validate_call
 from talea.introspection import inspect_callable
 
 type PositiveCents = Annotated[int, Ge(1)]
 type Reference = Annotated[str, MinLength(8)]
+type Secret = Annotated[str, Sensitive()]
 
 
-class PaymentRequest(Spec):
-    account_id: int
-    merchant: str
-    amount_cents: PositiveCents
-    reference: Reference
+class ExecutionOptions(TypedDict):
+    """Strict keyword structure accepted by the execution operation."""
+
+    timeout: float
+    trace_id: NotRequired[str]
+    authorization: NotRequired[Secret]
 
 
 class PaymentReceipt(Spec):
     payment_id: str
-    status: Literal["authorized"]
+    status: Literal["authorized", "simulated"]
     amount_cents: PositiveCents
 
 
@@ -27,84 +30,131 @@ class AuthorizationDeclined(RuntimeError):
     """Represent an application decision rather than a contract failure."""
 
 
-@validate_call
-def authorize_payment(request: PaymentRequest, risk_score: int = 0) -> PaymentReceipt:
-    """Authorize one already-parsed request and enforce its return contract."""
+@dataclass(frozen=True, slots=True)
+class PaymentService:
+    """Execute already-decoded, strictly typed payment commands."""
 
-    if risk_score > 90:
-        raise AuthorizationDeclined(request.reference)
-    return PaymentReceipt(
-        payment_id="pay_01JABCDE",
-        status="authorized",
-        amount_cents=request.amount_cents,
-    )
+    gateway: str
+
+    @validate_call
+    @classmethod
+    def connection_name(cls, gateway: str) -> str:
+        """Build a class-qualified gateway name through a classmethod boundary."""
+
+        return f"{cls.__name__}:{gateway}"
+
+    @validate_call
+    @staticmethod
+    def normalize_reference(reference: Reference) -> Reference:
+        """Normalize a reference without receiving an instance or class."""
+
+        return reference.upper()
+
+    @validate_call
+    def execute(
+        self,
+        account_id: int,
+        /,
+        amount_cents: PositiveCents,
+        *adjustments: int,
+        dry_run: bool = False,
+        **options: Unpack[ExecutionOptions],
+    ) -> PaymentReceipt:
+        """Execute a payment using every significant Python binding form."""
+
+        del account_id, options
+        settled = amount_cents + sum(adjustments)
+        if settled <= 0:
+            raise AuthorizationDeclined("non-positive settlement")
+        return PaymentReceipt(
+            payment_id=f"{self.gateway}-01JABCDE",
+            status="simulated" if dry_run else "authorized",
+            amount_cents=settled,
+        )
+
+    @validate_call
+    def invalid_receipt(self, account_id: int, /) -> PaymentReceipt:
+        """Model a dependency returning an invalid application value."""
+
+        del account_id
+        return "authorized"  # ty: ignore[invalid-return-type]
 
 
-request = PaymentRequest.from_json(
-    '{"account_id":7,"merchant":"Analytical Engines","amount_cents":1250,"reference":"invoice-1843"}'
+assert PaymentService.connection_name("gateway") == "PaymentService:gateway"
+service = PaymentService("gateway")
+reference = PaymentService.normalize_reference("invoice-1843")
+assert reference == "INVOICE-1843"
+
+receipt = service.execute(
+    7,
+    1250,
+    -50,
+    dry_run=True,
+    timeout=1.5,
+    trace_id="trace-7",
 )
-receipt = authorize_payment(request)
-assert receipt.amount_cents == 1250
-assert inspect.unwrap(authorize_payment).__name__ == "authorize_payment"
+assert receipt.status == "simulated"
+assert receipt.amount_cents == 1200
 
-info = inspect_callable(authorize_payment)
-assert tuple(parameter.name for parameter in info.parameters) == ("request", "risk_score")
-assert info.parameters[0].required is True
-assert info.parameters[1].has_default is True
-assert info.is_async is False
-
-# Python binding owns invalid call shapes.
+# Python binds the positional-only identifier before Talea validates values.
 try:
-    authorize_payment()  # ty: ignore[missing-argument]
+    service.execute(account_id=7, amount_cents=1250, timeout=1.5)  # ty: ignore[missing-argument]
 except TypeError as error:
     assert type(error) is TypeError
 else:
-    raise AssertionError("missing required arguments must fail")
+    raise AssertionError("a positional-only identifier passed by keyword must fail")
 
-# Talea validation owns valid call shapes containing invalid values.
+# A required Unpack key is structure validation, not a named-parameter bind.
 try:
-    authorize_payment({"amount_cents": 1250})  # ty: ignore[invalid-argument-type]
+    service.execute(7, 1250)  # ty: ignore[missing-argument]
 except ValidationError as error:
-    assert error.location == ("request",)
+    assert error.location == ("options", "timeout")
 else:
-    raise AssertionError("strict callable boundaries must not parse mappings")
+    raise AssertionError("a missing TypedDict option must fail")
 
-# Application exceptions cross the boundary unchanged.
+# Valid call shape plus an invalid value is a Talea ValidationError.
 try:
-    authorize_payment(request, risk_score=95)
+    service.execute(7, "1250", timeout=1.5)  # ty: ignore[invalid-argument-type]
+except ValidationError as error:
+    assert error.location == ("amount_cents",)
+else:
+    raise AssertionError("strict callable boundaries must not coerce values")
+
+# Sensitive TypedDict fields redact Talea-owned evidence.
+try:
+    service.execute(7, 1250, timeout=1.5, authorization=123)  # ty: ignore[invalid-argument-type]
+except ValidationError as error:
+    assert error.location == ("options", "authorization")
+    assert error.errors()[0]["input"] == "<redacted>"
+else:
+    raise AssertionError("sensitive keyword failure must be redacted")
+
+# The application body still owns domain exceptions.
+try:
+    service.execute(7, 1, -2, timeout=1.5)
 except AuthorizationDeclined as error:
-    assert error.args == ("invoice-1843",)
+    assert error.args == ("non-positive settlement",)
 else:
     raise AssertionError("application rejection must propagate")
 
-
-@validate_call
-def broken_gateway(request: PaymentRequest) -> PaymentReceipt:
-    """Model a dependency returning a value outside its declared contract."""
-
-    del request
-    return "authorized"  # ty: ignore[invalid-return-type]
-
-
+# Return validation runs after exactly one successful application call.
 try:
-    broken_gateway(request)
+    service.invalid_receipt(7)
 except ValidationError as error:
     assert error.location == ("return",)
 else:
     raise AssertionError("invalid returns must not escape")
 
+unbound_signature = inspect.signature(PaymentService.execute)
+bound_signature = inspect.signature(service.execute)
+assert "self" in unbound_signature.parameters
+assert "self" not in bound_signature.parameters
+assert inspect.unwrap(PaymentService.execute).__name__ == "execute"
 
-type SecretToken = Annotated[str, Sensitive()]
-
-
-@validate_call
-def token_length(token: SecretToken) -> int:
-    return len(token)
-
-
-try:
-    token_length(123)  # ty: ignore[invalid-argument-type]
-except ValidationError as error:
-    assert error.errors()[0]["input"] == "<redacted>"
-else:
-    raise AssertionError("sensitive failure must be redacted")
+method_info = inspect_callable(service.execute)
+assert method_info.callable_kind == "instance_method"
+assert method_info.parameters[0].receiver is True
+assert method_info.parameters[3].variadic_semantics == "items"
+assert method_info.parameters[-1].variadic_semantics == "unpack_typed_dict"
+assert inspect_callable(PaymentService.connection_name).callable_kind == "class_method"
+assert inspect_callable(PaymentService.normalize_reference).callable_kind == "static_method"

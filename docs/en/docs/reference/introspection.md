@@ -34,8 +34,8 @@ callable_info = inspect_callable(lookup)
 | `ContractInfo` | annotation, canonical `Schema`, metadata, supported operation names, reachable representations |
 | `RepresentationInfo` | frozen internal/input/output schemas and direction flags, with no callbacks |
 | `SerializerInfo` | serializer name, target field, declared-output flag, and optional output `Schema`, with no callback |
-| `ParameterInfo` | Python name/kind, canonical `Schema`, and required/default state |
-| `CallableInfo` | original immutable `Signature`, ordered parameters, return `Schema`, and sync/async classification |
+| `ParameterInfo` | Python name/kind, canonical `Schema`, required/default state, receiver role, and variadic semantics |
+| `CallableInfo` | original immutable `Signature`, ordered parameters, return `Schema`, sync/async state, and function/method kind |
 
 For `Contract(UserDataclass)`, `ContractInfo.schema` is a frozen
 `DataclassSchema`. It exposes exact dataclass type identity, immutable canonical
@@ -47,8 +47,9 @@ exposing mutable stdlib `Field` objects.
 Concrete declarations return a cached immutable `SpecInfo`; open generics expose
 the declaration truth available before specialization. `inspect_contract()`
 accepts a Contract instance and returns a fresh immutable description.
-`inspect_callable()` accepts a `validate_call` wrapper and projects its retained
-canonical callable contract without rereading annotations.
+`inspect_callable()` accepts a `validate_call` function, bound method, or
+supported class/static descriptor and projects its retained canonical callable
+contract without rereading annotations.
 
 The canonical `Schema` graph is structural truth and is safe to read. Generated
 source, compiled callables, locks, lazy publication state, codec choices, and

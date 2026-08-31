@@ -1,7 +1,7 @@
 # Strict callable boundaries
 
 `validate_call` compiles Python annotations into a strict argument-and-return
-boundary for an ordinary synchronous function. Use it when an application
+boundary for synchronous functions and methods. Use it when an application
 service, SDK entry point, callback implementation, or domain function should
 reject values that do not satisfy its declared Python contract.
 
@@ -93,6 +93,85 @@ TypedDict default into an invalid state therefore causes the next call to fail
 before application code runs. Talea does not alter Python's ordinary
 shared-mutable-default behavior.
 
+## Complete Python parameter binding
+
+The generated wrapper preserves Python's complete synchronous parameter
+grammar: positional-only (`/`), positional-or-keyword, keyword-only (`*`),
+`*args`, scalar `**kwargs`, and `**kwargs: Unpack[TypedDict]`. These are all
+compiled from the same callable schema and signature emitter. There is no
+`Signature.bind` path or generic fallback for complex signatures.
+
+```python
+@validate_call
+def execute(
+    account_id: int,
+    /,
+    quantity: int,
+    *adjustments: int,
+    dry_run: bool = False,
+    timeout: float,
+    **metadata: str,
+) -> int:
+    return quantity + sum(adjustments)
+```
+
+CPython binds `account_id`, `quantity`, `dry_run`, and `timeout` using that real
+signature. A positional-only name used as a keyword, a missing keyword-only
+parameter, a duplicate value, too many positional arguments, or an unexpected
+keyword where no `**kwargs` exists is a plain `TypeError`. Aliases never rename
+these Python call names.
+
+For `*adjustments: int`, the annotation applies to each tuple member. Talea
+validates from index zero and fails at `("adjustments", index)`. For scalar
+`**metadata: str`, it applies to each value in Python's keyword dictionary and
+fails at `("metadata", actual_keyword)`. The compiler iterates those
+Python-created containers directly; it does not build normalized lists,
+tuples, argument maps, or validation copies.
+
+### `Unpack[TypedDict]`
+
+`**kwargs: Unpack[Options]` has different semantics from named keyword-only
+parameters. Python's runtime signature contains `**kwargs`, so it accepts the
+keyword names syntactically. Talea then validates that collected dictionary as
+the canonical closed `TypedDict` structure:
+
+```python
+from typing import NotRequired, TypedDict, Unpack
+
+
+class Options(TypedDict):
+    timeout: float
+    trace_id: NotRequired[str]
+
+
+@validate_call
+def configure(**kwargs: Unpack[Options]) -> Options:
+    return kwargs
+```
+
+A missing required `timeout`, an unknown key, or a wrong field value is a
+`ValidationError` under `("kwargs", key)`, not a binding `TypeError`. Talea
+validates Python's bound dictionary directly against the existing
+`TypedDictSchema`; this is strict Python structure validation, not external
+`Mapping` conversion. `Alias` metadata does not make an external alias a valid
+Python keyword. `ReadOnly` remains structural/static metadata and does not add
+runtime mutation enforcement. Concrete generic TypedDict specializations work;
+open generic forms retain the normal concrete-runtime requirement.
+
+The location policy is stable across the synchronous surface:
+
+| Value | Validation location |
+| --- | --- |
+| fixed parameter | `("name", ...)` |
+| `*args` item | `("args_name", index, ...)` |
+| scalar `**kwargs` value | `("kwargs_name", actual_keyword, ...)` |
+| `Unpack[TypedDict]` field | `("kwargs_name", field, ...)` |
+| method user argument | the declared parameter path; receiver omitted |
+| return value | `("return", ...)` |
+
+Defaults follow the same declaration-validation and immutable/mutable policy
+for positional-only, positional-or-keyword, and keyword-only parameters.
+
 ## Supported annotations and metadata
 
 The callable owner consumes the same canonical resolver and validation emitter
@@ -102,7 +181,7 @@ dataclasses, TypedDicts, aliases, containers, unions, tagged unions, recursive
 schemas, and `Representation` where those annotations already have executable
 Talea semantics.
 
-All parameters and the return require annotations. Talea does not turn a
+All user-value parameters and the return require annotations. Talea does not turn a
 missing annotation, `Any`, or `object` into an unchecked hole. Generic function
 declarations with unresolved runtime type parameters are rejected; static
 generic typing is not runtime specialization. `typing.overload` declarations
@@ -145,6 +224,55 @@ accepted: bool = settle(amount=1, reference="invoice-1843")
 ParamSpec preserves the static callable shape. It is not interpreted at
 runtime and does not infer concrete TypeVar substitutions for each invocation.
 
+Positional-only markers, keyword-only requirements, variadic item/value types,
+`Unpack` required and optional keys, method binding, and return types remain
+visible to static tooling. Runtime validation remains authoritative.
+
+## Methods and descriptors
+
+Ordinary instance methods use Python's normal function descriptor. Talea waits
+until class ownership is established, classifies the first parameter as the
+receiver, compiles the method, and leaves the class with a normal generated
+function descriptor. Python supplies `self` exactly once. The receiver is
+binding infrastructure, so it does not require or receive Talea value
+validation; every other parameter and the return still do. This exemption
+cannot make an unannotated first parameter on an ordinary function valid.
+
+Class and static methods require `validate_call` as the outer decorator:
+
+```python
+class Service:
+    @validate_call
+    @classmethod
+    def create(cls, value: int) -> int:
+        return value
+
+    @validate_call
+    @staticmethod
+    def normalize(value: int) -> int:
+        return value
+```
+
+| Form | Policy |
+| --- | --- |
+| ordinary `@validate_call` instance method | supported; `self` is receiver |
+| `@validate_call` outside `@classmethod` | supported; `cls` is receiver |
+| `@classmethod` outside `@validate_call` | rejected; Talea must be outermost |
+| `@validate_call` outside `@staticmethod` | supported; every parameter validates |
+| `@staticmethod` outside `@validate_call` | rejected; Talea must be outermost |
+
+This policy lets the descriptor itself establish class/static truth and avoids
+a permanent method adapter or registry. Inheritance, overrides, `super()`, and
+binding to an instance or subclass remain ordinary Python attribute
+resolution. Validated methods can call each other or recurse, and argument
+failure/body success/return failure retain the zero/one/one invocation rule.
+
+`inspect.signature(Class.method)` reports the unbound instance signature,
+including `self`; `inspect.signature(instance.method)` reflects Python's bound
+signature without it. Classmethod access similarly removes `cls`, while a
+staticmethod has no receiver to remove. Wrapper names, qualified names,
+documentation, annotations, and `__wrapped__` remain available.
+
 ## Introspection
 
 `inspect_callable()` is the single public projection of callable truth:
@@ -161,7 +289,9 @@ assert tuple(parameter.name for parameter in info.parameters) == (
 
 `CallableInfo` and `ParameterInfo` are frozen and slotted. They expose the
 original `inspect.Signature`, ordered names and parameter kinds, canonical
-parameter and return schemas, required/default state, and sync classification.
+parameter and return schemas, required/default state, receiver flags, variadic
+semantics (`items`, `values`, or `unpack_typed_dict`), and callable kind
+(`function`, `instance_method`, `class_method`, or `static_method`).
 They do not expose generated source, compiled validators, the original
 callable, globals, locks, caches, or binding instructions. Standard
 `__wrapped__` remains the way ordinary Python tooling reaches the original.
@@ -190,19 +320,15 @@ enforcement, metadata, and Sensitive redaction. The application owns function
 CPU, memory, I/O, locks, side effects, mutation, recursion depth, exceptions,
 and thread safety.
 
-## Current callable forms
+## Complete synchronous surface and remaining limits
 
-The current execution surface supports ordinary synchronous functions whose
-parameters are positional-or-keyword, including keyword invocation and static
-defaults. Positional-only parameters, keyword-only parameters, `*args`,
-`**kwargs`, `Unpack[TypedDict]`, ordinary methods, classmethods, staticmethods,
-and async functions are not yet part of the public execution contract.
-Generators, async generators, and arbitrary callable instances are outside the
-callable-boundary scope and are rejected explicitly.
-
-Decorator ordering matters because an unrelated decorator can change the
-object Talea receives. In particular, do not rely on either ordering with
-`staticmethod` or `classmethod` until descriptor integration is documented.
+The complete synchronous Python binding surface is supported: every fixed
+parameter kind, defaults, variadics, `Unpack[TypedDict]`, ordinary methods,
+classmethods, staticmethods, strict return validation, typing, and immutable
+introspection. Async execution is deferred. Generators, async generators, and
+arbitrary callable objects are unsupported. Runtime generic-function
+specialization remains unsupported, and a deferred annotation name that was
+local to a scope already lost before decoration may be unrecoverable.
 
 ## Complete executable example
 
@@ -217,8 +343,10 @@ Sensitive redaction, `__wrapped__`, and immutable introspection.
 
 `task benchmark_callables` compares direct calls, equivalent handwritten
 strict wrappers, Talea wrappers, and `inspect.Signature.bind`; it also measures
-one, two, and five primitive arguments, structured values, defaults, failures,
-cold compilation, success/failure allocations, retained memory, and bytecode.
+one, two, and five primitive arguments, every fixed binding form, variadic
+0/1/5/20 scaling, scalar keyword scaling, small and larger `Unpack` structures,
+instance/class/static methods, failures, cold complex compilation,
+success/failure allocations, retained memory, call counts, and bytecode.
 The fixed warm wrapper contains no generic binder, parameter loop, Schema walk,
 registry lookup, or lock. Callable support adds no execution path to Specs or
 Contracts that do not use the decorator.

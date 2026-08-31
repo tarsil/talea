@@ -4,16 +4,12 @@
 
 ### Added
 
-- `validate_call` for strict ordinary synchronous functions with
-  positional-or-keyword parameters, declaration-validated defaults, native
+- `validate_call` for complete strict synchronous Python binding: every fixed
+  parameter kind, defaults, `*args`, scalar `**kwargs`,
+  `Unpack[TypedDict]`, instance methods, classmethods, staticmethods, native
   Python binding errors, compiled argument and return validation,
-  ParamSpec-preserving typing, standard wrapper metadata, and frozen
+  ParamSpec-preserving typing, standard descriptor metadata, and frozen
   `inspect_callable` projections.
-
-Callable boundaries validate internal Python values without conversion or
-serialization. Methods, other parameter kinds, and async execution are not yet
-part of this public slice; generators, async generators, and callable instances
-remain outside scope.
 
 ## 0.3.0
 

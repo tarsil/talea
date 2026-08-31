@@ -6,11 +6,11 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 
 - custom transforms, checks, serializers, and codecs are synchronous trusted
   callables; Talea does not sandbox them;
-- `validate_call` currently supports ordinary synchronous functions with
-  positional-or-keyword parameters; positional-only, keyword-only, variadic,
-  `Unpack[TypedDict]`, method/descriptor, and async execution are not yet
-  implemented, while generators, async generators, and callable instances are
-  outside its scope;
+- `validate_call` supports the complete synchronous Python binding and method
+  surface; async execution is deferred, generators and async generators are
+  unsupported, callable instances are unsupported, runtime generic-function
+  specialization is unsupported, and lost local deferred annotation names may
+  be unrecoverable;
 - NamedTuple, attrs, ordinary-class, ORM-object, and settings-source mapping
   are not part of core;
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
