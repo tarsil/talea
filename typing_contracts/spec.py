@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Literal, TypedDict, assert_type
+from typing import Annotated, Literal, NotRequired, TypedDict, Unpack, assert_type
 from uuid import UUID
 
 from talea import (
@@ -203,6 +203,55 @@ assert_type(typed_transfer(3), int)
 assert_type(typed_transfer(amount=3, fee=1), int)
 assert_type(typed_payload({"id": 1}), ContractPayload)
 assert_type(inspect_callable(typed_transfer), CallableInfo)
+
+
+class CallableOptions(TypedDict):
+    timeout: float
+    trace_id: NotRequired[str]
+
+
+@validate_call
+def typed_complete(
+    identifier: int,
+    /,
+    value: str,
+    *items: int,
+    flag: bool,
+    **metadata: str,
+) -> tuple[int, str]:
+    del items, flag, metadata
+    return identifier, value
+
+
+@validate_call
+def typed_unpack(**kwargs: Unpack[CallableOptions]) -> CallableOptions:
+    return kwargs
+
+
+class TypedService:
+    @validate_call
+    def method(self, value: int, /, *, enabled: bool = True) -> int:
+        return value if enabled else 0
+
+    @validate_call
+    @classmethod
+    def create(cls, value: int) -> int:
+        del cls
+        return value
+
+    @validate_call
+    @staticmethod
+    def normalize(value: int) -> int:
+        return value
+
+
+typed_service = TypedService()
+assert_type(typed_complete(1, "value", 2, 3, flag=True, source="sdk"), tuple[int, str])
+assert_type(typed_unpack(timeout=1.0), CallableOptions)
+assert_type(typed_unpack(timeout=1.0, trace_id="trace"), CallableOptions)
+assert_type(typed_service.method(1, enabled=False), int)
+assert_type(TypedService.create(1), int)
+assert_type(TypedService.normalize(1), int)
 assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
 UserPatch = derive_spec(User, partial=True)
 UserInput = derive_spec(User, mode="input")

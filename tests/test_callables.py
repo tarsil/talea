@@ -406,29 +406,10 @@ def test_unsupported_targets_are_rejected_explicitly() -> None:
         (async_generator, "async generator functions"),
         (CallableObject(), "ordinary Python function"),
         (HostileCallable(), "ordinary Python function"),
-        (staticmethod(plain), "staticmethod"),
-        (classmethod(plain), "classmethod"),
     )
     for target, message in targets:
         with pytest.raises(TypeError, match=message):
             validate_call(target)  # type: ignore[arg-type]
-
-
-@pytest.mark.parametrize(
-    "function",
-    [
-        lambda: exec("def positional(value: int, /) -> int:\n    return value", globals()),
-        lambda: exec("def keyword(*, value: int) -> int:\n    return value", globals()),
-        lambda: exec("def variadic(*values: int) -> int:\n    return len(values)", globals()),
-        lambda: exec("def keywords(**values: int) -> int:\n    return len(values)", globals()),
-    ],
-)
-def test_deferred_parameter_kinds_are_rejected(function: object) -> None:
-    function()
-    name = {"positional", "keyword", "variadic", "keywords"}.intersection(globals()).pop()
-    candidate = globals().pop(name)
-    with pytest.raises(TypeError, match="does not yet support"):
-        validate_call(candidate)
 
 
 def test_local_alias_forward_resolution_and_overload_runtime_owner() -> None:

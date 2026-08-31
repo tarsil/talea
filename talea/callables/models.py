@@ -44,7 +44,7 @@ class _CallableParameter:
     def required(self) -> bool:
         """Return whether Python binding requires an explicit argument."""
 
-        return self.default is MISSING_DEFAULT
+        return self.kind not in ("VAR_POSITIONAL", "VAR_KEYWORD") and self.default is MISSING_DEFAULT
 
 
 @dataclass(frozen=True, slots=True)

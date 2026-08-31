@@ -10,7 +10,11 @@ from typing import Annotated, Literal, cast, get_args, get_origin
 from weakref import WeakKeyDictionary
 
 from talea.callables.api import _callable_schema
-from talea.callables.models import ParameterKind
+from talea.callables.models import (
+    MISSING_DEFAULT as CALLABLE_MISSING_DEFAULT,
+    CallableKind,
+    ParameterKind,
+)
 from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
@@ -105,6 +109,8 @@ class ParameterInfo:
     schema: Schema | None
     required: bool
     has_default: bool
+    receiver: bool = False
+    variadic_semantics: Literal["items", "values", "unpack_typed_dict"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +121,7 @@ class CallableInfo:
     parameters: tuple[ParameterInfo, ...]
     return_schema: Schema
     is_async: bool
+    callable_kind: CallableKind = "function"
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,12 +314,23 @@ def inspect_callable(function: Callable[..., object]) -> CallableInfo:
                 parameter.kind,
                 parameter.schema,
                 parameter.required,
-                not parameter.required,
+                parameter.default is not CALLABLE_MISSING_DEFAULT,
+                parameter.role == "receiver",
+                (
+                    "items"
+                    if parameter.kind == "VAR_POSITIONAL"
+                    else "unpack_typed_dict"
+                    if parameter.unpack_typed_dict
+                    else "values"
+                    if parameter.kind == "VAR_KEYWORD"
+                    else None
+                ),
             )
             for parameter in contract.parameters
         ),
         contract.return_schema,
         contract.is_async,
+        contract.callable_kind,
     )
 
 

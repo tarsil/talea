@@ -24,18 +24,15 @@ def compile_sync_wrapper(contract: _CallableSchema) -> Callable[..., object]:
     names = _GeneratedNames(parameter_names)
     wrapper_name = names.allocate("callable")
     namespace: dict[str, object] = {"__name__": __name__}
-    declarations: list[str] = []
     default_names: dict[str, str] = {}
     for parameter in contract.parameters:
-        declaration = parameter.name
         if parameter.default is not MISSING_DEFAULT:
             default_name = names.allocate("default")
             namespace[default_name] = parameter.default
             default_names[parameter.name] = default_name
-            declaration = f"{declaration}={default_name}"
-        declarations.append(declaration)
 
-    lines = [f"def {wrapper_name}({', '.join(declarations)}):"]
+    declaration = _signature_declaration(contract, default_names)
+    lines = [f"def {wrapper_name}({declaration}):"]
     emitter = _ValidationEmitter(
         lines,
         names,
@@ -43,22 +40,49 @@ def compile_sync_wrapper(contract: _CallableSchema) -> Callable[..., object]:
         title=contract.function.__qualname__,
     )
     for parameter in contract.parameters:
+        if parameter.role == "receiver":
+            continue
         indentation = 1
         if parameter.default is not MISSING_DEFAULT and parameter.default_is_immutable:
             emitter.emit(1, f"if {parameter.name} is not {default_names[parameter.name]}:")
             indentation = 2
         location = emitter.bind("parameter_name", parameter.name)
-        emitter.emit_schema(
-            cast(Schema, parameter.schema),
-            parameter.name,
-            (location,),
-            indentation,
-            sensitive=parameter.sensitive,
-        )
+        schema = cast(Schema, parameter.schema)
+        if parameter.kind == "VAR_POSITIONAL":
+            index = emitter.variable("variadic_index")
+            item = emitter.variable("variadic_item")
+            enumerate_name = emitter.runtime("enumerate", enumerate)
+            emitter.emit(indentation, f"for {index}, {item} in {enumerate_name}({parameter.name}):")
+            emitter.emit_schema(
+                schema,
+                item,
+                (location, index),
+                indentation + 1,
+                sensitive=parameter.sensitive,
+            )
+        elif parameter.kind == "VAR_KEYWORD" and not parameter.unpack_typed_dict:
+            key = emitter.variable("variadic_key")
+            item = emitter.variable("variadic_item")
+            emitter.emit(indentation, f"for {key}, {item} in {parameter.name}.items():")
+            emitter.emit_schema(
+                schema,
+                item,
+                (location, key),
+                indentation + 1,
+                sensitive=parameter.sensitive,
+            )
+        else:
+            emitter.emit_schema(
+                schema,
+                parameter.name,
+                (location,),
+                indentation,
+                sensitive=parameter.sensitive,
+            )
 
     original = emitter.bind("original_callable", contract.function)
     result = emitter.variable("result")
-    emitter.emit(1, f"{result} = {original}({', '.join(parameter_names)})")
+    emitter.emit(1, f"{result} = {original}({_call_arguments(contract)})")
     return_location = emitter.bind("return_location", "return")
     emitter.emit_schema(
         contract.return_schema,
@@ -78,3 +102,46 @@ def compile_sync_wrapper(contract: _CallableSchema) -> Callable[..., object]:
     )
     update_wrapper(wrapper, contract.function)
     return wrapper
+
+
+def _signature_declaration(contract: _CallableSchema, default_names: dict[str, str]) -> str:
+    """Emit Python's full parameter grammar from the canonical callable IR."""
+
+    declarations: list[str] = []
+    parameters = contract.parameters
+    positional_only = sum(parameter.kind == "POSITIONAL_ONLY" for parameter in parameters)
+    has_variadic = any(parameter.kind == "VAR_POSITIONAL" for parameter in parameters)
+    keyword_boundary_emitted = False
+    for index, parameter in enumerate(parameters):
+        if parameter.kind == "VAR_POSITIONAL":
+            declaration = f"*{parameter.name}"
+            keyword_boundary_emitted = True
+        elif parameter.kind == "VAR_KEYWORD":
+            declaration = f"**{parameter.name}"
+        else:
+            if parameter.kind == "KEYWORD_ONLY" and not has_variadic and not keyword_boundary_emitted:
+                declarations.append("*")
+                keyword_boundary_emitted = True
+            declaration = parameter.name
+            if parameter.default is not MISSING_DEFAULT:
+                declaration = f"{declaration}={default_names[parameter.name]}"
+        declarations.append(declaration)
+        if positional_only and index + 1 == positional_only:
+            declarations.append("/")
+    return ", ".join(declarations)
+
+
+def _call_arguments(contract: _CallableSchema) -> str:
+    """Forward already-bound values to the original callable without normalization."""
+
+    arguments: list[str] = []
+    for parameter in contract.parameters:
+        if parameter.kind == "VAR_POSITIONAL":
+            arguments.append(f"*{parameter.name}")
+        elif parameter.kind == "KEYWORD_ONLY":
+            arguments.append(f"{parameter.name}={parameter.name}")
+        elif parameter.kind == "VAR_KEYWORD":
+            arguments.append(f"**{parameter.name}")
+        else:
+            arguments.append(parameter.name)
+    return ", ".join(arguments)

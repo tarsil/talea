@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NotRequired, TypedDict, Unpack
 from uuid import UUID
 
 from talea import (
@@ -129,6 +129,50 @@ def typed_transfer(amount: int, fee: int = 1) -> int:
 typed_transfer("3")  # ty: ignore[invalid-argument-type]
 typed_transfer(unexpected=3)  # ty: ignore[missing-argument, unknown-argument]
 wrong_transfer_result: str = typed_transfer(3)  # ty: ignore[invalid-assignment]
+
+
+class CallableOptions(TypedDict):
+    timeout: float
+    trace_id: NotRequired[str]
+
+
+@validate_call
+def typed_complete(identifier: int, /, value: str, *items: int, flag: bool, **metadata: str) -> int:
+    del value, items, flag, metadata
+    return identifier
+
+
+@validate_call
+def typed_unpack(**kwargs: Unpack[CallableOptions]) -> CallableOptions:
+    return kwargs
+
+
+class TypedService:
+    @validate_call
+    def method(self, value: int, /, *, enabled: bool = True) -> int:
+        return value if enabled else 0
+
+    @validate_call
+    @classmethod
+    def create(cls, value: int) -> int:
+        del cls
+        return value
+
+    @validate_call
+    @staticmethod
+    def normalize(value: int) -> int:
+        return value
+
+
+typed_complete(identifier=1, value="value", flag=True)  # ty: ignore[missing-argument, invalid-argument-type]
+typed_complete(1, "value", "bad", flag=True)  # ty: ignore[invalid-argument-type]
+typed_complete(1, "value")  # ty: ignore[missing-argument]
+typed_complete(1, "value", flag=True, source=1)  # ty: ignore[invalid-argument-type]
+typed_unpack()  # ty: ignore[missing-argument]
+typed_unpack(timeout="1")  # ty: ignore[invalid-argument-type]
+TypedService().method("1")  # ty: ignore[invalid-argument-type]
+TypedService.create("1")  # ty: ignore[invalid-argument-type]
+TypedService.normalize("1")  # ty: ignore[invalid-argument-type]
 user.id = 2  # ty: ignore[invalid-assignment]
 
 
