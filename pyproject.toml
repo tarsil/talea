@@ -146,6 +146,7 @@ benchmark_json_schema = "python benchmarks/json_schema.py"
 benchmark_resources = "python benchmarks/resource_security.py"
 benchmark_dataclasses = "python benchmarks/dataclass_interoperability.py"
 benchmark_representation = "python benchmarks/representation_input.py"
+benchmark_callables = "python benchmarks/callables.py"
 
 [tool.isort]
 profile = "black"

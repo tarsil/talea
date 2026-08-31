@@ -198,3 +198,8 @@ tasks:
     desc: Benchmarks canonical representation input execution and zero-tax canaries
     cmds:
       - hatch run test:benchmark_representation
+
+  benchmark_callables:
+    desc: Benchmarks compiled strict callable execution, failures, and retained artifacts
+    cmds:
+      - hatch run test:benchmark_callables
