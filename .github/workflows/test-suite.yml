@@ -45,6 +45,7 @@ jobs:
         if: "matrix.python-version == '3.14'"
         run: "hatch run test:coverage"
       - name: "Execute documentation examples and integrity checks"
+        if: "matrix.python-version == '3.14'"
         run: "hatch run docs:test"
       - name: "Build documentation"
         run: "hatch run docs:build"

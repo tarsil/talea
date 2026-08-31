@@ -5,8 +5,8 @@
 ### Added
 
 - Python 3.15 support, with prerelease testing while Python 3.15 remains in
-  beta. Coverage and static typing release gates continue to run on Python
-  3.14.
+  beta. Coverage, static typing, and documentation integrity release gates
+  continue to run on Python 3.14.
 - `validate_call` for complete strict synchronous Python binding: every fixed
   parameter kind, defaults, `*args`, scalar `**kwargs`,
   `Unpack[TypedDict]`, instance methods, classmethods, staticmethods, native
