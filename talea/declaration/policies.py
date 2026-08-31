@@ -1,9 +1,11 @@
 """Derive trust and override compatibility from canonical schema truth."""
 
+from dataclasses import replace
 from decimal import Decimal
 from typing import Literal, assert_never
 
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf
+from talea.metadata import DeclarationMetadata
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
@@ -24,6 +26,21 @@ from talea.schema.nodes import (
     UnionSchema,
     VariadicTupleSchema,
 )
+
+
+def schema_root_metadata(schema: Schema, use_site: DeclarationMetadata) -> DeclarationMetadata:
+    """Project root alias-chain metadata beneath explicit use-site metadata."""
+
+    metadata = use_site
+    sensitive = bool(use_site.sensitive)
+    while isinstance(schema, (AliasSchema, ConstrainedSchema)):
+        if isinstance(schema, AliasSchema):
+            metadata = schema.metadata.merged(metadata)
+            sensitive = sensitive or schema.metadata.sensitive is True
+        schema = schema.schema
+    if sensitive and metadata.sensitive is not True:
+        return replace(metadata, sensitive=True)
+    return metadata
 
 
 def schema_values_are_immutable(schema: Schema, visiting: frozenset[object] = frozenset()) -> bool:

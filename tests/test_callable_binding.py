@@ -9,7 +9,7 @@ from typing import Annotated, NotRequired, ReadOnly, TypedDict, Unpack
 import pytest
 from hypothesis import given, strategies as st
 
-from talea import Alias, Representation, Sensitive, Spec, ValidationError, validate_call
+from talea import Alias, Ge, Representation, Sensitive, Spec, ValidationError, validate_call
 from talea.introspection import ParameterInfo, inspect_callable
 from talea.schema import PrimitiveSchema, TypedDictSchema
 
@@ -324,13 +324,14 @@ def test_generated_complex_paths_have_no_runtime_binder_or_schema_walk() -> None
 
 def test_variadic_adversarial_scale_sensitive_values_and_hostile_nested_mapping() -> None:
     type SecretInt = Annotated[int, Sensitive()]
+    type PositiveSecretInt = Annotated[SecretInt, Ge(0)]
 
     @validate_call
     def positional(*values: SecretInt) -> int:
         return len(values)
 
     @validate_call
-    def keywords(**values: SecretInt) -> int:
+    def keywords(**values: PositiveSecretInt) -> int:
         return len(values)
 
     @validate_call
@@ -347,8 +348,13 @@ def test_variadic_adversarial_scale_sensitive_values_and_hostile_nested_mapping(
         positional("secret")  # type: ignore[arg-type]
     assert positional_secret.value.errors()[0]["input"] == "<redacted>"
     with pytest.raises(ValidationError) as keyword_secret:
-        keywords(token="secret")  # type: ignore[arg-type]
+        keywords(**{"secret-key": -1})
     assert keyword_secret.value.errors()[0]["input"] == "<redacted>"
+    assert keyword_secret.value.location == ("values", "<redacted>")
+    assert "secret-key" not in str(keyword_secret.value)
+    assert "secret-key" not in repr(keyword_secret.value.errors())
+    assert "-1" not in str(keyword_secret.value)
+    assert "-1" not in repr(keyword_secret.value.errors())
     with pytest.raises(ValidationError) as hostile:
         nested(payload=HostileMapping())  # type: ignore[arg-type]
     assert hostile.value.location == ("values", "payload")

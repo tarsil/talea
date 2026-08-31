@@ -11,7 +11,7 @@ from typing import Annotated, NotRequired, TypedDict, Unpack
 import pytest
 from hypothesis import given, strategies as st
 
-from talea import Representation, Sensitive, Spec, ValidationError, validate_call
+from talea import Representation, Sensitive, Spec, ValidationError, check, validate_call
 from talea.introspection import CallableInfo, ParameterInfo, inspect_callable
 from talea.schema import PrimitiveSchema
 
@@ -231,6 +231,10 @@ def test_async_representation_stays_internal_and_sensitive_failures_redact() -> 
     async def secret_unpack(**kwargs: Unpack[AsyncSecrets]) -> AsyncSecrets:
         return kwargs
 
+    @validate_call
+    async def secret_keywords(**kwargs: Secret) -> int:
+        return len(kwargs)
+
     money = Money()
     assert run(identity(money)) is money
     with pytest.raises(ValidationError):
@@ -246,6 +250,47 @@ def test_async_representation_stays_internal_and_sensitive_failures_redact() -> 
     with pytest.raises(ValidationError) as unpacked:
         run(secret_unpack(token=123))  # type: ignore[typeddict-item]
     assert unpacked.value.errors()[0]["input"] == "<redacted>"
+    with pytest.raises(ValidationError) as keywords:
+        run(secret_keywords(**{"secret-key": 123}))  # type: ignore[arg-type]
+    assert keywords.value.location == ("kwargs", "<redacted>")
+    assert "secret-key" not in str(keywords.value)
+
+
+def test_async_sensitive_spec_check_arguments_and_returns_are_redacted() -> None:
+    secret = "async-callable-secret"
+
+    class Checked(Spec):
+        values: list[int]
+
+        @check("values")
+        def positive(values: list[int]) -> None:
+            if values[0] < 0:
+                raise ValueError(secret)
+
+    type SecretChecked = Annotated[Checked, Sensitive()]
+    checked = Checked(values=[1])
+    checked.values[0] = -1
+
+    @validate_call
+    async def accept(value: SecretChecked) -> int:
+        return value.values[0]
+
+    @validate_call
+    async def produce() -> SecretChecked:
+        return checked
+
+    for expected_location, operation in (
+        (("value", "values"), lambda: accept(checked)),
+        (("return", "values"), produce),
+    ):
+        with pytest.raises(ValidationError) as raised:
+            run(operation())
+        assert raised.value.location == expected_location
+        assert raised.value.value == "<redacted>"
+        assert raised.value.__cause__ is None
+        assert raised.value.__context__ is None
+        assert secret not in str(raised.value)
+        assert secret not in repr(raised.value.errors())
 
 
 def test_async_application_exceptions_and_mutation_are_application_owned() -> None:

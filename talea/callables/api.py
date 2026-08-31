@@ -13,10 +13,10 @@ from talea.callables.models import (
     _CallableParameter,
     _CallableSchema,
 )
-from talea.declaration.policies import schema_values_are_immutable
+from talea.declaration.policies import schema_root_metadata, schema_values_are_immutable
 from talea.errors import ValidationError
 from talea.metadata import annotation_metadata
-from talea.schema.nodes import TypedDictSchema
+from talea.schema.nodes import Schema, TypedDictSchema
 from talea.schema.resolution import resolve_annotation
 from talea.validation.compilation import compile_validator
 
@@ -221,7 +221,7 @@ def _decorate_function(
         signature,
         parameters,
         return_schema,
-        bool(annotation_metadata(return_annotation).sensitive),
+        _annotation_is_sensitive(return_annotation, return_schema),
         is_async,
         callable_kind,
     )
@@ -316,7 +316,7 @@ def _resolve_parameter(
     default = MISSING_DEFAULT if parameter.default is inspect.Parameter.empty else parameter.default
     immutable = False
     if default is not MISSING_DEFAULT:
-        validator = compile_validator(schema, sensitive=bool(annotation_metadata(annotation).sensitive))
+        validator = compile_validator(schema, sensitive=_annotation_is_sensitive(annotation, schema))
         try:
             validator(default)
         except ValidationError as error:
@@ -329,9 +329,15 @@ def _resolve_parameter(
         schema,
         default,
         immutable,
-        bool(annotation_metadata(annotation).sensitive),
+        _annotation_is_sensitive(annotation, schema),
         unpack_typed_dict=unpack_typed_dict,
     )
+
+
+def _annotation_is_sensitive(annotation: object, schema: Schema) -> bool:
+    """Project top-level sensitivity from direct or named-alias metadata."""
+
+    return bool(schema_root_metadata(schema, annotation_metadata(annotation)).sensitive)
 
 
 def _callable_schema(function: object) -> _CallableSchema:

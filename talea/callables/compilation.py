@@ -76,11 +76,15 @@ def _compile_wrapper(contract: _CallableSchema, *, asynchronous: bool) -> Callab
         elif parameter.kind == "VAR_KEYWORD" and not parameter.unpack_typed_dict:
             key = emitter.variable("variadic_key")
             item = emitter.variable("variadic_item")
+            item_location = emitter.sensitive_location_segment(
+                key,
+                sensitive=parameter.sensitive,
+            )
             emitter.emit(indentation, f"for {key}, {item} in {parameter.name}.items():")
             emitter.emit_schema(
                 schema,
                 item,
-                (location, key),
+                (location, item_location),
                 indentation + 1,
                 sensitive=parameter.sensitive,
             )

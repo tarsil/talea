@@ -20,6 +20,7 @@ from talea import (
     Sensitive,
     Spec,
     ValidationError,
+    check,
     validate_call,
 )
 from talea.callables.models import MISSING_DEFAULT, _CallableParameter, _CallableSchema
@@ -284,6 +285,88 @@ def test_sensitive_argument_and_return_failures_are_redacted() -> None:
         secret_return()
     assert returned.value.errors()[0]["input"] == "<redacted>"
     assert returned.value.location == ("return",)
+
+
+def test_sensitive_spec_check_argument_and_return_failures_are_redacted() -> None:
+    secret = "callable-secret"
+
+    class Checked(Spec):
+        left: list[int]
+        right: list[int]
+
+        @check("left")
+        def positive(left: list[int]) -> None:
+            if left[0] < 0:
+                raise ValueError(secret)
+
+        @check("left", "right")
+        def ordered(left: list[int], right: list[int]) -> None:
+            if left[0] > right[0]:
+                raise ValueError(secret)
+
+    type SecretChecked = Annotated[Checked, Sensitive()]
+
+    @validate_call
+    def accept(value: SecretChecked) -> int:
+        return value.left[0]
+
+    argument_value = Checked(left=[1], right=[2])
+    argument_value.left[0] = -1
+    with pytest.raises(ValidationError) as argument:
+        accept(argument_value)
+    assert argument.value.location == ("value", "left")
+    assert argument.value.value == "<redacted>"
+    assert argument.value.__cause__ is None
+    assert argument.value.__context__ is None
+    assert secret not in str(argument.value)
+    assert secret not in repr(argument.value.errors())
+
+    return_value = Checked(left=[1], right=[2])
+    return_value.left[0] = 3
+
+    @validate_call
+    def produce() -> SecretChecked:
+        return return_value
+
+    with pytest.raises(ValidationError) as returned:
+        produce()
+    assert returned.value.locations == (("return", "left"), ("return", "right"))
+    assert returned.value.value == "<redacted>"
+    assert returned.value.__cause__ is None
+    assert returned.value.__context__ is None
+    assert secret not in str(returned.value)
+    assert secret not in repr(returned.value.errors())
+
+
+def test_sensitive_constrained_alias_parameters_returns_and_defaults_are_redacted() -> None:
+    type SecretInt = Annotated[int, Sensitive()]
+    type PositiveSecretInt = Annotated[SecretInt, Ge(1)]
+
+    @validate_call
+    def accept(value: PositiveSecretInt) -> int:
+        return value
+
+    with pytest.raises(ValidationError) as argument:
+        accept(-1)
+
+    @validate_call
+    def produce() -> PositiveSecretInt:
+        return -1
+
+    with pytest.raises(ValidationError) as returned:
+        produce()
+
+    with pytest.raises(ValidationError) as invalid_default:
+
+        @validate_call
+        def defaulted(value: PositiveSecretInt = -1) -> int:
+            return value
+
+    for error in (argument.value, returned.value, invalid_default.value):
+        assert error.value == "<redacted>"
+        assert error.errors()[0]["input"] == "<redacted>"
+        assert "-1" not in str(error)
+        assert "-1" not in repr(error.errors())
 
 
 def test_defaults_fail_at_declaration_and_mutable_defaults_revalidate() -> None:
