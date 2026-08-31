@@ -28,4 +28,4 @@ jobs:
           HATCH_INDEX_AUTH: ${{ secrets.PYPI_TOKEN }}
       - name: "Deploy docs"
         run: |
-          curl -X POST '${{ secrets.DEPLOY_DOCS }}'
+          curl --fail-with-body --show-error --silent -X POST '${{ secrets.DEPLOY_DOCS }}'

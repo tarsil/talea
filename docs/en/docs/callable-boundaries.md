@@ -369,12 +369,15 @@ sync function and vice versa using ordinary Python execution and event-loop
 rules. Talea creates no task, `ContextVar`, coroutine registry, or shared
 per-call state.
 
-Generated identifiers are compiler-owned. Annotations, defaults, metadata,
-function names, and callback objects are retained as values in the generated
-function namespace rather than interpolated into source. Hostile reprs,
-quotes, newlines, Unicode, and unusual qualified names cannot become code. A
-wrapper naturally owns its contract and compiled globals for its own lifetime;
-there is no process-global callable registry or cache.
+Generated identifiers are compiler-owned. Parameter annotations and metadata
+are resolved into canonical schema and compiler state; defaults, location
+labels, runtime operations, and the original callable are bound as objects in
+the generated function namespace. Function metadata is copied only after
+compilation. None of these application-owned values is interpolated into
+source, so hostile reprs, quotes, newlines, Unicode, and unusual qualified
+names cannot become code. A wrapper naturally owns its contract and compiled
+globals for its own lifetime; there is no process-global callable registry or
+cache.
 
 Talea owns binding shape, generated-source safety, argument and return
 enforcement, metadata, and Sensitive redaction. The application owns function
