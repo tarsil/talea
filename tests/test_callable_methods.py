@@ -95,6 +95,7 @@ def test_classmethod_and_staticmethod_require_talea_as_outer_decorator() -> None
     assert Service.identify(1) == ("Service", 1)
     assert Child.identify(2) == ("Child", 2)
     assert Service.normalize(3) == 3
+    assert Child.normalize(4) == 4
     assert type(Service.__dict__["identify"]) is classmethod
     assert type(Service.__dict__["normalize"]) is staticmethod
     assert inspect_callable(Service.identify).callable_kind == "class_method"
@@ -204,11 +205,24 @@ def test_method_reentrancy_recursion_and_concurrency_have_no_shared_state() -> N
         def factorial(self, value: int) -> int:
             return 1 if value < 2 else value * self.factorial(value - 1)
 
+        @validate_call
+        @classmethod
+        def class_increment(cls, value: int) -> int:
+            del cls
+            return value + 1
+
+        @validate_call
+        @staticmethod
+        def static_increment(value: int) -> int:
+            return value + 1
+
     calculator = Calculator()
     assert calculator.twice(1) == 3
     assert calculator.factorial(6) == 720
     with ThreadPoolExecutor(max_workers=4) as executor:
         assert list(executor.map(calculator.increment, range(20))) == list(range(1, 21))
+        assert list(executor.map(Calculator.class_increment, range(20))) == list(range(1, 21))
+        assert list(executor.map(Calculator.static_increment, range(20))) == list(range(1, 21))
 
 
 def test_method_composes_with_dataclass_and_typed_dict_contracts() -> None:
@@ -244,6 +258,21 @@ def test_unsupported_method_execution_forms_remain_rejected() -> None:
             @validate_call
             def execute(self, value: int) -> int:
                 yield value  # type: ignore[misc]
+
+    with pytest.raises(TypeError, match="async generator functions"):
+
+        class AsyncGeneratorService:
+            @validate_call
+            async def execute(self, value: int) -> int:
+                yield value  # type: ignore[misc]
+
+    with pytest.raises(TypeError, match="parameter 'value'.*requires an annotation"):
+
+        class StaticService:
+            @validate_call
+            @staticmethod
+            def execute(value) -> int:
+                return value
 
     class CallableObject:
         def __call__(self, value: int) -> int:

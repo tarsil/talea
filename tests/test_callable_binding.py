@@ -7,6 +7,7 @@ import inspect
 from typing import Annotated, NotRequired, ReadOnly, TypedDict, Unpack
 
 import pytest
+from hypothesis import given, strategies as st
 
 from talea import Alias, Representation, Sensitive, Spec, ValidationError, validate_call
 from talea.introspection import ParameterInfo, inspect_callable
@@ -62,6 +63,18 @@ def test_keyword_only_mutable_defaults_revalidate_current_state() -> None:
     with pytest.raises(ValidationError) as captured:
         collect()
     assert captured.value.location == ("values", 0)
+
+
+def test_positional_only_and_keyword_only_immutable_defaults() -> None:
+    @validate_call
+    def defaults(value: int = 1, /, *, flag: bool = False) -> tuple[int, bool]:
+        return value, flag
+
+    assert defaults() == (1, False)
+    assert defaults(2, flag=True) == (2, True)
+    with pytest.raises(ValidationError) as captured:
+        defaults("1")  # type: ignore[arg-type]
+    assert captured.value.location == ("value",)
 
 
 def test_variadic_positional_validates_every_item_in_order_without_normalization() -> None:
@@ -154,6 +167,31 @@ def test_scalar_variadic_keywords_validate_nested_contracts() -> None:
     with pytest.raises(ValidationError) as captured:
         accept(job={"count": "bad"})  # type: ignore[typeddict-item]
     assert captured.value.location == ("values", "job", "count")
+
+
+def test_native_duplicate_binding_and_positional_name_inside_kwargs() -> None:
+    @validate_call
+    def boundary(value: int, /, other: int = 0, **metadata: int) -> tuple[int, int, dict[str, int]]:
+        return value, other, metadata
+
+    assert boundary(1, value=2) == (1, 0, {"value": 2})
+    with pytest.raises(TypeError):
+        boundary(1, 2, other=3)
+
+
+@given(
+    st.lists(st.integers(), max_size=30),
+    st.dictionaries(st.text(min_size=1, max_size=12), st.integers(), max_size=30),
+)
+def test_variadic_property_matches_direct_python_values(
+    args: list[int],
+    kwargs: dict[str, int],
+) -> None:
+    @validate_call
+    def boundary(*values: int, **metadata: int) -> tuple[tuple[int, ...], dict[str, int]]:
+        return values, metadata
+
+    assert boundary(*args, **kwargs) == (tuple(args), kwargs)
 
 
 class Options(TypedDict):
@@ -279,6 +317,7 @@ def test_generated_complex_paths_have_no_runtime_binder_or_schema_walk() -> None
     assert "Signature" not in loaded
     assert "Parameter" not in loaded
     assert "BoundArguments" not in loaded
+    assert "lock" not in {str(name).lower() for name in loaded}
     assert all("schema" not in str(name).lower() for name in loaded)
     assert sum(instruction.opname == "FOR_ITER" for instruction in instructions) == 2
 
