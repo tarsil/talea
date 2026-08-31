@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from functools import partial
 from statistics import median
 from timeit import Timer
-from typing import Annotated, TypedDict
+from typing import Annotated, NotRequired, TypedDict, Unpack
 
 from talea import Ge, Representation, Spec, ValidationError, validate_call
 
@@ -155,6 +155,263 @@ def talea_five(a: int, b: int, c: int, d: int, e: int) -> int:
     """Sum five integers through Talea's compiled boundary."""
 
     return a + b + c + d + e
+
+
+def handwritten_positional(value: int, /) -> int:
+    """Validate one positional-only integer and its return directly."""
+
+    if type(value) is not int:
+        raise TypeError
+    result = value
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+def talea_positional(value: int, /) -> int:
+    """Validate one positional-only integer through Talea."""
+
+    return value
+
+
+def handwritten_mixed(identifier: int, /, value: int) -> int:
+    """Validate mixed fixed parameters and return directly."""
+
+    if type(identifier) is not int or type(value) is not int:
+        raise TypeError
+    result = identifier + value
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+def talea_mixed(identifier: int, /, value: int) -> int:
+    """Validate mixed fixed parameters through Talea."""
+
+    return identifier + value
+
+
+def handwritten_keyword(*, value: int) -> int:
+    """Validate one keyword-only integer and return directly."""
+
+    if type(value) is not int:
+        raise TypeError
+    result = value
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+def talea_keyword(*, value: int) -> int:
+    """Validate one keyword-only integer through Talea."""
+
+    return value
+
+
+def handwritten_full(identifier: int, /, value: int, *, flag: bool, timeout: float = 1.0) -> int:
+    """Validate a full fixed signature and return directly."""
+
+    if type(identifier) is not int or type(value) is not int:
+        raise TypeError
+    if type(flag) is not bool or type(timeout) is not float:
+        raise TypeError
+    result = identifier + value + flag + int(timeout)
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+def talea_full(identifier: int, /, value: int, *, flag: bool, timeout: float = 1.0) -> int:
+    """Validate a full fixed signature through Talea."""
+
+    return identifier + value + flag + int(timeout)
+
+
+def handwritten_args(*values: int) -> int:
+    """Validate every variadic positional item with fail-fast semantics."""
+
+    for value in values:
+        if type(value) is not int:
+            raise TypeError
+    result = sum(values)
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+def talea_args(*values: int) -> int:
+    """Validate every variadic positional item through Talea."""
+
+    return sum(values)
+
+
+def handwritten_kwargs(**values: int) -> int:
+    """Validate every variadic keyword value with fail-fast semantics."""
+
+    for value in values.values():
+        if type(value) is not int:
+            raise TypeError
+    result = sum(values.values())
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+def talea_kwargs(**values: int) -> int:
+    """Validate every variadic keyword value through Talea."""
+
+    return sum(values.values())
+
+
+class SmallOptions(TypedDict):
+    """Small required-key unpack workload."""
+
+    retries: int
+    timeout: float
+
+
+class LargeOptions(TypedDict):
+    """Larger required/optional unpack workload."""
+
+    retries: int
+    timeout: float
+    enabled: bool
+    region: NotRequired[str]
+    trace_id: NotRequired[str]
+
+
+def handwritten_unpack_small(**values: Unpack[SmallOptions]) -> int:
+    """Validate the complete small TypedDict keyword structure directly."""
+
+    if tuple(values) != ("retries", "timeout"):
+        raise TypeError
+    if type(values["retries"]) is not int or type(values["timeout"]) is not float:
+        raise TypeError
+    result = values["retries"] + int(values["timeout"])
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+def talea_unpack_small(**values: Unpack[SmallOptions]) -> int:
+    """Validate the small TypedDict keyword structure through Talea."""
+
+    return values["retries"] + int(values["timeout"])
+
+
+def handwritten_unpack_large(**values: Unpack[LargeOptions]) -> int:
+    """Validate the complete larger TypedDict keyword structure directly."""
+
+    if not {"retries", "timeout", "enabled"}.issubset(values):
+        raise TypeError
+    if not set(values).issubset({"retries", "timeout", "enabled", "region", "trace_id"}):
+        raise TypeError
+    if type(values["retries"]) is not int or type(values["timeout"]) is not float:
+        raise TypeError
+    if type(values["enabled"]) is not bool:
+        raise TypeError
+    if "region" in values and type(values["region"]) is not str:
+        raise TypeError
+    if "trace_id" in values and type(values["trace_id"]) is not str:
+        raise TypeError
+    result = values["retries"] + values["enabled"]
+    if type(result) is not int:
+        raise TypeError
+    return result
+
+
+@validate_call
+def talea_unpack_large(**values: Unpack[LargeOptions]) -> int:
+    """Validate the larger TypedDict keyword structure through Talea."""
+
+    return values["retries"] + values["enabled"]
+
+
+class DirectMethods:
+    """Own direct descriptor-binding comparator methods."""
+
+    def instance(self, value: int) -> int:
+        return value
+
+    @classmethod
+    def class_method(cls, value: int) -> int:
+        del cls
+        return value
+
+    @staticmethod
+    def static_method(value: int) -> int:
+        return value
+
+
+class HandwrittenMethods:
+    """Own equivalent handwritten validated methods."""
+
+    def instance(self, value: int) -> int:
+        if type(value) is not int:
+            raise TypeError
+        result = value
+        if type(result) is not int:
+            raise TypeError
+        return result
+
+    @classmethod
+    def class_method(cls, value: int) -> int:
+        del cls
+        if type(value) is not int:
+            raise TypeError
+        result = value
+        if type(result) is not int:
+            raise TypeError
+        return result
+
+    @staticmethod
+    def static_method(value: int) -> int:
+        if type(value) is not int:
+            raise TypeError
+        result = value
+        if type(result) is not int:
+            raise TypeError
+        return result
+
+
+class TaleaMethods:
+    """Own Talea-validated descriptor workloads."""
+
+    @validate_call
+    def instance(self, value: int) -> int:
+        return value
+
+    @validate_call
+    @classmethod
+    def class_method(cls, value: int) -> int:
+        del cls
+        return value
+
+    @validate_call
+    @staticmethod
+    def static_method(value: int) -> int:
+        return value
+
+    @validate_call
+    def mixed(self, identifier: int, /, value: int, *items: int, flag: bool, **metadata: int) -> int:
+        return identifier + value + sum(items) + flag + sum(metadata.values())
+
+    @validate_call
+    def invalid_return(self, value: int) -> int:
+        del value
+        return "bad"  # ty: ignore[invalid-return-type]
+
+
+DIRECT_METHODS = DirectMethods()
+HANDWRITTEN_METHODS = HandwrittenMethods()
+TALEA_METHODS = TaleaMethods()
 
 
 def direct_return() -> int:
@@ -331,6 +588,15 @@ def declare_one() -> Callable[[int], int]:
     return validate_call(local)
 
 
+def declare_complex() -> Callable[..., int]:
+    """Compile and retain one fresh complete-signature callable boundary."""
+
+    def local(head: int, /, *items: int, flag: bool, **values: int) -> int:
+        return head + sum(items) + flag + sum(values.values())
+
+    return validate_call(local)
+
+
 def benchmark_success() -> None:
     """Measure direct, handwritten-equivalent, and Talea warm execution."""
 
@@ -376,6 +642,58 @@ def benchmark_structures() -> None:
         report(name, "talea", measure(talea))
 
 
+def benchmark_binding_forms() -> None:
+    """Measure complete fixed, variadic, unpack, and descriptor binding forms."""
+
+    fixed: tuple[tuple[str, Operation, Operation], ...] = (
+        ("positional-only", lambda: handwritten_positional(1), lambda: talea_positional(1)),
+        ("mixed positional", lambda: handwritten_mixed(1, 2), lambda: talea_mixed(1, 2)),
+        ("keyword-only", lambda: handwritten_keyword(value=1), lambda: talea_keyword(value=1)),
+        (
+            "mixed full fixed",
+            lambda: handwritten_full(1, 2, flag=True),
+            lambda: talea_full(1, 2, flag=True),
+        ),
+        ("bound instance method", lambda: HANDWRITTEN_METHODS.instance(1), lambda: TALEA_METHODS.instance(1)),
+        (
+            "classmethod",
+            lambda: HandwrittenMethods.class_method(1),
+            lambda: TaleaMethods.class_method(1),
+        ),
+        (
+            "staticmethod",
+            lambda: HandwrittenMethods.static_method(1),
+            lambda: TaleaMethods.static_method(1),
+        ),
+    )
+    for name, handwritten, talea in fixed:
+        report(name, "handwritten", measure(handwritten))
+        report(name, "talea", measure(talea))
+    report("bound instance method", "direct", measure(lambda: DIRECT_METHODS.instance(1)))
+    report("classmethod", "direct", measure(lambda: DirectMethods.class_method(1)))
+    report("staticmethod", "direct", measure(lambda: DirectMethods.static_method(1)))
+    report(
+        "mixed method signature",
+        "talea",
+        measure(lambda: TALEA_METHODS.mixed(1, 2, 3, 4, flag=True, extra=5)),
+    )
+
+    for size in (0, 1, 5, 20):
+        args = tuple(range(size))
+        kwargs = {f"k{index}": index for index in range(size)}
+        report(f"*args {size}", "handwritten", measure(lambda args=args: handwritten_args(*args)))
+        report(f"*args {size}", "talea", measure(lambda args=args: talea_args(*args)))
+        report(f"**kwargs {size}", "handwritten", measure(lambda kwargs=kwargs: handwritten_kwargs(**kwargs)))
+        report(f"**kwargs {size}", "talea", measure(lambda kwargs=kwargs: talea_kwargs(**kwargs)))
+
+    small: SmallOptions = {"retries": 1, "timeout": 1.0}
+    large: LargeOptions = {"retries": 1, "timeout": 1.0, "enabled": True, "region": "eu", "trace_id": "t"}
+    report("Unpack small", "handwritten", measure(lambda: handwritten_unpack_small(**small)))
+    report("Unpack small", "talea", measure(lambda: talea_unpack_small(**small)))
+    report("Unpack larger mix", "handwritten", measure(lambda: handwritten_unpack_large(**large)))
+    report("Unpack larger mix", "talea", measure(lambda: talea_unpack_large(**large)))
+
+
 def benchmark_defaults_and_binding() -> None:
     """Measure default policy and the rejected generic binder comparator."""
 
@@ -397,6 +715,25 @@ def benchmark_failures() -> None:
         ("invalid late argument", lambda: talea_five(1, 2, 3, 4, "bad"), ValidationError),  # ty: ignore[invalid-argument-type]
         ("invalid return", lambda: talea_invalid_return(1), ValidationError),
         ("application exception", lambda: talea_application_failure(1), ApplicationFailure),
+        ("positional-only as keyword", lambda: talea_positional(value=1), TypeError),  # ty: ignore[positional-only-parameter-as-kwarg]
+        ("missing keyword-only", lambda: talea_keyword(), TypeError),  # ty: ignore[missing-argument]
+        ("invalid *args first", lambda: talea_args("bad", 1), ValidationError),  # ty: ignore[invalid-argument-type]
+        ("invalid *args late", lambda: talea_args(1, 2, "bad"), ValidationError),  # ty: ignore[invalid-argument-type]
+        ("invalid **kwargs first", lambda: talea_kwargs(bad="x", later=1), ValidationError),  # ty: ignore[invalid-argument-type]
+        ("invalid **kwargs late", lambda: talea_kwargs(first=1, bad="x"), ValidationError),  # ty: ignore[invalid-argument-type]
+        ("Unpack missing key", lambda: talea_unpack_small(timeout=1.0), ValidationError),  # ty: ignore[missing-argument]
+        (
+            "Unpack unexpected key",
+            lambda: talea_unpack_small(retries=1, timeout=1.0, extra=1),
+            ValidationError,
+        ),
+        (
+            "Unpack wrong value",
+            lambda: talea_unpack_small(retries="bad", timeout=1.0),  # ty: ignore[invalid-argument-type]
+            ValidationError,
+        ),
+        ("method invalid argument", lambda: TALEA_METHODS.instance("bad"), ValidationError),  # ty: ignore[invalid-argument-type]
+        ("method invalid return", lambda: TALEA_METHODS.invalid_return(1), ValidationError),
     )
     for name, operation, error_type in failures:
         report(name, "talea", measure(partial(capture, operation, error_type), _FAILURE_ITERATIONS))
@@ -406,10 +743,17 @@ def benchmark_compilation_memory_and_bytecode() -> None:
     """Measure cold compilation, allocations, retention, and warm instructions."""
 
     report("cold decoration/compilation", "talea", measure(declare_one, _COLD_ITERATIONS))
+    report("cold complex compilation", "talea", measure(declare_complex, _COLD_ITERATIONS))
     operations: tuple[tuple[str, Operation], ...] = (
         ("empty call baseline", lambda: None),
         ("successful one int", lambda: talea_one(1)),
         ("failed one int", partial(capture, lambda: talea_one("bad"), ValidationError)),  # ty: ignore[invalid-argument-type]
+        ("successful *args 20", lambda: talea_args(*range(20))),
+        ("successful **kwargs 20", lambda: talea_kwargs(**{f"k{index}": index for index in range(20)})),
+        (
+            "failed *args late",
+            partial(capture, lambda: talea_args(1, 2, "bad"), ValidationError),  # ty: ignore[invalid-argument-type]
+        ),
     )
     print(f"Traced allocations ({_ALLOCATION_SAMPLES:,} warmed operations)")
     for name, operation in operations:
@@ -425,6 +769,16 @@ def benchmark_compilation_memory_and_bytecode() -> None:
     retained = (current - before) / len(wrappers)
     peak_per_wrapper = (peak - before) / len(wrappers)
     print(f"retained callable artifact             retained={retained:8.1f} B peak={peak_per_wrapper:8.1f} B")
+
+    gc.collect()
+    tracemalloc.start()
+    before, _ = tracemalloc.get_traced_memory()
+    complex_wrappers = [declare_complex() for _ in range(_RETAINED_WRAPPERS)]
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    complex_retained = (current - before) / len(complex_wrappers)
+    complex_peak = (peak - before) / len(complex_wrappers)
+    print(f"retained complex callable              retained={complex_retained:8.1f} B peak={complex_peak:8.1f} B")
     print(f"wrapper object shallow size            bytes={sys.getsizeof(talea_one):8}")
 
     for function in (talea_one, talea_two, talea_five):
@@ -437,6 +791,19 @@ def benchmark_compilation_memory_and_bytecode() -> None:
             f"bytecode {len(inspect.signature(function).parameters)} argument(s): "
             f"instructions={len(instructions)} calls={calls} globals={globals_loaded}"
         )
+    for name, function in (
+        ("positional-only", talea_positional),
+        ("keyword-only", talea_keyword),
+        ("mixed", talea_full),
+        ("*args", talea_args),
+        ("**kwargs", talea_kwargs),
+        ("Unpack", talea_unpack_small),
+        ("method", TaleaMethods.instance),
+    ):
+        instructions = tuple(dis.get_instructions(function))
+        calls = sum(instruction.opname == "CALL" for instruction in instructions)
+        loops = sum(instruction.opname == "FOR_ITER" for instruction in instructions)
+        print(f"bytecode {name:20} instructions={len(instructions):3} calls={calls:2} loops={loops}")
 
 
 def main() -> None:
@@ -444,6 +811,8 @@ def main() -> None:
 
     print(f"Callable warm execution ({_REPEATS} samples x {_HOT_ITERATIONS:,} operations)")
     benchmark_success()
+    print("\nComplete binding forms")
+    benchmark_binding_forms()
     print("\nStructured arguments")
     benchmark_structures()
     print("\nDefaults and binding")
