@@ -6,11 +6,11 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 
 - custom transforms, checks, serializers, and codecs are synchronous trusted
   callables; Talea does not sandbox them;
-- `validate_call` supports the complete synchronous Python binding and method
-  surface; async execution is deferred, generators and async generators are
-  unsupported, callable instances are unsupported, runtime generic-function
-  specialization is unsupported, and lost local deferred annotation names may
-  be unrecoverable;
+- `validate_call` supports complete synchronous and asynchronous Python
+  binding, awaited-return validation, and the method/descriptor surface;
+  generators, async generators, and callable instances are unsupported,
+  runtime generic-function specialization is unsupported, and lost local
+  deferred annotation names may be unrecoverable;
 - NamedTuple, attrs, ordinary-class, ORM-object, and settings-source mapping
   are not part of core;
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
@@ -63,6 +63,9 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   cannot roll back or resource-govern that application work;
 - callbacks have no timeout or cancellation boundary, and callback CPU,
   allocation, I/O, and output size remain application-owned;
+- async callable boundaries add no timeout, retry, task, or cancellation
+  policy; application coroutine I/O, task creation, cleanup, and resource use
+  remain application-owned;
 - Talea validates each declared direction but does not guarantee
   `dump(load(value)) == value`, `load(dump(value)) == value`, or byte-for-byte
   round trips;

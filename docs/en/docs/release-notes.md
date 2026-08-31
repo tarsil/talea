@@ -7,12 +7,12 @@
 - Python 3.15 support, with prerelease testing while Python 3.15 remains in
   beta. Coverage, static typing, and documentation integrity release gates
   continue to run on Python 3.14.
-- `validate_call` for complete strict synchronous Python binding: every fixed
-  parameter kind, defaults, `*args`, scalar `**kwargs`,
+- `validate_call` for complete strict synchronous and asynchronous Python
+  boundaries: every parameter kind, defaults, `*args`, scalar `**kwargs`,
   `Unpack[TypedDict]`, instance methods, classmethods, staticmethods, native
-  Python binding errors, compiled argument and return validation,
-  ParamSpec-preserving typing, standard descriptor metadata, and frozen
-  `inspect_callable` projections.
+  Python binding, compiled argument and awaited-return validation,
+  ParamSpec-preserving typing, cancellation transparency, descriptor metadata,
+  and frozen `inspect_callable` projections.
 
 ## 0.3.0
 

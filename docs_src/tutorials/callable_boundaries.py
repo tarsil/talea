@@ -1,5 +1,6 @@
-"""A payment execution service exercising complete synchronous Python binding."""
+"""Payment services exercising complete sync and async callable boundaries."""
 
+import asyncio
 import inspect
 from dataclasses import dataclass
 from typing import Annotated, Literal, NotRequired, TypedDict, Unpack
@@ -80,6 +81,53 @@ class PaymentService:
         return "authorized"  # ty: ignore[invalid-return-type]
 
 
+@dataclass(slots=True)
+class AsyncAuthorizationService:
+    """Authorize existing payment values through ordinary coroutine semantics."""
+
+    entered: asyncio.Event
+    cleanup_count: int = 0
+
+    @validate_call
+    async def authorize(
+        self,
+        receipt: PaymentReceipt,
+        /,
+        *,
+        capture: bool = False,
+        **options: Unpack[ExecutionOptions],
+    ) -> PaymentReceipt:
+        """Validate before I/O and validate the awaited service result."""
+
+        del capture, options
+        await asyncio.sleep(0)
+        return receipt
+
+    @validate_call
+    async def decline(self, payment_id: str) -> PaymentReceipt:
+        """Preserve an application-owned domain exception."""
+
+        raise AuthorizationDeclined(payment_id)
+
+    @validate_call
+    async def invalid_receipt(self, payment_id: str) -> PaymentReceipt:
+        """Model an async dependency returning invalid data."""
+
+        del payment_id
+        return "authorized"  # ty: ignore[invalid-return-type]
+
+    @validate_call
+    async def wait_for_settlement(self, receipt: PaymentReceipt) -> PaymentReceipt:
+        """Expose normal cancellation and cleanup behavior."""
+
+        self.entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cleanup_count += 1
+        return receipt
+
+
 assert PaymentService.connection_name("gateway") == "PaymentService:gateway"
 service = PaymentService("gateway")
 reference = PaymentService.normalize_reference("invoice-1843")
@@ -158,3 +206,59 @@ assert method_info.parameters[3].variadic_semantics == "items"
 assert method_info.parameters[-1].variadic_semantics == "unpack_typed_dict"
 assert inspect_callable(PaymentService.connection_name).callable_kind == "class_method"
 assert inspect_callable(PaymentService.normalize_reference).callable_kind == "static_method"
+
+
+async def exercise_async_boundaries() -> None:
+    """Exercise awaiting, task composition, failures, and cancellation."""
+
+    entered = asyncio.Event()
+    authorizer = AsyncAuthorizationService(entered)
+    async_info = inspect_callable(authorizer.authorize)
+    assert async_info.is_async is True
+    assert async_info.callable_kind == "instance_method"
+    assert inspect.iscoroutinefunction(authorizer.authorize)
+    assert inspect.unwrap(AsyncAuthorizationService.authorize).__name__ == "authorize"
+
+    authorized, repeated = await asyncio.gather(
+        authorizer.authorize(receipt, capture=True, timeout=1.5),
+        authorizer.authorize(receipt, timeout=2.0, trace_id="trace-8"),
+    )
+    assert authorized is receipt
+    assert repeated is receipt
+
+    # Value validation begins when the normal wrapper coroutine is awaited.
+    invalid = authorizer.authorize("not-a-receipt", timeout=1.5)  # ty: ignore[invalid-argument-type]
+    try:
+        await invalid
+    except ValidationError as error:
+        assert error.location == ("receipt",)
+    else:
+        raise AssertionError("an invalid async argument must fail before application I/O")
+
+    try:
+        await authorizer.invalid_receipt("payment-1")
+    except ValidationError as error:
+        assert error.location == ("return",)
+    else:
+        raise AssertionError("an invalid awaited result must not escape")
+
+    try:
+        await authorizer.decline("payment-1")
+    except AuthorizationDeclined as error:
+        assert error.args == ("payment-1",)
+    else:
+        raise AssertionError("application exceptions must propagate unchanged")
+
+    task = asyncio.create_task(authorizer.wait_for_settlement(receipt))
+    await entered.wait()
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("cancellation must remain visible to the caller")
+    assert authorizer.cleanup_count == 1
+
+
+asyncio.run(exercise_async_boundaries())
