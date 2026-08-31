@@ -48,7 +48,7 @@ def validate_call(function: Callable[P, R], /) -> Callable[P, R]:
 
     Raises:
         TypeError: If the target or callable form is outside this execution
-            slice, an annotation is missing, or an invalid default is declared.
+            slice or an annotation is missing.
         AnnotationResolutionError: If an annotation is not a concrete supported
             Talea contract.
         ValidationError: If a declared default already violates its annotation.

@@ -33,6 +33,7 @@ approximately zero cost when unused.
 | `benchmark_resources` | policy overhead and adversarial scaling |
 | `benchmark_dataclasses` | dataclass boundaries, cold work, memory, generated code, and zero-tax canaries |
 | `benchmark_representation` | represented strict/input/output paths, result validation, structural selection, allocation/retention, and zero-tax canaries |
+| `benchmark_callables` | direct/handwritten/compiled calls, binding comparator, structures, defaults, failures, allocations, retention, and bytecode |
 
 Run one task from the repository root, for example:
 
@@ -42,6 +43,7 @@ task benchmark_json
 task benchmark_resources
 task benchmark_dataclasses
 task benchmark_representation
+task benchmark_callables
 ```
 
 For release review, run every permanent benchmark task listed in

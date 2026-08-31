@@ -6,10 +6,11 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 
 - custom transforms, checks, serializers, and codecs are synchronous trusted
   callables; Talea does not sandbox them;
-- full callable argument/return annotation validation is not implemented;
-  callback shape is checked where declared, and Representation plus
-  `@serialize(..., output=...)` results are runtime-validated against their
-  explicit contracts;
+- `validate_call` currently supports ordinary synchronous functions with
+  positional-or-keyword parameters; positional-only, keyword-only, variadic,
+  `Unpack[TypedDict]`, method/descriptor, and async execution are not yet
+  implemented, while generators, async generators, and callable instances are
+  outside its scope;
 - NamedTuple, attrs, ordinary-class, ORM-object, and settings-source mapping
   are not part of core;
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
@@ -86,6 +87,8 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - recursive/local dataclass annotations must be resolvable through Python's
   normal module annotation namespace; Contract does not inspect caller frames
   to reconstruct function-local names;
+- directly decorated callables can resolve a live local declaration scope, but
+  a deferred function-local name cannot be recovered after that scope is gone;
 - concrete path-class availability follows the running platform;
 - compatibility, deprecation, and long-term support policy remain intentionally
   evolvable across the 0.x series.
