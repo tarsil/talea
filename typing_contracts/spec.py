@@ -38,8 +38,17 @@ from talea import (
     field,
     serialize,
     transform,
+    validate_call,
 )
-from talea.introspection import ContractInfo, RepresentationInfo, SpecInfo, inspect_contract, inspect_spec
+from talea.introspection import (
+    CallableInfo,
+    ContractInfo,
+    RepresentationInfo,
+    SpecInfo,
+    inspect_callable,
+    inspect_contract,
+    inspect_spec,
+)
 
 
 @dataclass
@@ -178,6 +187,22 @@ class ContractPayload(TypedDict):
 
 assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), ContractPayload)
 assert_type(Contract[User](User).validate(user), User)
+
+
+@validate_call
+def typed_transfer(amount: int, fee: int = 1) -> int:
+    return amount - fee
+
+
+@validate_call
+def typed_payload(payload: ContractPayload) -> ContractPayload:
+    return payload
+
+
+assert_type(typed_transfer(3), int)
+assert_type(typed_transfer(amount=3, fee=1), int)
+assert_type(typed_payload({"id": 1}), ContractPayload)
+assert_type(inspect_callable(typed_transfer), CallableInfo)
 assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
 UserPatch = derive_spec(User, partial=True)
 UserInput = derive_spec(User, mode="input")

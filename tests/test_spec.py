@@ -72,6 +72,7 @@ def test_root_package_exports_only_the_deliberate_public_api() -> None:
         "field",
         "serialize",
         "transform",
+        "validate_call",
     ]
     assert talea.Spec is Spec
     assert talea.field is field

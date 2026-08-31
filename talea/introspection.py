@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 from threading import RLock
 from typing import Annotated, Literal, cast, get_args, get_origin
 from weakref import WeakKeyDictionary
 
+from talea.callables.api import _callable_schema
+from talea.callables.models import ParameterKind
 from talea.constraints import Constraint, Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
@@ -43,13 +46,16 @@ from talea.spec.declaration import _SpecDeclaration
 from talea.spec.fields import _FactoryDeclaration
 
 __all__ = [
+    "CallableInfo",
     "ContractInfo",
     "DerivationInfo",
     "FieldInfo",
+    "ParameterInfo",
     "RepresentationInfo",
     "SerializerInfo",
     "SpecInfo",
     "inspect_contract",
+    "inspect_callable",
     "inspect_spec",
 ]
 
@@ -88,6 +94,27 @@ class FieldInfo:
     write_only: bool
     sensitive: bool
     omittable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ParameterInfo:
+    """Describe one callable parameter without exposing defaults or execution."""
+
+    name: str
+    kind: ParameterKind
+    schema: Schema | None
+    required: bool
+    has_default: bool
+
+
+@dataclass(frozen=True, slots=True)
+class CallableInfo:
+    """Describe one callable boundary as immutable canonical projection."""
+
+    signature: inspect.Signature
+    parameters: tuple[ParameterInfo, ...]
+    return_schema: Schema
+    is_async: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +284,35 @@ def inspect_contract[T](contract: Contract[T]) -> ContractInfo:
         bool(metadata.sensitive),
         _schema_operations((contract._artifacts.schema,)),
         _representation_infos((contract._artifacts.schema,)),
+    )
+
+
+def inspect_callable(function: Callable[..., object]) -> CallableInfo:
+    """Return an immutable description of a ``validate_call`` boundary.
+
+    The description projects the retained callable contract. Generated source,
+    validators, globals, caches, and the original callable remain private;
+    ordinary Python tooling can obtain the original through ``__wrapped__``.
+
+    Raises:
+        TypeError: If ``function`` is not a Talea validated-call wrapper.
+    """
+
+    contract = _callable_schema(function)
+    return CallableInfo(
+        contract.signature,
+        tuple(
+            ParameterInfo(
+                parameter.name,
+                parameter.kind,
+                parameter.schema,
+                parameter.required,
+                not parameter.required,
+            )
+            for parameter in contract.parameters
+        ),
+        contract.return_schema,
+        contract.is_async,
     )
 
 

@@ -21,6 +21,7 @@ from talea import (
     field,
     serialize,
     transform,
+    validate_call,
 )
 from talea.introspection import inspect_contract, inspect_spec
 
@@ -118,6 +119,16 @@ class Box[T](Spec):
 Box[int](value="1")  # ty: ignore[invalid-argument-type]
 
 user = User(id=1)
+
+
+@validate_call
+def typed_transfer(amount: int, fee: int = 1) -> int:
+    return amount - fee
+
+
+typed_transfer("3")  # ty: ignore[invalid-argument-type]
+typed_transfer(unexpected=3)  # ty: ignore[missing-argument, unknown-argument]
+wrong_transfer_result: str = typed_transfer(3)  # ty: ignore[invalid-assignment]
 user.id = 2  # ty: ignore[invalid-assignment]
 
 
