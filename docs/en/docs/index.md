@@ -174,6 +174,7 @@ technical consequences in detail.
 | Records | strict keyword-only immutable slotted Specs, defaults/factories, inheritance, generics, recursion |
 | Validation | exact Python types, constraints, transforms, field and whole-Spec checks, structured errors |
 | Boundaries | trusted Python, external Mapping, strict JSON, arbitrary Contract roots |
+| Callables | strict compiled sync/async argument and return validation with native Python binding and methods |
 | Composition | nested Specs, stdlib dataclasses, TypedDict, aliases, represented custom domain types, unions, canonical tagged dispatch, recursive named graphs |
 | Updates | `copy.replace`, `derive_spec`, presence-aware partials, `apply_patch` |
 | Output | detached Python projection, JSON representations, nested selection, field serializers with optional declared output truth, per-call codec boundaries |
@@ -231,6 +232,7 @@ page](release-ledger.md) make that cost explicit.
 | Model partial updates | [PATCH and presence](presence-derived-contracts.md) | [`derive_spec` / `apply_patch` API](reference/api.md#derive_spec-and-apply_patch) |
 | Consume event messages | [Tagged unions](tagged-unions.md) | [Recursion/generics](recursive-generics.md), [schemas](json-schema-openapi.md) |
 | Validate arbitrary roots | [Contract](contracts.md) | [Supported types](supported-types.md) |
+| Validate function boundaries | [Callable boundaries](callable-boundaries.md) | [Typing](reference/typing.md), [introspection](reference/introspection.md) |
 | Represent custom domain types | [Custom representations](custom-representations.md) | [Serialization](serialization.md), [schemas](json-schema-openapi.md) |
 | Build framework tooling | [Introspection](reference/introspection.md) | [OpenAPI](json-schema-openapi.md), [architecture](engineering/architecture.md) |
 | Perform security review | [Resource and security model](resource-security.md) | [Security summary](engineering/security.md) |

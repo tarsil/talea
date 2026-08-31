@@ -1,5 +1,6 @@
 """Public Talea declaration, constraint, and validation-error API."""
 
+from talea.callables import validate_call
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
@@ -48,6 +49,7 @@ __all__ = [
     "field",
     "serialize",
     "transform",
+    "validate_call",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

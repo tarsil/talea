@@ -21,6 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Software Development",
     "Topic :: Software Development :: Libraries",
     "Topic :: Software Development :: Libraries :: Python Modules",
@@ -146,6 +147,7 @@ benchmark_json_schema = "python benchmarks/json_schema.py"
 benchmark_resources = "python benchmarks/resource_security.py"
 benchmark_dataclasses = "python benchmarks/dataclass_interoperability.py"
 benchmark_representation = "python benchmarks/representation_input.py"
+benchmark_callables = "python benchmarks/callables.py"
 
 [tool.isort]
 profile = "black"

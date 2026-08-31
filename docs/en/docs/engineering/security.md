@@ -18,6 +18,7 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | nested output selection | canonical schema validation, immutable normalization, direct projection | authorization to request or disclose fields |
 | represented custom values | declared input/output result validation, exact-once callback transport, Sensitive error policy | callback CPU, memory, mutation, I/O, logging, and output amplification |
 | declared serializer output | complete result validation, exact-once callback transport, callback-free schema/selection discovery, Sensitive cause suppression | callback CPU, memory, mutation, reentrancy, I/O, logging, and output amplification |
+| validated callables | generated-source safety, native binding shape, strict arguments and returns, Sensitive failure policy | function CPU, memory, I/O, locks, side effects, mutation, recursion, exceptions |
 
 The finite default policy is 8 MiB JSON transport, depth 64, 100,000 compiled
 node visits, and 100 aggregated errors. It reduces Talea-owned unbounded work;

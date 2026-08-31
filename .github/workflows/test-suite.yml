@@ -15,14 +15,19 @@ permissions:
 
 jobs:
   tests:
-    name: "Python 3.14 release gates"
+    name: "Python release gates"
     runs-on: "ubuntu-latest"
+
+    strategy:
+      matrix:
+        python-version: ["3.14", "3.15"]
 
     steps:
       - uses: "actions/checkout@v7"
       - uses: "actions/setup-python@v7"
         with:
-          python-version: "3.14"
+          python-version: "${{ matrix.python-version }}"
+          allow-prereleases: true
       - name: "Install dependencies"
         run: "python -m pip install hatch"
       - name: "Run linting checks"
@@ -32,12 +37,15 @@ jobs:
       - name: "Prove quality checks did not mutate sources"
         run: "git diff --exit-code"
       - name: "Run typing checks"
+        if: "matrix.python-version == '3.14'"
         run: "hatch run test:check_types"
       - name: "Run tests"
         run: "hatch run test:test"
       - name: "Enforce 100% coverage"
+        if: "matrix.python-version == '3.14'"
         run: "hatch run test:coverage"
       - name: "Execute documentation examples and integrity checks"
+        if: "matrix.python-version == '3.14'"
         run: "hatch run docs:test"
       - name: "Build documentation"
         run: "hatch run docs:build"

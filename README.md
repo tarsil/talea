@@ -131,6 +131,7 @@ replacement, or a guarantee of future superiority.
 | `to_dict()` / `to_python()` | an application needs detached Python output | schema-aware projection and current-state validation |
 | `to_json()` | an application needs JSON text | schema-aware projection followed by encoding |
 | `json_schema()` / `openapi_schema()` | tooling needs a standards description | projection from the same canonical graph |
+| `@validate_call` | an application function is itself a typed boundary | native Python binding plus strict argument and return validation |
 
 JSON and Mapping boundaries are not aliases for the constructor. For example,
 `Decimal`, UUID, temporal values, paths, IP values, bytes, enums, nested Specs,
@@ -160,6 +161,9 @@ Talea currently provides:
   finite nested include/exclude selection;
 - reusable annotation-scoped `Representation` contracts for explicit custom
   domain input/output across runtime, schemas, introspection, and selection;
+- strict compiled synchronous and asynchronous callable boundaries with native
+  binding, complete parameter grammar, methods, return validation, typing, and
+  immutable introspection;
 - optional declared `output=` contracts for field serializers, while legacy
   undeclared serializer results remain opaque;
 - JSON Schema Draft 2020-12 and OpenAPI 3.1-compatible Schema Objects;
@@ -257,6 +261,7 @@ It is likely the wrong choice when:
 - [Five-minute quickstart](https://talea.tarsild.io/getting-started/quickstart/)
 - [Progressive tutorial](https://talea.tarsild.io/getting-started/tutorial/)
 - [Production service boundary](https://talea.tarsild.io/getting-started/production-service/)
+- [Strict callable boundaries](https://talea.tarsild.io/callable-boundaries/)
 - [Concepts and mental model](https://talea.tarsild.io/concepts/)
 - [How-to recipes](https://talea.tarsild.io/guides/recipes/)
 - [Complete API reference](https://talea.tarsild.io/reference/api/)

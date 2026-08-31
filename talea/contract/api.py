@@ -1,35 +1,20 @@
 """Expose retained arbitrary annotation contracts over canonical Talea owners."""
 
 from collections.abc import Callable
-from dataclasses import replace
 from typing import Generic, Literal, TypeVar, cast, overload
 
 from talea.contract.artifacts import _ContractArtifacts
-from talea.declaration.policies import schema_contains_sensitive_metadata
+from talea.declaration.policies import schema_contains_sensitive_metadata, schema_root_metadata
 from talea.input.json import JsonInput, JsonLoads, decode_json
-from talea.metadata import DeclarationMetadata, annotation_metadata
+from talea.metadata import annotation_metadata
 from talea.resources.policy import ResourcePolicy, resolve_policy
 from talea.resources.state import resource_state
-from talea.schema.nodes import AliasSchema, ConstrainedSchema, Schema
 from talea.schema.resolution import resolve_annotation
 from talea.serialization.json import JsonDumps, encode_json
 from talea.validation.compilation import compile_validator
 from talea.validation.failure_contracts import describe_schema
 
 T = TypeVar("T")
-
-
-def _contract_metadata(schema: Schema, use_site: DeclarationMetadata) -> DeclarationMetadata:
-    """Project root alias identity beneath explicit Contract use-site metadata."""
-
-    while isinstance(schema, ConstrainedSchema):
-        schema = schema.schema
-    if not isinstance(schema, AliasSchema):
-        return use_site
-    metadata = schema.metadata.merged(use_site)
-    if schema.metadata.sensitive and metadata.sensitive is False:
-        return replace(metadata, sensitive=True)
-    return metadata
 
 
 class Contract(Generic[T]):
@@ -91,7 +76,7 @@ class Contract(Generic[T]):
         """
 
         schema = resolve_annotation(annotation)
-        metadata = _contract_metadata(schema, annotation_metadata(annotation))
+        metadata = schema_root_metadata(schema, annotation_metadata(annotation))
         validator = compile_validator(schema, sensitive=bool(metadata.sensitive))
         self._annotation = annotation
         self._policy = resolve_policy(policy)

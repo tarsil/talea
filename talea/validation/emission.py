@@ -382,13 +382,29 @@ class _ValidationEmitter:
     ) -> None:
         """Emit one direct inbound callback and narrow failure translation."""
 
+        sensitive = sensitive or self.sensitive
         callback = self.bind("transform", hook.function)
         error = self.variable("hook_error")
         value_error = self.runtime("value_error", ValueError)
+        deferred_failure = self.variable("sensitive_failure") if sensitive else None
+        if deferred_failure is not None:
+            self.emit(indentation, f"{deferred_failure} = None")
         self.emit(indentation, "try:")
         self.emit(indentation + 1, f"{value} = {callback}({value})")
         self.emit(indentation, f"except {value_error} as {error}:")
-        self.emit_hook_failure("transform", hook, value, (location,), error, indentation + 1, sensitive)
+        self.emit_hook_failure(
+            "transform",
+            hook,
+            value,
+            (location,),
+            error,
+            indentation + 1,
+            sensitive,
+            deferred_failure,
+        )
+        if deferred_failure is not None:
+            self.emit(indentation, f"if {deferred_failure} is not None:")
+            self.emit(indentation + 1, f"raise {deferred_failure} from None")
 
     def emit_check(
         self,
@@ -401,19 +417,35 @@ class _ValidationEmitter:
     ) -> None:
         """Emit one direct assertion callback without retaining its result."""
 
+        sensitive = sensitive or self.sensitive
         callback = self.bind("check", hook.function)
         error = self.variable("hook_error")
         result = self.variable("check_result")
         value_error = self.runtime("value_error", ValueError)
         type_error = self.runtime("type_error", TypeError)
         hook_name = self.bind("hook_name", hook.name)
+        deferred_failure = self.variable("sensitive_failure") if sensitive else None
         arguments = ", ".join(values)
         rejected = values[0] if len(values) == 1 else f"({arguments},)"
         stage = "field_check" if len(values) == 1 else "spec_check"
+        if deferred_failure is not None:
+            self.emit(indentation, f"{deferred_failure} = None")
         self.emit(indentation, "try:")
         self.emit(indentation + 1, f"{result} = {callback}({arguments})")
         self.emit(indentation, f"except {value_error} as {error}:")
-        self.emit_hook_failure(stage, hook, rejected, locations, error, indentation + 1, sensitive)
+        self.emit_hook_failure(
+            stage,
+            hook,
+            rejected,
+            locations,
+            error,
+            indentation + 1,
+            sensitive,
+            deferred_failure,
+        )
+        if deferred_failure is not None:
+            self.emit(indentation, f"if {deferred_failure} is not None:")
+            self.emit(indentation + 1, f"raise {deferred_failure} from None")
         self.emit(indentation, f"if {result} is not None:")
         self.emit(indentation + 1, f'raise {type_error}(f"validation check {{{hook_name}!r}} must return None")')
 
@@ -426,6 +458,7 @@ class _ValidationEmitter:
         error: str,
         indentation: int,
         sensitive: bool,
+        deferred_failure: str | None,
     ) -> None:
         """Emit custom failure transport only inside a callback failure path."""
 
@@ -433,11 +466,16 @@ class _ValidationEmitter:
         hook_name = self.bind("hook_name", hook.name)
         location_expressions = ", ".join(self.location_expression(location) for location in locations)
         locations_expression = f"({location_expressions},)"
+        construction = (
+            f"{custom_error}({stage!r}, {hook_name}, {value}, {locations_expression}"
+            f"{self.title_argument()}{', sensitive=True' if sensitive else ''})"
+        )
+        if deferred_failure is not None:
+            self.emit(indentation, f"{deferred_failure} = {construction}")
+            return
         self.emit(
             indentation,
-            f"raise {custom_error}({stage!r}, {hook_name}, {value}, {locations_expression}"
-            f"{self.title_argument()}{', sensitive=True' if sensitive else ''}) "
-            f"from {'None' if sensitive else error}",
+            f"raise {construction} from {error}",
         )
 
     def emit_primitive(
@@ -997,10 +1035,10 @@ class _ValidationEmitter:
 
         return ", sensitive=True" if self.sensitive else ""
 
-    def sensitive_location_segment(self, expression: str) -> str:
-        """Replace value-derived location members on sensitive failure paths."""
+    def sensitive_location_segment(self, expression: str, *, sensitive: bool = False) -> str:
+        """Replace value-derived location members under effective sensitivity."""
 
-        return self.bind("redacted_location", REDACTED) if self.sensitive else expression
+        return self.bind("redacted_location", REDACTED) if self.sensitive or sensitive else expression
 
     def emit(self, indentation: int, statement: str) -> None:
         """Append one generated statement at the requested indentation."""

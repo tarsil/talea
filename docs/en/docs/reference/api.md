@@ -10,6 +10,7 @@ are not public.
 | --- | --- | --- |
 | `Spec` | Immutable declared record and boundary operations | `ValidationError`, `ResourceLimitError`, `SerializationError`, `SchemaProjectionError` |
 | `Contract` | Retained arbitrary annotation contract | annotation declaration errors and the same operation failures |
+| `validate_call` | Compile strict argument and return validation for synchronous functions and methods | declaration `TypeError`, binding `TypeError`, `ValidationError`, unchanged application exceptions |
 | `Representation` | Bind explicit input/output schemas and trusted callbacks to one custom Python type position | declaration `TypeError`, `ValidationError`, `SerializationError`, `SchemaProjectionError` |
 | `field` | Declare a default factory | declaration `TypeError` |
 | `create_spec` | Build a normal Spec class from trusted runtime declarations | `TypeError` |
@@ -54,9 +55,20 @@ to `Contract(...)` is retained; an explicit per-call input policy replaces it.
 ## Introspection domain
 
 `talea.introspection` exports `FieldInfo`, `DerivationInfo`, `SpecInfo`,
-`ContractInfo`, `RepresentationInfo`, `SerializerInfo`, `inspect_spec`, and
-`inspect_contract`. See
+`ContractInfo`, `RepresentationInfo`, `SerializerInfo`, `CallableInfo`,
+`ParameterInfo`, `inspect_spec`, `inspect_contract`, and `inspect_callable`. See
 [Introspection](introspection.md).
+
+## `validate_call`
+
+`validate_call(function, /)` returns the same statically typed callable shape
+through `ParamSpec` and compiles all fixed parameter kinds, variadics,
+`Unpack[TypedDict]`, instance/class/static methods, and return validation.
+Python owns binding errors; Talea owns parameter and return
+`ValidationError` locations; the application owns exceptions raised by the
+function. The original function is available through `__wrapped__`. See
+[Strict callable boundaries](../callable-boundaries.md) for defaults,
+introspection, security, performance, and the current callable-form limits.
 
 ## Error and validation domains
 

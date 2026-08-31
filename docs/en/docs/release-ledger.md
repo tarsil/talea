@@ -1,6 +1,6 @@
 # Version, maturity, and support
 
-Talea is currently version 0.3.0 and deliberately remains in the 0.x release
+Talea is currently version 0.4.0 and deliberately remains in the 0.x release
 series. The implemented runtime is substantial, but compatibility, deprecation
 windows, long-term support, and formal vulnerability-reporting governance are
 not yet frozen. The 0.x series is an ongoing product stage, not an indication
@@ -16,16 +16,19 @@ types, stdlib dataclass Contracts, TypedDict and PEP 695 aliases, tagged unions,
 serialization, structured errors, metadata and redaction, presence-aware
 derived/PATCH Specs, explicit input/output derived views, introspection, dynamic creation, JSON Schema Draft 2020-12,
 OpenAPI 3.1-compatible projection, and finite external-input resource policies.
-Talea 0.3.0 also includes root-public `Representation` contracts for explicit
+Talea 0.3.0 added root-public `Representation` contracts for explicit
 custom domain types across directional input/output, standards projection,
 introspection, and nested selection, plus optional declared output contracts on
-field serializers.
+field serializers. Talea 0.4.0 adds strict compiled callable boundaries for
+synchronous and asynchronous functions, complete Python parameter binding,
+methods and descriptors, return validation, typing, and immutable
+introspection.
 
 ## Deliberate boundaries
 
 | Capability | Current disposition |
 | --- | --- |
-| callable argument/return validation | Not implemented; requires signature, descriptor, async, and typing policy |
+| callable argument/return validation | Implemented for synchronous and asynchronous functions and methods through `validate_call`; generators, async generators, callable instances, runtime generic-function specialization, callable `ResourcePolicy`, timeouts, and retries remain outside this owner |
 | explicit ReadOnly/WriteOnly input/output Spec views | Implemented through declaration-time `derive_spec(mode=...)` selection |
 | nested runtime output projection | Implemented through finite canonical-name include/exclude trees on `Spec.to_dict()` and `Spec.to_json()`; schema/OpenAPI remain unchanged |
 | automatic runtime ReadOnly/WriteOnly enforcement | Deliberately absent; ordinary source-Spec behavior remains unchanged |

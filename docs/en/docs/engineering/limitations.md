@@ -6,10 +6,11 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 
 - custom transforms, checks, serializers, and codecs are synchronous trusted
   callables; Talea does not sandbox them;
-- full callable argument/return annotation validation is not implemented;
-  callback shape is checked where declared, and Representation plus
-  `@serialize(..., output=...)` results are runtime-validated against their
-  explicit contracts;
+- `validate_call` supports complete synchronous and asynchronous Python
+  binding, awaited-return validation, and the method/descriptor surface;
+  generators, async generators, and callable instances are unsupported,
+  runtime generic-function specialization is unsupported, and lost local
+  deferred annotation names may be unrecoverable;
 - NamedTuple, attrs, ordinary-class, ORM-object, and settings-source mapping
   are not part of core;
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
@@ -62,6 +63,9 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   cannot roll back or resource-govern that application work;
 - callbacks have no timeout or cancellation boundary, and callback CPU,
   allocation, I/O, and output size remain application-owned;
+- async callable boundaries add no timeout, retry, task, or cancellation
+  policy; application coroutine I/O, task creation, cleanup, and resource use
+  remain application-owned;
 - Talea validates each declared direction but does not guarantee
   `dump(load(value)) == value`, `load(dump(value)) == value`, or byte-for-byte
   round trips;
@@ -86,6 +90,8 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - recursive/local dataclass annotations must be resolvable through Python's
   normal module annotation namespace; Contract does not inspect caller frames
   to reconstruct function-local names;
+- directly decorated callables can resolve a live local declaration scope, but
+  a deferred function-local name cannot be recovered after that scope is gone;
 - concrete path-class availability follows the running platform;
 - compatibility, deprecation, and long-term support policy remain intentionally
   evolvable across the 0.x series.

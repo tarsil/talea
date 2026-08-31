@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Literal, TypedDict, assert_type
+from typing import Annotated, Literal, NotRequired, TypedDict, Unpack, assert_type
 from uuid import UUID
 
 from talea import (
@@ -38,8 +38,17 @@ from talea import (
     field,
     serialize,
     transform,
+    validate_call,
 )
-from talea.introspection import ContractInfo, RepresentationInfo, SpecInfo, inspect_contract, inspect_spec
+from talea.introspection import (
+    CallableInfo,
+    ContractInfo,
+    RepresentationInfo,
+    SpecInfo,
+    inspect_callable,
+    inspect_contract,
+    inspect_spec,
+)
 
 
 @dataclass
@@ -178,6 +187,137 @@ class ContractPayload(TypedDict):
 
 assert_type(Contract[ContractPayload](ContractPayload).validate({"id": 1}), ContractPayload)
 assert_type(Contract[User](User).validate(user), User)
+
+
+@validate_call
+def typed_transfer(amount: int, fee: int = 1) -> int:
+    return amount - fee
+
+
+@validate_call
+def typed_payload(payload: ContractPayload) -> ContractPayload:
+    return payload
+
+
+assert_type(typed_transfer(3), int)
+assert_type(typed_transfer(amount=3, fee=1), int)
+assert_type(typed_payload({"id": 1}), ContractPayload)
+assert_type(inspect_callable(typed_transfer), CallableInfo)
+
+
+class CallableOptions(TypedDict):
+    timeout: float
+    trace_id: NotRequired[str]
+
+
+@validate_call
+def typed_complete(
+    identifier: int,
+    /,
+    value: str,
+    *items: int,
+    flag: bool,
+    **metadata: str,
+) -> tuple[int, str]:
+    del items, flag, metadata
+    return identifier, value
+
+
+@validate_call
+def typed_unpack(**kwargs: Unpack[CallableOptions]) -> CallableOptions:
+    return kwargs
+
+
+class TypedService:
+    @validate_call
+    def method(self, value: int, /, *, enabled: bool = True) -> int:
+        return value if enabled else 0
+
+    @validate_call
+    @classmethod
+    def create(cls, value: int) -> int:
+        del cls
+        return value
+
+    @validate_call
+    @staticmethod
+    def normalize(value: int) -> int:
+        return value
+
+
+@validate_call
+async def typed_async_complete(
+    identifier: int,
+    /,
+    value: str,
+    *items: int,
+    flag: bool,
+    **metadata: str,
+) -> tuple[int, str]:
+    del items, flag, metadata
+    return identifier, value
+
+
+@validate_call
+async def typed_async_unpack(**kwargs: Unpack[CallableOptions]) -> CallableOptions:
+    return kwargs
+
+
+@validate_call
+async def typed_async_payload(payload: ContractPayload) -> ContractPayload:
+    return payload
+
+
+@validate_call
+async def typed_async_structures(
+    money: TypedMoneyValue,
+    user: User,
+    dataclass_user: DataclassUser,
+    payload: ContractPayload,
+) -> TypedMoneyValue:
+    del user, dataclass_user, payload
+    return money
+
+
+class TypedAsyncService:
+    @validate_call
+    async def method(self, value: int, /, *, enabled: bool = True) -> int:
+        return value if enabled else 0
+
+    @validate_call
+    @classmethod
+    async def create(cls, value: int) -> int:
+        del cls
+        return value
+
+    @validate_call
+    @staticmethod
+    async def normalize(value: int) -> int:
+        return value
+
+
+async def check_async_callable_types() -> None:
+    service = TypedAsyncService()
+    assert_type(await typed_async_complete(1, "value", 2, flag=True, source="sdk"), tuple[int, str])
+    assert_type(await typed_async_unpack(timeout=1.0, trace_id="trace"), CallableOptions)
+    assert_type(await typed_async_payload({"id": 1}), ContractPayload)
+    assert_type(
+        await typed_async_structures(TypedMoney(), user, DataclassUser(1, "Ada"), {"id": 1}),
+        TypedMoney,
+    )
+    assert_type(await service.method(1, enabled=False), int)
+    assert_type(await TypedAsyncService.create(1), int)
+    assert_type(await TypedAsyncService.normalize(1), int)
+
+
+typed_service = TypedService()
+assert_type(typed_complete(1, "value", 2, 3, flag=True, source="sdk"), tuple[int, str])
+assert_type(typed_unpack(timeout=1.0), CallableOptions)
+assert_type(typed_unpack(timeout=1.0, trace_id="trace"), CallableOptions)
+assert_type(typed_service.method(1, enabled=False), int)
+assert_type(TypedService.create(1), int)
+assert_type(TypedService.normalize(1), int)
+assert_type(inspect_callable(typed_async_complete), CallableInfo)
 assert_type(create_spec("Dynamic", {"value": int}), type[Spec])
 UserPatch = derive_spec(User, partial=True)
 UserInput = derive_spec(User, mode="input")

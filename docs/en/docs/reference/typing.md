@@ -35,6 +35,33 @@ runtime data. Runtime behavior is complete, but static constructor inference
 cannot recover arbitrary mapping keys. The same limitation applies to
 dynamically selected include/exclude projections.
 
+## Callable boundaries
+
+`validate_call` uses `ParamSpec` and a return `TypeVar`, so the decorated
+function retains its complete static parameter and result shape:
+
+```python
+from talea import validate_call
+
+
+@validate_call
+def transfer(amount: int, reference: str) -> bool:
+    return True
+
+
+accepted: bool = transfer(amount=1, reference="invoice-1843")
+```
+
+Static tooling rejects a wrong positional value, unknown keyword, or wrong
+result assignment. It also retains positional-only and keyword-only rules,
+variadic item/value contracts, `Unpack[TypedDict]` required and optional keys,
+and bound instance/class/static method result types. ParamSpec is typing
+preservation, not a runtime binder or
+TypeVar-inference engine. Runtime generic functions with unresolved type
+parameters remain unsupported; the concrete implementation behind
+`typing.overload` declarations owns runtime annotations. See
+[Strict callable boundaries](../callable-boundaries.md).
+
 TypedDict, PEP 695 aliases, `NewType`, recursive aliases, concrete recursive
 generics, and specialized generic Specs retain their declared result types when
 the annotation is statically visible. Open generic execution is rejected; use a

@@ -4,8 +4,8 @@ Framework and tooling authors can inspect finalized public truth without
 accessing compiler artifacts.
 
 ```python
-from talea import Contract, Spec
-from talea.introspection import inspect_contract, inspect_spec
+from talea import Contract, Spec, validate_call
+from talea.introspection import inspect_callable, inspect_contract, inspect_spec
 
 
 class User(Spec):
@@ -14,6 +14,14 @@ class User(Spec):
 
 spec_info = inspect_spec(User)
 contract_info = inspect_contract(Contract(list[User]))
+
+
+@validate_call
+def lookup(user_id: int) -> User:
+    return User(id=user_id)
+
+
+callable_info = inspect_callable(lookup)
 ```
 
 ## Returned values
@@ -26,6 +34,8 @@ contract_info = inspect_contract(Contract(list[User]))
 | `ContractInfo` | annotation, canonical `Schema`, metadata, supported operation names, reachable representations |
 | `RepresentationInfo` | frozen internal/input/output schemas and direction flags, with no callbacks |
 | `SerializerInfo` | serializer name, target field, declared-output flag, and optional output `Schema`, with no callback |
+| `ParameterInfo` | Python name/kind, canonical `Schema`, required/default state, receiver role, and variadic semantics |
+| `CallableInfo` | original immutable `Signature`, ordered parameters, return `Schema`, sync/async state, and function/method kind |
 
 For `Contract(UserDataclass)`, `ContractInfo.schema` is a frozen
 `DataclassSchema`. It exposes exact dataclass type identity, immutable canonical
@@ -37,6 +47,9 @@ exposing mutable stdlib `Field` objects.
 Concrete declarations return a cached immutable `SpecInfo`; open generics expose
 the declaration truth available before specialization. `inspect_contract()`
 accepts a Contract instance and returns a fresh immutable description.
+`inspect_callable()` accepts a `validate_call` function, bound method, or
+supported class/static descriptor and projects its retained canonical callable
+contract without rereading annotations.
 
 The canonical `Schema` graph is structural truth and is safe to read. Generated
 source, compiled callables, locks, lazy publication state, codec choices, and
@@ -91,10 +104,11 @@ identity rather than recursively expanding forever.
 
 ## Failure and extension rules
 
-`inspect_spec()` rejects non-Spec classes and `inspect_contract()` rejects
-non-Contract objects with `TypeError`. Introspection does not execute input,
-serialization, callbacks, or schema projection. It also does not expose
-generated source or compiled callables as public extension points.
+`inspect_spec()` rejects non-Spec classes, `inspect_contract()` rejects
+non-Contract objects, and `inspect_callable()` rejects undecorated functions
+with `TypeError`. Introspection does not execute input, serialization,
+callbacks, or schema projection. It also does not expose generated source or
+compiled callables as public extension points.
 
 A framework needing JSON/OpenAPI should call the projection API instead of
 recreating standards semantics from `FieldInfo`. A runtime validator should use

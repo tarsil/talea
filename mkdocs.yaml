@@ -62,6 +62,7 @@ nav:
       - Custom domain representations: "custom-representations.md"
       - Standard-library dataclasses: "dataclasses.md"
       - Strictness and boundaries: "concepts/strictness-boundaries.md"
+      - Strict callable boundaries: "callable-boundaries.md"
       - Composition and inheritance: "composition-inheritance.md"
       - Generics and recursion: "recursive-generics.md"
       - Tagged unions: "tagged-unions.md"
