@@ -81,6 +81,7 @@ Keys appear only when meaningful:
 | `hook`, `stage` | Custom callback identity and lifecycle stage |
 | `locations` | All fields involved in a whole-Spec check |
 | `branches` | Compact diagnostics for attempted union alternatives |
+| `conflicting_names` | Accepted external names simultaneously supplied for one field; values are omitted |
 
 The exception's `location` property remains an immutable tuple, such as
 `("members", 2, "email")`. JSON projection uses a list because arrays are the
@@ -98,6 +99,7 @@ location remains structured and unchanged.
 | `union` | every untagged union branch failed | inspect `branches` and correct the selected shape |
 | `missing` | required Mapping/JSON key is absent | supply the external field name |
 | `unexpected` | Mapping/JSON contains an unknown key | remove it or correct an alias |
+| `alias_conflict` | more than one accepted current/legacy name identifies one field | send exactly one accepted name |
 | `greater_than` | numeric value is not above the limit | raise the value or change the declaration |
 | `greater_than_or_equal` | numeric value is below the inclusive limit | raise the value or change the declaration |
 | `less_than` | numeric value is not below the limit | lower the value or change the declaration |
@@ -126,6 +128,12 @@ required arguments, unknown keywords, and positional misuse raise native
 
 Parser line, column, and character position appear in `context` when available;
 they do not become Talea field-location segments.
+
+Field-name ambiguity is structural rather than value-derived. An
+`alias_conflict` reports the current external field location and ordered
+`conflicting_names`, but no `input` or `received` value. Equal and unequal
+values have the same result, and Sensitive fields require no extra rendering or
+exception cause to diagnose the ambiguity.
 
 Representation dump failures belong to `SerializationError`, not the input
 `ErrorCode` vocabulary. A raised dumper and an invalid declared-output result

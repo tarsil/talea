@@ -83,9 +83,20 @@ user = User.from_mapping(
 
 The top level accepts `collections.abc.Mapping`, including `dict`, mapping
 proxies, and deliberate custom implementations. Keys use the declared `Alias`
-when present and otherwise use the exact Python field name. Canonical and alias
-spellings are not both accepted, preserving one unambiguous external contract.
+current name when present and otherwise use the exact Python field name.
+`Alias("userId", legacy=("id", "user_id"))` additionally accepts either
+historical name. A Python field spelling is not accepted merely because an
+Alias exists; it must be the current name or explicitly listed in `legacy`.
 Silent extra-field ignoring is not available. A non-string key is unexpected.
+
+For one field, more than one accepted name is always `alias_conflict`, even if
+the values are equal. Tuple order establishes no priority. The location is the
+current external field name, `conflicting_names` reports only the supplied
+names needed to identify the ambiguity, and no conflicting value is retained.
+The selected value otherwise enters the same compiled field schema regardless
+of which accepted name supplied it. Input compilation probes declaration-bound
+accepted names directly and then scans input keys once for unexpected fields;
+it does not normalize or copy the Mapping.
 
 An explicit `Representation(input=..., load=...)` changes only the annotated
 custom-type position: Talea validates the external value against `input=`,
@@ -134,6 +145,10 @@ Independent field problems are returned together in observable order:
 2. each missing, structural, constraint, transform, or field-check failure at
    its declared position;
 3. unexpected keys in the Mapping's encounter order.
+
+An alias conflict occupies its declared field position in this order. It does
+not become a missing or unexpected error merely because the selected spelling
+was historical.
 
 ```python
 from typing import Annotated

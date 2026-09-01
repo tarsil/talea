@@ -99,6 +99,75 @@ Instances contain only their field values and never reconstruct lifecycle or
 metadata semantics from annotations. See [Metadata and sensitive
 fields](metadata-security.md).
 
+## Current and legacy external names
+
+`Alias` owns the external field-name contract. Its `name` is the current
+external name used for input and output. Its keyword-only `legacy` tuple lists
+finite historical names accepted only by Mapping and JSON input:
+
+```python
+from typing import Annotated
+
+from talea import Alias, Spec
+
+
+class UserLookup(Spec):
+    user_id: Annotated[int, Alias("userId", legacy=("id", "user_id"))]
+```
+
+This declaration can receive API v1 `{"id": 7}`, API v2
+`{"user_id": 7}`, or current `{"userId": 7}` payloads. The Python
+constructor and attribute remain `user_id`. Because the current external name
+differs from the Python name, `user_id` is accepted externally here only
+because it is explicitly listed in `legacy`; adding legacy vocabulary does not
+silently broaden every alias to accept its Python spelling.
+
+One payload may supply exactly one accepted name for a field. Supplying
+`userId` and `id`, or `id` and `user_id`, raises `ValidationError` with code
+`alias_conflict` at `userId`. Equal values still conflict: Talea does not compare
+values, infer precedence, or treat tuple order as newest-to-oldest priority.
+The error may expose `conflicting_names`, but it retains no conflicting values.
+The same value-free rule applies to `Sensitive` fields.
+
+Validation is identical whichever accepted name supplied the value. A bad
+value under `id` receives the field's ordinary structural, constraint, or hook
+code at the current external location `userId`; there is no legacy-specific
+validator. Missing and unrelated keys remain `missing` and `unexpected`.
+Duplicate textual JSON keys remain the decoder-owned `json_duplicate` error,
+which is distinct from two different accepted names identifying one field.
+
+Output is canonical and one-way:
+
+```python
+lookup = UserLookup(user_id=7)
+assert lookup.to_dict() == {"userId": 7}
+assert lookup.to_json() == '{"userId":7}'
+```
+
+Legacy names are never emitted. JSON Schema and OpenAPI likewise continue to
+describe the current external property name; they do not project historical
+input vocabulary. `inspect_spec()` exposes each field's `external_name`,
+immutable `legacy_names`, and complete ordered `accepted_input_names`. The
+order is retained for deterministic inspection and future projection only.
+
+Talea owns accepted external-name truth, deterministic ambiguity rejection,
+validation, errors, and introspection. The application owns the decision to
+make a name legacy, warnings and telemetry, retirement timing, API-version
+policy, semantic value migration, and source-version negotiation. Talea does
+not infer migration chronology from tuple position and does not provide a
+migration registry or version manager.
+
+Current names and legacy names must be unique within one field. Across an
+effective ordinary Spec declaration, current/current, current/legacy, and
+legacy/legacy collisions fail during declaration so an input object cannot
+identify two fields with one name. This validation naturally includes ordinary
+inherited effective fields.
+
+Legacy-name consumption currently belongs to ordinary Spec Mapping/JSON input.
+Stdlib dataclass construction and tagged-union discriminator selection do not
+yet consume this vocabulary. Do not rely on a legacy tuple at those boundaries;
+their existing current-name behavior is unchanged.
+
 ## Practical account fields
 
 ```python

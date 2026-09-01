@@ -121,16 +121,21 @@ architecture.
 
 ## One field through every operation
 
-Consider `display_name: Annotated[str, Alias("displayName"), MinLength(1)]`.
+Consider
+`display_name: Annotated[str, Alias("displayName", legacy=("name",)), MinLength(1)]`.
 Resolution owns the exact string contract, effective lower bound, canonical
-Python name, and external alias. From there:
+Python name, current external name, and accepted historical input names. From
+there:
 
 - generated construction validates the exact string and length under the
   Python name;
-- Mapping/JSON input reads `displayName` and reports that external path;
+- Mapping/JSON input reads exactly one of `displayName` or `name`, rejects both
+  as `alias_conflict`, and reports the current external path;
 - serialization projects `displayName` unless alias output is disabled;
-- JSON Schema uses `displayName` and `minLength: 1`;
-- introspection reports both names and the normalized constraint;
+- JSON Schema uses the current `displayName` and `minLength: 1` without
+  publishing legacy runtime-input vocabulary;
+- introspection reports the Python, current, legacy, and complete accepted
+  names plus the normalized constraint;
 - derived partial Specs retain the same field truth while changing presence.
 
 No subsystem independently rereads `Annotated`. This prevents the class of

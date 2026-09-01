@@ -11,6 +11,7 @@ behavior.
 | `Literal[True]` and `1` | Distinct by value and runtime type |
 | tuple for `list[T]` | Rejected; concrete containers preserve shape |
 | unknown Mapping/JSON key | `unexpected` failure |
+| current and legacy names for one field | `alias_conflict`, even when values are equal |
 | duplicate JSON key | `json_duplicate` failure before field conversion |
 | JSON NaN or Infinity | Rejected by the default decoder |
 | mutable nested Spec | Current declared state is revalidated at a new boundary |

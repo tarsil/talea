@@ -52,6 +52,12 @@ class StoredUser(Spec):
     address: Address
 
 
+class UserLookup(Spec):
+    """Accept identifiers from three API naming generations."""
+
+    user_id: Annotated[UUID, Alias("userId", legacy=("id", "user_id"))]
+
+
 StoreUser = Callable[[UserCreate], StoredUser]
 
 
@@ -128,6 +134,29 @@ oversized = b'{"email":"' + b"x" * 5_000 + b'"}'
 status, body = handle_create(oversized)
 assert status == 413
 assert json.loads(body) == {"error": "input_size"}
+
+migration_id = "12345678-1234-5678-1234-567812345678"
+for payload in (
+    {"userId": UUID(migration_id)},
+    {"id": UUID(migration_id)},
+    {"user_id": UUID(migration_id)},
+):
+    assert UserLookup.from_mapping(payload).user_id == UUID(migration_id)
+
+assert UserLookup.from_json(f'{{"id":"{migration_id}"}}').user_id == UUID(migration_id)
+assert UserLookup(user_id=UUID(migration_id)).to_dict() == {"userId": UUID(migration_id)}
+assert UserLookup(user_id=UUID(migration_id)).to_json() == f'{{"userId":"{migration_id}"}}'
+
+try:
+    UserLookup.from_mapping({"userId": UUID(migration_id), "id": UUID(migration_id)})
+except ValidationError as error:
+    conflict = error.errors()[0]
+    assert conflict["code"] == "alias_conflict"
+    assert conflict["location"] == ["userId"]
+    assert conflict["conflicting_names"] == ["userId", "id"]
+    assert "input" not in conflict
+else:
+    raise AssertionError("multiple accepted names must never establish precedence")
 
 input_schema = UserCreate.openapi_schema(mode="input")
 output_schema = UserResponse.openapi_schema(mode="output")

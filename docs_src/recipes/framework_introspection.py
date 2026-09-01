@@ -21,7 +21,9 @@ def field_descriptor(field: FieldInfo) -> dict[str, object]:
 
     return {
         "python_name": field.name,
-        "external_name": field.alias or field.name,
+        "external_name": field.external_name,
+        "legacy_names": field.legacy_names,
+        "accepted_input_names": field.accepted_input_names,
         "required": field.required,
         "omittable": field.omittable,
         "sensitive": field.sensitive,
@@ -42,6 +44,8 @@ assert account_info.operations == (
 
 descriptors = [field_descriptor(field) for field in account_info.fields]
 assert descriptors[0]["external_name"] == "id"
+assert descriptors[0]["legacy_names"] == ()
+assert descriptors[0]["accepted_input_names"] == ("id",)
 assert descriptors[0]["required"] is True
 assert descriptors[2]["sensitive"] is True
 

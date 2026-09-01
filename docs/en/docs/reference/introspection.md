@@ -28,7 +28,7 @@ callable_info = inspect_callable(lookup)
 
 | Type | Important data |
 | --- | --- |
-| `FieldInfo` | annotation, canonical `Schema`, required/default/factory state, alias, constraints, metadata, presence |
+| `FieldInfo` | annotation, canonical `Schema`, required/default/factory state, current/legacy/accepted external names, constraints, metadata, presence |
 | `DerivationInfo` | source Spec, retained/omitted fields, include/exclude selection, partial status, input/output mode |
 | `SpecInfo` | fields, generic identity/arguments, recursion, hooks, serializers, metadata, trust, derivation, reachable representations |
 | `ContractInfo` | annotation, canonical `Schema`, metadata, supported operation names, reachable representations |
@@ -56,6 +56,13 @@ source, compiled callables, locks, lazy publication state, codec choices, and
 resource counters remain intentionally private. Tooling should not infer
 semantics from class internals when a public info object or schema node provides
 the answer.
+
+For fields, `external_name` is the current input/output spelling,
+`legacy_names` is the immutable ordered historical-input tuple, and
+`accepted_input_names` is the current name followed by legacy names. `alias`
+remains `None` or the explicitly declared current alias for compatibility.
+These tuples are projections of retained declaration truth; mutating a returned
+info object or collection cannot alter compiled execution.
 
 `SpecInfo.representations` and `ContractInfo.representations` contain each
 reachable represented contract once. Their `RepresentationInfo` values expose
