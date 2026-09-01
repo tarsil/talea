@@ -5,9 +5,9 @@ import tracemalloc
 from collections.abc import Callable
 from statistics import median
 from timeit import Timer
-from typing import TypeVar
+from typing import Annotated, TypeVar
 
-from talea import SerializationError, Spec
+from talea import Alias, SerializationError, Spec
 
 _REPEATS = 7
 _HOT_ITERATIONS = 100_000
@@ -65,6 +65,19 @@ class Node(Spec):
 
     value: int
     children: list[Node]
+
+
+class MigratedBox[T](Spec):
+    """Concrete generic migration-name canary."""
+
+    value: Annotated[T, Alias("body", legacy=("payload",))]
+
+
+class MigratedNode(Spec):
+    """Recursive migration-name canary."""
+
+    value: Annotated[int, Alias("currentValue", legacy=("value",))]
+    children: list[MigratedNode]
 
 
 def cold_specialization() -> type[object]:
@@ -144,6 +157,11 @@ def main() -> None:
         "int box construction", "equivalent concrete", measure(lambda: IntegerBox(value=1), _HOT_ITERATIONS)
     )
     print_measurement("Point construction", "ordinary canary", measure(lambda: Point(x=1, y=2), _HOT_ITERATIONS))
+    print_measurement(
+        "migrated Box[int] mapping",
+        "generic concrete",
+        measure(lambda: MigratedBox[int].from_mapping({"payload": 1}), _RECURSIVE_ITERATIONS),
+    )
 
     print("\nSpecialization")
     print_measurement("cold specialization", "fresh origin", measure(cold_specialization, _COLD_ITERATIONS))
@@ -175,6 +193,18 @@ def main() -> None:
     )
     print_measurement(
         "cycle detection", "to_dict failure", measure(lambda: swallowed_cycle(cyclic), _RECURSIVE_ITERATIONS)
+    )
+    migrated_data = {"value": 1, "children": [{"value": 2, "children": []}]}
+    migrated_node = MigratedNode.from_mapping(migrated_data)
+    print_measurement(
+        "migrated recursive mapping",
+        "from_mapping",
+        measure(lambda: MigratedNode.from_mapping(migrated_data), _RECURSIVE_ITERATIONS),
+    )
+    print_measurement(
+        "migrated recursive output",
+        "serialization",
+        measure(migrated_node.to_dict, _RECURSIVE_ITERATIONS),
     )
 
     print("\nSpecialization retention")

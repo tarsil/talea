@@ -10,7 +10,7 @@ from timeit import Timer
 from typing import Annotated
 from weakref import ref
 
-from talea import ReadOnly, Spec, WriteOnly, apply_patch, check, create_spec, derive_spec
+from talea import Alias, ReadOnly, Spec, WriteOnly, apply_patch, check, create_spec, derive_spec
 
 _REPEATS = 5
 _HOT_ITERATIONS = 50_000
@@ -86,9 +86,16 @@ class Checked(Spec):
             raise ValueError
 
 
+class Migrated(Spec):
+    """Migration-bearing derivation source."""
+
+    identifier: Annotated[int, Alias("accountId", legacy=("id", "account_id"))]
+
+
 OnePatch = derive_spec(One, partial=True)
 TenPatch = derive_spec(Ten, partial=True)
 CheckedPatch = derive_spec(Checked, partial=True)
+MigratedPatch = derive_spec(Migrated, partial=True)
 
 
 def directional_source(count: int) -> type[Spec]:
@@ -178,6 +185,11 @@ def benchmark_derivation() -> None:
         "identical repeated call",
         "distinct class policy",
         measure(partial(derive_spec, Ten, partial=True), _COLD_ITERATIONS),
+    )
+    report(
+        "migration partial",
+        "cold derivation",
+        measure(partial(derive_spec, Migrated, partial=True), _COLD_ITERATIONS),
     )
 
 
@@ -281,6 +293,26 @@ def benchmark_patch() -> None:
     report("apply one field", "apply_patch", measure(partial(apply_patch, source, one)))
     report("apply three fields", "apply_patch", measure(partial(apply_patch, source, several)))
     report("apply whole check", "apply_patch", measure(partial(apply_patch, checked, checked_patch)))
+
+    migrated_source = Migrated(identifier=1)
+    migrated_current = MigratedPatch.from_mapping({"accountId": 2})
+    migrated_legacy = MigratedPatch.from_mapping({"account_id": 3})
+    report(
+        "migration current input",
+        "derived partial",
+        measure(partial(MigratedPatch.from_mapping, {"accountId": 2})),
+    )
+    report(
+        "migration legacy input",
+        "derived partial",
+        measure(partial(MigratedPatch.from_mapping, {"account_id": 3})),
+    )
+    report(
+        "migration apply patch",
+        "apply_patch",
+        measure(partial(apply_patch, migrated_source, migrated_legacy)),
+    )
+    assert migrated_current.present_fields == migrated_legacy.present_fields == frozenset({"identifier"})
 
 
 def released_derivation_bytes(count: int = 1_000) -> tuple[int, bool]:

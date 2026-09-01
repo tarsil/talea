@@ -17,6 +17,7 @@ from talea import Alias, Contract, Ge, ResourceLimitError, ResourcePolicy, Spec
 from talea.input.json import decode_json
 from talea.resources.policy import DEFAULT_RESOURCE_POLICY
 from talea.resources.state import resource_state
+from talea.schema import DataclassSchema
 
 _REPEATS = 5
 _HOT_ITERATIONS = 20_000
@@ -156,6 +157,37 @@ class Aliased:
 
 
 @dataclass
+class MigratedOne:
+    """Single historical-name workload."""
+
+    value: Annotated[int, Alias("current", legacy=("old_0",))]
+
+
+@dataclass
+class MigratedFour:
+    """Four historical-name workload."""
+
+    value: Annotated[int, Alias("current", legacy=tuple(f"old_{index}" for index in range(4)))]
+
+
+@dataclass
+class MigratedSixteen:
+    """Sixteen historical-name workload."""
+
+    value: Annotated[int, Alias("current", legacy=tuple(f"old_{index}" for index in range(16)))]
+
+
+@dataclass
+class MigratedPostInitialized:
+    """Migration lookup followed by a lifecycle-sensitive constructor."""
+
+    value: Annotated[int, Alias("current", legacy=("old",))]
+
+    def __post_init__(self) -> None:
+        self.value += 1
+
+
+@dataclass
 class Constrained:
     """Compiled constraint workload."""
 
@@ -289,6 +321,27 @@ def json_one(data: str) -> OneField:
     if not isinstance(decoded, Mapping):
         raise TypeError
     return mapping_one(decoded)
+
+
+def mapping_migrated(
+    value: Mapping[str, object],
+    legacy_names: tuple[str, ...],
+) -> MigratedSixteen:
+    """Implement equivalent declaration-bounded lookup with no precedence."""
+
+    state = resource_state(DEFAULT_RESOURCE_POLICY)
+    state.consume_node(1)
+    if not isinstance(value, Mapping):
+        raise TypeError
+    accepted = ("current", *legacy_names)
+    supplied = tuple(name for name in accepted if name in value)
+    if len(supplied) != 1 or len(value) != 1:
+        raise ValueError("missing, conflicting, or unexpected field name")
+    member = value[supplied[0]]
+    state.consume_node(1)
+    if type(member) is not int:
+        raise TypeError
+    return MigratedSixteen(member)
 
 
 def capture(operation: Operation) -> BaseException:
@@ -465,6 +518,63 @@ def main() -> None:
         measure(lambda: json_one(encoded), _BOUNDARY_ITERATIONS),
     )
 
+    print("\nMigration-safe Mapping and JSON construction")
+    migration_cases = (
+        ("one legacy", MigratedOne, ("old_0",), "old_0"),
+        ("four legacy", MigratedFour, tuple(f"old_{index}" for index in range(4)), "old_3"),
+        ("sixteen legacy", MigratedSixteen, tuple(f"old_{index}" for index in range(16)), "old_15"),
+    )
+    for label, annotation, legacy_names, selected in migration_cases:
+        contract = Contract(annotation)
+        current_payload = {"current": 1}
+        legacy_payload = {selected: 1}
+        report(
+            f"{label} current",
+            "Talea Contract",
+            measure(
+                lambda contract=contract, current_payload=current_payload: contract.from_python(current_payload),
+                _BOUNDARY_ITERATIONS,
+            ),
+        )
+        report(
+            f"{label} legacy",
+            "Talea Contract",
+            measure(
+                lambda contract=contract, legacy_payload=legacy_payload: contract.from_python(legacy_payload),
+                _BOUNDARY_ITERATIONS,
+            ),
+        )
+        report(
+            f"{label} manual",
+            "equivalent manual",
+            measure(
+                lambda legacy_names=legacy_names, legacy_payload=legacy_payload: mapping_migrated(
+                    legacy_payload, legacy_names
+                ),
+                _BOUNDARY_ITERATIONS,
+            ),
+        )
+    migrated_contract = Contract(MigratedSixteen)
+    report(
+        "sixteen legacy JSON",
+        "Talea Contract",
+        measure(lambda: migrated_contract.from_json('{"old_15":1}'), _BOUNDARY_ITERATIONS),
+    )
+    report(
+        "equal-value conflict",
+        "Talea Contract",
+        measure(
+            lambda: capture(lambda: migrated_contract.from_python({"current": 1, "old_0": 1})),
+            1_000,
+        ),
+    )
+    lifecycle_contract = Contract(MigratedPostInitialized)
+    report(
+        "migrated post_init",
+        "Talea Contract",
+        measure(lambda: lifecycle_contract.from_python({"old": 1}), _BOUNDARY_ITERATIONS),
+    )
+
     print("\nSuccessful boundary cost decomposition")
     report("raw dataclass constructor", "stdlib lifecycle", measure(lambda: OneField(1)))
     report(
@@ -510,6 +620,9 @@ def main() -> None:
         ("post_init", PostInitialized, external),
         ("init_false", InitFalse, external),
         ("alias", Aliased, {"external": 1}),
+        ("migration 1", MigratedOne, {"old_0": 1}),
+        ("migration 4", MigratedFour, {"old_3": 1}),
+        ("migration 16", MigratedSixteen, {"old_15": 1}),
         ("constraint", Constrained, external),
         ("generic", Page[int], {"items": [1, 2, 3]}),
         ("recursive", RecursiveBenchmarkNode, {"value": 1, "children": [{"value": 2}]}),
@@ -625,6 +738,20 @@ def main() -> None:
     )
     print(f"OneField instance shallow={sys.getsizeof(one)} bytes dict={sys.getsizeof(vars(one))} bytes")
     print(f"FrozenSlots instance shallow={sys.getsizeof(frozen)} bytes has_dict={hasattr(frozen, '__dict__')}")
+    migration_schema = migrated_contract._artifacts.schema
+    assert isinstance(migration_schema, DataclassSchema)
+    migration_field = migration_schema.fields[0]
+    migrated_input = migrated_contract._artifacts.python_input
+    assert migrated_input is not None
+    migrated_input = cast(FunctionType, migrated_input)
+    assert "_alias_conflict" in migrated_input.__code__.co_names
+    assert "_alias_conflict" not in direct_boundary.__code__.co_names
+    print(
+        "Migration retained shallow="
+        f"field={sys.getsizeof(migration_field)} bytes "
+        f"accepted={sys.getsizeof(migration_field.accepted_input_names)} bytes "
+        "global_registry=False"
+    )
     print(f"100 discarded generic dataclass Contracts retained={retained} bytes peak={peak} bytes")
 
 
