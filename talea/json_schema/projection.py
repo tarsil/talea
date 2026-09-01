@@ -32,6 +32,8 @@ from talea.schema.nodes import (
     LiteralValue,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleField,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -168,6 +170,18 @@ class _StandardsProjector:
                 dataclass_type.__qualname__,
                 schema,
             )
+        if isinstance(schema, NamedTupleSchema):
+            identity = schema.identity
+            if identity is None:
+                return self._named_tuple(schema)
+            declared = schema.named_tuple_type
+            return self._named_reference(
+                identity,
+                declared.__name__,
+                declared.__module__,
+                declared.__qualname__,
+                schema,
+            )
         if isinstance(schema, SequenceSchema):
             projected = {"type": "array", "items": self._project(schema.item)}
             if self._mode == "output" and schema.kind in ("set", "frozenset"):
@@ -215,6 +229,8 @@ class _StandardsProjector:
             return self._typed_dict(value)
         if isinstance(value, DataclassSchema):
             return self._dataclass(value)
+        if isinstance(value, NamedTupleSchema):
+            return self._named_tuple(value)
         return self._project(value)
 
     def _named_reference(
@@ -394,6 +410,33 @@ class _StandardsProjector:
             projected["required"] = required
         return projected
 
+    def _named_tuple(self, schema: NamedTupleSchema) -> dict[str, object]:
+        """Project Draft 2020-12 positional tuple and canonical arity truth."""
+
+        projected: dict[str, object] = {
+            "type": "array",
+            "items": False,
+            "minItems": schema.required_count,
+            "maxItems": len(schema.fields),
+        }
+        if schema.fields:
+            projected["prefixItems"] = [self._named_tuple_field(field) for field in schema.fields]
+        return projected
+
+    def _named_tuple_field(self, field: NamedTupleField) -> dict[str, object]:
+        projected = self._project(field.schema)
+        self._apply_metadata(projected, field.metadata)
+        if (
+            field.has_default
+            and not field.metadata.sensitive
+            and not schema_contains_sensitive_metadata(field.schema)
+            and not self._contains_serializer(field.schema)
+        ):
+            default = self._project_default(field.schema, field.default)
+            if default is not MISSING_DEFAULT:
+                projected["default"] = default
+        return projected
+
     def _dataclass_field(self, field: DataclassField) -> dict[str, object]:
         projected = self._project(field.schema)
         self._apply_metadata(projected, field.metadata)
@@ -545,6 +588,11 @@ class _StandardsProjector:
             )
         if isinstance(schema, DataclassSchema):
             identity = schema.identity or schema.dataclass_type
+            if identity in visiting:
+                return False
+            return any(self._contains_serializer(field.schema, visiting | {identity}) for field in schema.fields)
+        if isinstance(schema, NamedTupleSchema):
+            identity = schema.identity or schema.named_tuple_type
             if identity in visiting:
                 return False
             return any(self._contains_serializer(field.schema, visiting | {identity}) for field in schema.fields)

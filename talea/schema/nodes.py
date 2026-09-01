@@ -25,6 +25,9 @@ __all__ = [
     "LiteralSchema",
     "LiteralValue",
     "MappingSchema",
+    "NAMED_TUPLE_MISSING",
+    "NamedTupleField",
+    "NamedTupleSchema",
     "NamedReferenceSchema",
     "NamedSchemaIdentity",
     "PrimitiveKind",
@@ -61,6 +64,15 @@ class _DataclassMissing:
 
 
 DATACLASS_MISSING = _DataclassMissing()
+
+
+class _NamedTupleMissing:
+    """Represent the absence of a NamedTuple trailing default."""
+
+    __slots__ = ()
+
+
+NAMED_TUPLE_MISSING = _NamedTupleMissing()
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +369,55 @@ class DataclassSchema:
 
 
 @dataclass(frozen=True, slots=True)
+class NamedTupleField:
+    """Canonical positional field truth for one ``typing.NamedTuple`` declaration.
+
+    ``name`` is retained for declaration introspection and documentation only.
+    Runtime boundaries and validation locations use the field's tuple index.
+    A static default permits omission only when this field is in the trailing
+    default suffix established by :class:`NamedTupleSchema`.
+    """
+
+    name: str
+    schema: "Schema"
+    default: object = NAMED_TUPLE_MISSING
+    metadata: DeclarationMetadata = EMPTY_METADATA
+
+    @property
+    def has_default(self) -> bool:
+        """Return whether the trailing position has a declared static default."""
+
+        return self.default is not NAMED_TUPLE_MISSING
+
+
+@dataclass(frozen=True, slots=True)
+class NamedTupleSchema:
+    """Canonical positional structure for one annotated ``typing.NamedTuple``.
+
+    The declared class is retained for exact strict identity and one-shot
+    boundary construction. Ordered fields, defaults, specialization identity,
+    and required arity are resolved once; consumers must not inspect stdlib
+    NamedTuple metadata independently.
+    """
+
+    named_tuple_type: type[tuple[object, ...]]
+    fields: tuple[NamedTupleField, ...]
+    required_count: int
+    identity: NamedSchemaIdentity | None = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        names = tuple(item.name for item in self.fields)
+        if len(names) != len(set(names)):
+            raise ValueError("a NamedTuple schema requires unique field names")
+        if not 0 <= self.required_count <= len(self.fields):
+            raise ValueError("a NamedTuple schema requires valid positional arity")
+        if any(item.has_default for item in self.fields[: self.required_count]):
+            raise ValueError("a NamedTuple schema requires defaults to form a trailing suffix")
+        if any(not item.has_default for item in self.fields[self.required_count :]):
+            raise ValueError("a NamedTuple schema requires defaults to form a trailing suffix")
+
+
+@dataclass(frozen=True, slots=True)
 class TaggedUnionBranch:
     """Bind one exact Python and JSON tag representation to one branch."""
 
@@ -473,6 +534,7 @@ type Schema = (
     | EnumSchema
     | SequenceSchema
     | MappingSchema
+    | NamedTupleSchema
     | TypedDictSchema
     | TaggedUnionSchema
     | VariadicTupleSchema

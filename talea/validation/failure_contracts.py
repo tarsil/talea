@@ -21,6 +21,7 @@ from talea.schema.nodes import (
     LiteralValue,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -61,6 +62,8 @@ def describe_schema(schema: Schema) -> str:
         return schema.spec_type.__name__
     if isinstance(schema, DataclassSchema):
         return schema.dataclass_type.__name__
+    if isinstance(schema, NamedTupleSchema):
+        return schema.named_tuple_type.__name__
     if isinstance(schema, SequenceSchema):
         return f"{schema.kind}[{describe_schema(schema.item)}]"
     if isinstance(schema, MappingSchema):
@@ -170,6 +173,8 @@ def schema_order_key(schema: Schema) -> tuple[int, str]:
         return 6, f"{schema.spec_type.__module__}.{schema.spec_type.__qualname__}"
     if isinstance(schema, DataclassSchema):
         return 6, f"{schema.dataclass_type.__module__}.{schema.dataclass_type.__qualname__}"
+    if isinstance(schema, NamedTupleSchema):
+        return 6, f"{schema.named_tuple_type.__module__}.{schema.named_tuple_type.__qualname__}"
     if isinstance(schema, TypedDictSchema):
         return 7, f"{schema.module}.{schema.name}"
     if isinstance(schema, TaggedUnionSchema):

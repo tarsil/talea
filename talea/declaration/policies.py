@@ -15,6 +15,7 @@ from talea.schema.nodes import (
     LiteralSchema,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -69,6 +70,11 @@ def schema_values_are_immutable(schema: Schema, visiting: frozenset[object] = fr
         if not schema.frozen:
             return False
         identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return True
+        return all(schema_values_are_immutable(field.schema, visiting | {identity}) for field in schema.fields)
+    if isinstance(schema, NamedTupleSchema):
+        identity = schema.identity or schema.named_tuple_type
         if identity in visiting:
             return True
         return all(schema_values_are_immutable(field.schema, visiting | {identity}) for field in schema.fields)
@@ -146,7 +152,7 @@ def schema_contains_sensitive_metadata(
         if schema.identity in visiting:
             return False
         nested_visiting = visiting | {schema.identity}
-        if isinstance(schema.target, DataclassSchema):
+        if isinstance(schema.target, (DataclassSchema, NamedTupleSchema)):
             return any(
                 bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema, nested_visiting)
                 for field in schema.target.fields
@@ -167,6 +173,14 @@ def schema_contains_sensitive_metadata(
         )
     if isinstance(schema, DataclassSchema):
         identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return False
+        return any(
+            bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema, visiting | {identity})
+            for field in schema.fields
+        )
+    if isinstance(schema, NamedTupleSchema):
+        identity = schema.identity or schema.named_tuple_type
         if identity in visiting:
             return False
         return any(
@@ -227,6 +241,11 @@ def schema_contains_tagged_union(
         if identity in visiting:
             return False
         return any(schema_contains_tagged_union(field.schema, visiting | {identity}) for field in schema.fields)
+    if isinstance(schema, NamedTupleSchema):
+        identity = schema.identity or schema.named_tuple_type
+        if identity in visiting:
+            return False
+        return any(schema_contains_tagged_union(field.schema, visiting | {identity}) for field in schema.fields)
     if isinstance(schema, NamedReferenceSchema):
         if schema.identity in visiting:
             return False
@@ -272,6 +291,8 @@ def schema_contains_named_reference(schema: Schema) -> bool:
         return any(schema_contains_named_reference(field.schema) for field in schema.fields)
     if isinstance(schema, DataclassSchema):
         return any(schema_contains_named_reference(field.schema) for field in schema.fields)
+    if isinstance(schema, NamedTupleSchema):
+        return any(schema_contains_named_reference(field.schema) for field in schema.fields)
     if isinstance(schema, TaggedUnionSchema):
         return any(schema_contains_named_reference(branch.schema) for branch in schema.branches)
     if isinstance(schema, VariadicTupleSchema):
@@ -298,6 +319,11 @@ def schema_contains_representation(
         return schema_contains_representation(schema.target, visiting | {schema.identity})
     if isinstance(schema, DataclassSchema):
         identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return False
+        return any(schema_contains_representation(field.schema, visiting | {identity}) for field in schema.fields)
+    if isinstance(schema, NamedTupleSchema):
+        identity = schema.identity or schema.named_tuple_type
         if identity in visiting:
             return False
         return any(schema_contains_representation(field.schema, visiting | {identity}) for field in schema.fields)
@@ -356,6 +382,13 @@ def _schema_directions_are_available(
         return _schema_directions_are_available(schema.target, direction, visiting | {schema.identity})
     if isinstance(schema, DataclassSchema):
         identity = schema.identity or schema.dataclass_type
+        if identity in visiting:
+            return True
+        return all(
+            _schema_directions_are_available(field.schema, direction, visiting | {identity}) for field in schema.fields
+        )
+    if isinstance(schema, NamedTupleSchema):
+        identity = schema.identity or schema.named_tuple_type
         if identity in visiting:
             return True
         return all(

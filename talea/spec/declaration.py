@@ -29,6 +29,7 @@ from talea.schema.nodes import (
     LiteralSchema,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -174,6 +175,8 @@ def _referenced_specs(
     if isinstance(schema, TypedDictSchema):
         return tuple(target for field in schema.fields for target in _referenced_specs(field.schema, visiting))
     if isinstance(schema, DataclassSchema):
+        return tuple(target for field in schema.fields for target in _referenced_specs(field.schema, visiting))
+    if isinstance(schema, NamedTupleSchema):
         return tuple(target for field in schema.fields for target in _referenced_specs(field.schema, visiting))
     if isinstance(schema, TaggedUnionSchema):
         return tuple(target for branch in schema.branches for target in _referenced_specs(branch.schema, visiting))

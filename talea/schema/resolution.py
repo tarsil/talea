@@ -20,6 +20,7 @@ from typing import (
     Annotated,
     ClassVar,
     Literal,
+    NamedTuple,
     NewType,
     NotRequired,
     Protocol,
@@ -48,6 +49,7 @@ from talea.metadata import (
 from talea.representation import Representation
 from talea.schema.nodes import (
     DATACLASS_MISSING,
+    NAMED_TUPLE_MISSING,
     AliasSchema,
     ConstrainedSchema,
     DataclassField,
@@ -58,6 +60,8 @@ from talea.schema.nodes import (
     LiteralValue,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleField,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -205,6 +209,13 @@ def _resolve_annotation(
 
     origin = get_origin(annotation)
     arguments = get_args(annotation)
+
+    named_tuple_type = annotation if _is_named_tuple_declaration(annotation) else None
+    if named_tuple_type is None and _is_named_tuple_declaration(origin):
+        named_tuple_type = origin
+
+    if named_tuple_type is not None:
+        return _resolve_named_tuple(cast(type[tuple[object, ...]], named_tuple_type), arguments, targets)
 
     if dataclass_type is not None:
         return _resolve_dataclass(dataclass_type, arguments, targets)
@@ -490,6 +501,136 @@ def _resolve_dataclass(
     except BaseException:
         targets.pop(identity, None)
         raise
+
+
+def _is_named_tuple_declaration(value: object) -> bool:
+    """Recognize a direct annotated ``typing.NamedTuple`` declaration.
+
+    The direct base and ``__orig_bases__`` identity exclude subclasses and
+    ``collections.namedtuple``. Ordered generated fields and annotations must
+    also agree, so no single user-replaceable marker is treated as authority.
+    """
+
+    if not isinstance(value, type) or tuple not in value.__bases__:
+        return False
+    if NamedTuple not in vars(value).get("__orig_bases__", ()):
+        return False
+    fields = vars(value).get("_fields")
+    defaults = vars(value).get("_field_defaults")
+    if type(fields) is not tuple or type(defaults) is not dict:
+        return False
+    try:
+        annotations = get_type_hints(value, include_extras=True)
+    except (NameError, TypeError):
+        return bool(fields)
+    return tuple(annotations) == fields
+
+
+def _resolve_named_tuple(
+    named_tuple_type: type[tuple[object, ...]],
+    arguments: tuple[object, ...],
+    targets: dict[NamedSchemaIdentity, _NamedSchemaTarget],
+) -> Schema:
+    """Resolve one NamedTuple declaration into positional canonical truth."""
+
+    parameters = tuple(getattr(named_tuple_type, "__type_params__", ())) or tuple(
+        getattr(named_tuple_type, "__parameters__", ())
+    )
+    if len(parameters) != len(arguments):
+        raise AnnotationResolutionError(named_tuple_type)
+    identity = NamedSchemaIdentity(
+        "named_tuple",
+        named_tuple_type.__name__,
+        named_tuple_type.__module__,
+        named_tuple_type,
+        arguments,
+    )
+    target = targets.get(identity)
+    if target is not None:
+        return target.schema if target.finalized else NamedReferenceSchema(target.identity, target)
+
+    names = cast(tuple[str, ...], vars(named_tuple_type)["_fields"])
+    defaults = cast(dict[str, object], vars(named_tuple_type)["_field_defaults"])
+    hints = get_type_hints(named_tuple_type, include_extras=True)
+    if tuple(hints) != names:
+        raise TypeError(f"NamedTuple {named_tuple_type.__qualname__!r} has inconsistent field metadata")
+    if tuple(defaults) != names[len(names) - len(defaults) :]:
+        raise TypeError(f"NamedTuple {named_tuple_type.__qualname__!r} has non-trailing defaults")
+    _validate_named_tuple_constructor(named_tuple_type, names, defaults)
+
+    substitutions = dict(zip(parameters, arguments, strict=True))
+    target = _NamedSchemaTarget(identity)
+    targets[identity] = target
+    try:
+        fields: list[NamedTupleField] = []
+        for name in names:
+            annotation = hints[name]
+            if substitutions:
+                annotation = _substitute_alias(annotation, substitutions)
+            metadata = _named_tuple_field_metadata(annotation)
+            fields.append(
+                NamedTupleField(
+                    name,
+                    _resolve_annotation(annotation, targets),
+                    defaults.get(name, NAMED_TUPLE_MISSING),
+                    metadata,
+                )
+            )
+        resolved = NamedTupleSchema(named_tuple_type, tuple(fields), len(names) - len(defaults), identity)
+        target.finalize(resolved)
+        _validate_named_tuple_defaults(resolved)
+        return resolved
+    except BaseException:
+        targets.pop(identity, None)
+        raise
+
+
+def _named_tuple_field_metadata(annotation: object) -> DeclarationMetadata:
+    """Resolve positional metadata and reject name/direction-only declarations."""
+
+    if get_origin(annotation) is not Annotated:
+        return EMPTY_METADATA
+    extras = get_args(annotation)[1:]
+    if any(isinstance(item, Alias) for item in extras):
+        raise TypeError("NamedTuple fields do not support Alias metadata")
+    metadata = normalize_metadata(extras)
+    if metadata.read_only is not None or metadata.write_only is not None:
+        raise TypeError("NamedTuple fields do not support ReadOnly or WriteOnly metadata")
+    return metadata
+
+
+def _validate_named_tuple_constructor(
+    named_tuple_type: type[tuple[object, ...]],
+    names: tuple[str, ...],
+    defaults: dict[str, object],
+) -> None:
+    """Reject a mutated or otherwise non-stdlib positional constructor."""
+
+    constructor = named_tuple_type.__new__
+    expected_defaults = tuple(defaults.values())
+    if (
+        not isinstance(constructor, FunctionType)
+        or constructor.__code__.co_filename != "<string>"
+        or constructor.__code__.co_names != ("_tuple_new",)
+        or constructor.__code__.co_argcount != len(names) + 1
+        or constructor.__defaults__ != expected_defaults
+        or type(named_tuple_type).__call__ is not type.__call__
+    ):
+        raise TypeError(f"NamedTuple {named_tuple_type.__qualname__!r} has an incompatible constructor")
+
+
+def _validate_named_tuple_defaults(schema: NamedTupleSchema) -> None:
+    """Reject invalid retained defaults during Contract/schema compilation."""
+
+    from talea.validation.compilation import compile_validator
+
+    for field in schema.fields[schema.required_count :]:
+        try:
+            compile_validator(field.schema, sensitive=bool(field.metadata.sensitive))(field.default)
+        except Exception as error:
+            raise TypeError(
+                f"NamedTuple {schema.named_tuple_type.__qualname__!r} field {field.name!r} has an invalid default"
+            ) from error
 
 
 def _validate_dataclass_constructor(

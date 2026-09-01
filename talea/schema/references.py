@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, Literal, cast
 if TYPE_CHECKING:
     from talea.schema.nodes import Schema
 
-type NamedSchemaKind = Literal["alias", "dataclass", "typed_dict"]
+type NamedSchemaKind = Literal["alias", "dataclass", "named_tuple", "typed_dict"]
 
 
 @dataclass(frozen=True, slots=True)

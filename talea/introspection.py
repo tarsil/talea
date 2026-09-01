@@ -42,6 +42,7 @@ from talea.schema.nodes import (
     FixedTupleSchema,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleSchema,
     RepresentationSchema,
     Schema,
     SequenceSchema,
@@ -412,6 +413,14 @@ def _representation_infos(schemas: tuple[Schema, ...]) -> tuple[RepresentationIn
             return
         if isinstance(schema, DataclassSchema):
             identity = schema.identity or schema.dataclass_type
+            visited.add(identity)
+            for field in schema.fields:
+                visit(field.schema)
+            return
+        if isinstance(schema, NamedTupleSchema):
+            identity = schema.identity or schema.named_tuple_type
+            if identity in visited:
+                return
             visited.add(identity)
             for field in schema.fields:
                 visit(field.schema)

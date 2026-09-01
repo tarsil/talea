@@ -128,9 +128,11 @@ class Contract(Generic[T]):
 
         Primitive values remain strict. Mappings may construct nested Specs or
         stdlib dataclasses; TypedDict boundaries accept ``Mapping`` and return
-        detached exact dictionaries; containers recursively use the existing
-        Talea input semantics. Dataclass construction calls the original
-        constructor lifecycle once and then validates retained state.
+        detached exact dictionaries; annotated NamedTuple boundaries accept
+        exact list/tuple positional input and construct the declared class once;
+        containers recursively use the existing Talea input semantics.
+        Dataclass construction calls the original constructor lifecycle once
+        and then validates retained state.
         ``policy`` replaces the Contract's retained policy for this call; it is
         not merged with it.
 

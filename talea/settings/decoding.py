@@ -30,6 +30,7 @@ from talea.schema.nodes import (
     LiteralSchema,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -222,7 +223,7 @@ def _json_shape_matches(schema: Schema, value: object) -> bool:
         return type(value) is str if schema.python_type in _STANDARD_TEXT_TYPES else type(value) is schema.python_type
     if isinstance(schema, (SpecReferenceSchema, DataclassSchema, TypedDictSchema, TaggedUnionSchema, MappingSchema)):
         return type(value) is dict
-    if isinstance(schema, (SequenceSchema, VariadicTupleSchema, FixedTupleSchema)):
+    if isinstance(schema, (SequenceSchema, VariadicTupleSchema, FixedTupleSchema, NamedTupleSchema)):
         return type(value) is list
     if isinstance(schema, (EnumSchema, LiteralSchema)):
         return True
@@ -260,6 +261,11 @@ def _convert_json_value(schema: Schema, value: object) -> object:
         return tuple(
             _convert_json_value(item_schema, item) for item_schema, item in zip(schema.items, value, strict=True)
         )
+    if isinstance(schema, NamedTupleSchema) and type(value) is list:
+        converted = list(value)
+        for index, field in enumerate(schema.fields[: len(converted)]):
+            converted[index] = _convert_json_value(field.schema, converted[index])
+        return converted
     if isinstance(schema, MappingSchema) and type(value) is dict:
         return {
             _convert_json_value(schema.key, key): _convert_json_value(schema.value, item) for key, item in value.items()
