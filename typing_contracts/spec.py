@@ -454,6 +454,14 @@ assert_type(aliased.internal_name, str)
 assert_type(aliased.to_dict(), dict[str, object])
 
 
+class MigrationAliased(Spec):
+    internal_name: Annotated[str, Alias("externalName", legacy=("old_name", "internal_name"))]
+
+
+assert_type(MigrationAliased.from_mapping({"old_name": "value"}), MigrationAliased)
+assert_type(MigrationAliased.from_json('{"internal_name":"value"}'), MigrationAliased)
+
+
 class Serialized(Spec):
     value: int
 

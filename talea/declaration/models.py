@@ -41,6 +41,12 @@ type DerivationSelection = Literal["all", "include", "exclude"]
 type DerivationMode = Literal["input", "output"]
 
 
+def _accepted_input_names(current: str, legacy: tuple[str, ...]) -> tuple[str, ...]:
+    """Normalize one field's current and legacy external names once."""
+
+    return (current, *legacy)
+
+
 @dataclass(frozen=True, slots=True)
 class SpecDerivation:
     """Describe the immutable source and policy of one derived Spec.
@@ -121,6 +127,8 @@ class SpecField:
             omitted, or ``None``.
         alias: The optional canonical external field name consumed by input,
             output, and standards projection.
+        legacy_names: Ordered historical external names accepted only by
+            Mapping and JSON input.
         metadata: Normalized documentation, boundary, and security truth.
 
     The value is immutable and contains no validator or original annotation.
@@ -136,14 +144,18 @@ class SpecField:
     default: object = MISSING_DEFAULT
     default_factory: Callable[[], object] | None = None
     alias: str | None = None
+    legacy_names: tuple[str, ...] = ()
     metadata: DeclarationMetadata = EMPTY_METADATA
     omittable: bool = False
+    accepted_input_names: tuple[str, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         if self.default is not MISSING_DEFAULT and self.default_factory is not None:
             raise ValueError("a Spec field cannot have both a static default and a default factory")
         if self.alias is not None and (not isinstance(self.alias, str) or not self.alias):
             raise TypeError("a Spec field alias must be a non-empty string")
+        external_name = self.name if self.alias is None else self.alias
+        object.__setattr__(self, "accepted_input_names", _accepted_input_names(external_name, self.legacy_names))
 
     @property
     def required(self) -> bool:
@@ -159,7 +171,7 @@ class SpecField:
 
     @property
     def external_name(self) -> str:
-        """Return the one canonical name used by external data boundaries."""
+        """Return the current external name used by input and output."""
 
         return self.name if self.alias is None else self.alias
 
@@ -210,6 +222,13 @@ class SpecSchema:
                 raise ValueError(f"field alias {spec_field.alias!r} conflicts with a canonical field name")
         if len(external_names) != len(set(external_names)):
             raise ValueError("a Spec schema requires unique external field names")
+        for spec_field in self.fields:
+            for legacy_name in spec_field.legacy_names:
+                if legacy_name != spec_field.name and legacy_name in canonical_names:
+                    raise ValueError(f"field legacy name {legacy_name!r} conflicts with a canonical field name")
+        accepted_names = tuple(name for spec_field in self.fields for name in spec_field.accepted_input_names)
+        if len(accepted_names) != len(set(accepted_names)):
+            raise ValueError("a Spec schema requires unique accepted input names")
         serializer_names = tuple(serializer.name for serializer in self.serializers)
         if len(serializer_names) != len(set(serializer_names)):
             raise ValueError("a Spec schema requires unique serializer names")

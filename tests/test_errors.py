@@ -23,6 +23,7 @@ def test_error_code_vocabulary_is_public_stable_and_string_serializable() -> Non
         "union",
         "missing",
         "unexpected",
+        "alias_conflict",
         "greater_than",
         "greater_than_or_equal",
         "less_than",

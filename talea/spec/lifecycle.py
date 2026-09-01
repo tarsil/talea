@@ -202,12 +202,13 @@ class Spec(metaclass=_SpecMeta):
         """Construct ``cls`` from an untrusted Python mapping.
 
         The mapping boundary accepts any :class:`collections.abc.Mapping` with
-        each field's canonical external name. Python values remain strict while
-        nested mappings may construct nested Specs. Validation failures preserve
-        Talea's canonical locations and declaration order.
+        exactly one accepted current or legacy external name per field. Python
+        values remain strict while nested mappings may construct nested Specs.
+        Validation failures preserve Talea's current external locations and
+        declaration order.
 
         Args:
-            data: Untrusted values keyed by canonical external names.
+            data: Untrusted values keyed by accepted external names.
             policy: Immutable limits for this operation. ``None`` selects
                 Talea's finite default policy.
 

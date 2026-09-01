@@ -5,7 +5,7 @@ from types import FunctionType
 from typing import cast
 
 from talea.codegen import _GeneratedNames
-from talea.declaration.models import SpecSchema
+from talea.declaration.models import SpecField, SpecSchema
 from talea.declaration.policies import schema_contains_representation
 from talea.errors import ErrorCode
 from talea.input.emission import (
@@ -39,6 +39,7 @@ class _InputCompiler:
 
         fields = schema.fields
         field_names = tuple(field.external_name for field in fields)
+        has_legacy_names = any(field.legacy_names for field in fields)
         names = _GeneratedNames((*field_names, "data"))
         errors = names.allocate("errors")
         missing_fields = names.allocate("missing_fields")
@@ -65,7 +66,11 @@ class _InputCompiler:
             "__name__": __name__,
             missing: FACTORY_SENTINEL,
             field_names_name: field_names,
-            known_names: frozenset(field_names),
+            known_names: (
+                frozenset(name for field in fields for name in field.accepted_input_names)
+                if has_legacy_names
+                else frozenset(field_names)
+            ),
             unlimited_resource_state: UNLIMITED_RESOURCE_STATE,
         }
         emitter = _BoundaryValidationEmitter(
@@ -86,7 +91,7 @@ class _InputCompiler:
         unexpected_value = names.allocate("unexpected_value")
         unexpected_error = names.allocate("unexpected_error")
         string_type = emitter.runtime("str", str)
-        if all(field.required for field in fields):
+        if not has_legacy_names and all(field.required for field in fields):
             self._emit_exact_dict_path(
                 emitter,
                 schema,
@@ -106,10 +111,26 @@ class _InputCompiler:
                 presence_setter,
             )
         for index, (field, value) in enumerate(zip(fields, values, strict=True)):
+            if field.legacy_names:
+                self._emit_legacy_lookup(
+                    emitter,
+                    schema,
+                    field,
+                    index,
+                    value,
+                    errors,
+                    missing_fields,
+                    missing,
+                    key_error,
+                    field_names_name,
+                    validation_errors[index],
+                )
+                continue
+            input_name = self._input_name_expression(field, index, field_names_name)
             lines.extend(
                 (
                     "    try:",
-                    f"        {value} = data[{field.external_name!r}]",
+                    f"        {value} = data[{input_name}]",
                     f"    except {key_error}:",
                     f"        {value} = {missing}",
                     f"    if {value} is {missing}:",
@@ -200,6 +221,69 @@ class _InputCompiler:
         function.__doc__ = f"Construct one {self.title} from untrusted {self.mode} data."
         return function
 
+    def _emit_legacy_lookup(
+        self,
+        emitter: _BoundaryValidationEmitter,
+        schema: SpecSchema,
+        field: SpecField,
+        index: int,
+        value: str,
+        errors: str,
+        missing_fields: str,
+        missing: str,
+        key_error: str,
+        field_names_name: str,
+        validation_error: str,
+    ) -> None:
+        """Emit direct accepted-name probes and deterministic conflict rejection."""
+
+        accepted_names = emitter.bind(f"accepted_names_{index}", field.accepted_input_names)
+        selected_name = emitter.variable(f"selected_name_{index}")
+        candidate = emitter.variable(f"candidate_{index}")
+        conflict = emitter.variable(f"alias_conflict_{index}")
+        emitter.emit(1, f"{value} = {missing}")
+        emitter.emit(1, f"{selected_name} = {missing}")
+        emitter.emit(1, f"{conflict} = None")
+        for accepted_index in range(len(field.accepted_input_names)):
+            emitter.emit(1, "try:")
+            emitter.emit(2, f"{candidate} = data[{accepted_names}[{accepted_index}]]")
+            emitter.emit(1, f"except {key_error}:")
+            emitter.emit(2, "pass")
+            emitter.emit(1, "else:")
+            emitter.emit(2, f"if {value} is {missing}:")
+            emitter.emit(3, f"{value} = {candidate}")
+            emitter.emit(3, f"{selected_name} = {accepted_names}[{accepted_index}]")
+            emitter.emit(2, f"elif {conflict} is None:")
+            sensitive_argument = ", sensitive=True" if field.metadata.sensitive else ""
+            emitter.emit(
+                3,
+                f"{conflict} = {emitter.validation_error_name}._alias_conflict("
+                f"({selected_name}, {accepted_names}[{accepted_index}]), "
+                f"({field_names_name}[{index}],), title={emitter.title_name}{sensitive_argument})",
+            )
+        emitter.emit(1, f"if {conflict} is not None:")
+        self._emit_collect(emitter.lines, emitter, errors, conflict, 2)
+        emitter.emit(1, f"elif {value} is {missing}:")
+        emitter.emit(2, f"{missing_fields} = True")
+        if field.required:
+            missing_error = emitter.variable(f"missing_error_{index}")
+            emitter.emit(
+                2,
+                f"{missing_error} = {emitter.validation_error_name}._missing("
+                f"({field_names_name}[{index}],), title={emitter.title_name})",
+            )
+            self._emit_collect(emitter.lines, emitter, errors, missing_error, 2)
+        elif field.has_static_default:
+            default_name = emitter.bind("static_default", field.default)
+            emitter.emit(2, f"{value} = {default_name}")
+        else:
+            emitter.emit(2, "pass")
+        emitter.emit(1, "else:")
+        emitter.emit(2, "try:")
+        self._emit_field_pipeline(emitter, schema, index, value, 3)
+        emitter.emit(2, f"except {emitter.validation_error_name} as {validation_error}:")
+        self._emit_collect(emitter.lines, emitter, errors, validation_error, 3)
+
     def _emit_exact_dict_path(
         self,
         emitter: _BoundaryValidationEmitter,
@@ -224,8 +308,9 @@ class _InputCompiler:
         emitter.emit(1, f"if {exact_dict} and {emitter.runtime('len', len)}(data) == {len(schema.fields)}:")
         emitter.emit(2, "try:")
         if values:
-            for field, value in zip(schema.fields, values, strict=True):
-                emitter.emit(3, f"{value} = data[{field.external_name!r}]")
+            for index, (field, value) in enumerate(zip(schema.fields, values, strict=True)):
+                input_name = self._input_name_expression(field, index, field_names_name)
+                emitter.emit(3, f"{value} = data[{input_name}]")
         else:
             emitter.emit(3, "pass")
         emitter.emit(2, f"except {key_error}:")
@@ -264,6 +349,12 @@ class _InputCompiler:
             3,
             presence_setter,
         )
+
+    @staticmethod
+    def _input_name_expression(field: SpecField, index: int, field_names_name: str) -> str:
+        """Return source that binds arbitrary aliases as data, never code."""
+
+        return f"{field_names_name}[{index}]" if field.alias is not None else repr(field.name)
 
     @staticmethod
     def _emit_commit(

@@ -23,6 +23,7 @@ from talea.declaration.models import (
     MISSING_SERIALIZER_OUTPUT,
     SerializationHook,
     SpecDerivation,
+    _accepted_input_names,
 )
 from talea.declaration.policies import (
     schema_contains_representation,
@@ -79,7 +80,14 @@ _CONSTRAINT_TYPES = (Gt, Ge, Lt, Le, MultipleOf, MinLength, MaxLength, Pattern)
 
 @dataclass(frozen=True, slots=True)
 class FieldInfo:
-    """Describe one effective Spec field without exposing mutable internals."""
+    """Describe one effective Spec field without exposing mutable internals.
+
+    ``name`` is the Python attribute. ``external_name`` is the current external
+    input/output spelling, ``legacy_names`` is ordered historical input
+    vocabulary, and ``accepted_input_names`` is their immutable normalized
+    union in deterministic declaration order. Compiler lookup artifacts remain
+    private.
+    """
 
     name: str
     annotation: object
@@ -89,6 +97,9 @@ class FieldInfo:
     default: object | None
     default_factory: Callable[[], object] | None
     alias: str | None
+    external_name: str
+    legacy_names: tuple[str, ...]
+    accepted_input_names: tuple[str, ...]
     constraints: tuple[Constraint, ...]
     title: str | None
     description: str | None
@@ -237,6 +248,9 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                     None if field.default is MISSING_DEFAULT else field.default,
                     field.default_factory,
                     field.alias,
+                    field.external_name,
+                    field.legacy_names,
+                    field.accepted_input_names,
                     field.metadata,
                     field.omittable,
                 )
@@ -444,6 +458,9 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
             None if field.default is MISSING_DEFAULT else field.default,
             field.default_factory,
             field.alias,
+            field.external_name,
+            field.legacy_names,
+            field.accepted_input_names,
             field.metadata,
         )
         for field in inherited_fields
@@ -453,7 +470,10 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
         default_factory = field_default.default_factory if isinstance(field_default, _FactoryDeclaration) else None
         default = MISSING_DEFAULT if default_factory is not None else field_default
         metadata = get_args(annotation)[1:] if get_origin(annotation) is Annotated else ()
-        alias = next((item.name for item in metadata if isinstance(item, Alias)), None)
+        alias_marker = next((item for item in metadata if isinstance(item, Alias)), None)
+        alias = None if alias_marker is None else alias_marker.name
+        external_name = name if alias_marker is None else alias_marker.name
+        legacy_names = () if alias_marker is None else alias_marker.legacy
         constraints = cast(
             tuple[Constraint, ...], tuple(item for item in metadata if isinstance(item, _CONSTRAINT_TYPES))
         )
@@ -481,6 +501,9 @@ def _inspect_open_generic(spec: type[object], declaration: _SpecDeclaration) -> 
             None if default is MISSING_DEFAULT else default,
             default_factory,
             alias,
+            external_name,
+            legacy_names,
+            _accepted_input_names(external_name, legacy_names),
             effective_metadata,
             constraints=constraints,
         )
@@ -529,6 +552,9 @@ def _field_info(
     default: object | None,
     default_factory: Callable[[], object] | None,
     alias: str | None,
+    external_name: str,
+    legacy_names: tuple[str, ...],
+    accepted_input_names: tuple[str, ...],
     metadata: DeclarationMetadata,
     omittable: bool = False,
     constraints: tuple[Constraint, ...] | None = None,
@@ -542,6 +568,9 @@ def _field_info(
         default,
         default_factory,
         alias,
+        external_name,
+        legacy_names,
+        accepted_input_names,
         _constraints(schema) if constraints is None and schema is not None else constraints or (),
         metadata.title,
         metadata.description,

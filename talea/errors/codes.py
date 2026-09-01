@@ -18,6 +18,7 @@ class ErrorCode(StrEnum):
     UNION = "union"
     MISSING = "missing"
     UNEXPECTED = "unexpected"
+    ALIAS_CONFLICT = "alias_conflict"
     GREATER_THAN = "greater_than"
     GREATER_THAN_OR_EQUAL = "greater_than_or_equal"
     LESS_THAN = "less_than"

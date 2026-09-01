@@ -49,6 +49,7 @@ class ErrorData(TypedDict):
     branches: NotRequired[list[ErrorBranchData]]
     discriminator: NotRequired[str]
     expected_tags: NotRequired[list[JsonScalar]]
+    conflicting_names: NotRequired[list[str]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +75,7 @@ class _ErrorDetail:
     sensitive: bool = False
     discriminator: str | None = None
     expected_tags: tuple[JsonScalar, ...] = ()
+    conflicting_names: tuple[str, ...] = ()
     projected_location: tuple[JsonScalar, ...] = field(init=False, repr=False)
     projected_related_locations: tuple[tuple[JsonScalar, ...], ...] = field(init=False, repr=False)
 
@@ -100,6 +102,8 @@ class _ErrorDetail:
             return "Required field is missing"
         if self.code is ErrorCode.UNEXPECTED:
             return "Unexpected field"
+        if self.code is ErrorCode.ALIAS_CONFLICT:
+            return "Multiple accepted names were supplied for one field"
         if self.code is ErrorCode.GREATER_THAN:
             return f"Expected value > {_context_text(context, 'limit')}"
         if self.code is ErrorCode.GREATER_THAN_OR_EQUAL:
@@ -180,6 +184,8 @@ def _project_detail(detail: _ErrorDetail) -> ErrorData:
         projected["discriminator"] = detail.discriminator
     if detail.expected_tags:
         projected["expected_tags"] = list(detail.expected_tags)
+    if detail.conflicting_names:
+        projected["conflicting_names"] = list(detail.conflicting_names)
     return projected
 
 
@@ -259,6 +265,36 @@ class ValidationError(TypeError):
         error._initialize(
             (_ErrorDetail(ErrorCode.MISSING, location, None, None, None),),
             (None,),
+            title,
+            (type(None),),
+        )
+        return error
+
+    @classmethod
+    def _alias_conflict(
+        cls,
+        names: tuple[str, str],
+        location: ErrorLocation,
+        *,
+        title: str,
+        sensitive: bool = False,
+    ) -> "ValidationError":
+        """Build one field-name ambiguity failure without retaining values."""
+
+        error = cls.__new__(cls)
+        error._initialize(
+            (
+                _ErrorDetail(
+                    ErrorCode.ALIAS_CONFLICT,
+                    location,
+                    None,
+                    None,
+                    None,
+                    sensitive=sensitive,
+                    conflicting_names=tuple(safe_text(name, 96) for name in names),
+                ),
+            ),
+            (REDACTED if sensitive else None,),
             title,
             (type(None),),
         )
@@ -571,6 +607,7 @@ def _prefix_detail(detail: _ErrorDetail, prefix: ErrorLocation) -> _ErrorDetail:
         detail.sensitive,
         detail.discriminator,
         detail.expected_tags,
+        detail.conflicting_names,
     )
 
 
@@ -594,6 +631,7 @@ def _redact_detail(detail: _ErrorDetail) -> _ErrorDetail:
         True,
         REDACTED if detail.discriminator is not None else None,
         (REDACTED,) if detail.expected_tags else (),
+        detail.conflicting_names,
     )
 
 

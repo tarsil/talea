@@ -323,6 +323,8 @@ class Aliased(Spec):
 
 Aliased(externalName="value")  # ty: ignore[missing-argument, unknown-argument]
 Aliased()  # ty: ignore[missing-argument]
+Alias("externalName", legacy=["old_name"])  # ty: ignore[invalid-argument-type]
+Alias("externalName", legacy=(1,))  # ty: ignore[invalid-argument-type]
 
 
 class InvalidSerializer(Spec):

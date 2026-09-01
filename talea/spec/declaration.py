@@ -213,7 +213,7 @@ def _reaches_spec(
     )
 
 
-def _field_declaration_metadata(annotation: object) -> tuple[str | None, DeclarationMetadata]:
+def _field_declaration_metadata(annotation: object) -> tuple[Alias | None, DeclarationMetadata]:
     """Extract one top-level Alias and normalize Talea-owned metadata."""
 
     if get_origin(annotation) is not Annotated:
@@ -222,7 +222,7 @@ def _field_declaration_metadata(annotation: object) -> tuple[str | None, Declara
     aliases = tuple(item for item in extras if isinstance(item, Alias))
     if len(aliases) > 1:
         raise TypeError("a Spec field can declare only one Alias")
-    return aliases[0].name if aliases else None, normalize_metadata(extras)
+    return aliases[0] if aliases else None, normalize_metadata(extras)
 
 
 def _prepare_declaration(cls: type[object]) -> None:
@@ -278,7 +278,8 @@ def _prepare_declaration(cls: type[object]) -> None:
                 field_name,
                 resolved,
                 default_factory=field_declaration.default_factory,
-                alias=alias,
+                alias=None if alias is None else alias.name,
+                legacy_names=() if alias is None else alias.legacy,
                 metadata=metadata,
             )
         else:
@@ -286,7 +287,8 @@ def _prepare_declaration(cls: type[object]) -> None:
                 field_name,
                 resolved,
                 default=field_declaration,
-                alias=alias,
+                alias=None if alias is None else alias.name,
+                legacy_names=() if alias is None else alias.legacy,
                 metadata=metadata,
             )
         declaration.prepared_fields = tuple(fields[name] for name in ordered_names if name in fields)
