@@ -5,13 +5,14 @@ import json
 import sys
 import tracemalloc
 from collections.abc import Callable
+from dataclasses import dataclass
 from functools import reduce
 from operator import or_
 from statistics import median
 from timeit import Timer
 from typing import Annotated, Literal, NotRequired, TypedDict
 
-from talea import Contract, Discriminator, Spec, create_spec, derive_spec
+from talea import Alias, Contract, Discriminator, Spec, create_spec, derive_spec
 
 _REPEATS = 5
 _COLD_ITERATIONS = 500
@@ -97,6 +98,73 @@ class Page[T](Spec):
 Partial = derive_spec(Fifty, partial=True, name="FiftyPatch")
 
 
+class MigratedOne(Spec):
+    """One field with one historical input name."""
+
+    value: Annotated[int, Alias("valueNow", legacy=("valueOld",))]
+
+
+class MigratedFour(Spec):
+    """One field with four historical input names."""
+
+    value: Annotated[int, Alias("valueNow", legacy=("old0", "old1", "old2", "old3"))]
+
+
+class MigratedSixteen(Spec):
+    """One field with sixteen historical input names."""
+
+    value: Annotated[
+        int,
+        Alias("valueNow", legacy=tuple(f"old{index}" for index in range(16))),
+    ]
+
+
+MigratedTen = create_spec(
+    "MigratedTen",
+    {f"field_{index}": Annotated[int, Alias(f"fieldNow{index}", legacy=(f"fieldOld{index}",))] for index in range(10)},
+)
+MigratedFifty = create_spec(
+    "MigratedFifty",
+    {f"field_{index}": Annotated[int, Alias(f"fieldNow{index}", legacy=(f"fieldOld{index}",))] for index in range(50)},
+)
+MigratedPartial = derive_spec(MigratedFifty, partial=True, name="MigratedFiftyPatch")
+
+
+@dataclass
+class MigratedRecord:
+    """Representative dataclass migration projection."""
+
+    value: Annotated[int, Alias("valueNow", legacy=("valueOld",))]
+
+
+class MigratedTagA(Spec):
+    """First migrated-discriminator benchmark branch."""
+
+    kind: Annotated[Literal["a"], Alias("eventType", legacy=("type",))]
+
+
+class MigratedTagB(Spec):
+    """Second migrated-discriminator benchmark branch."""
+
+    kind: Annotated[Literal["b"], Alias("eventType", legacy=("type",))]
+
+
+type MigratedTagged = Annotated[MigratedTagA | MigratedTagB, Discriminator("kind")]
+
+
+class MigratedPage[T](Spec):
+    """Concrete generic with a migrated field."""
+
+    items: Annotated[list[T], Alias("itemsNow", legacy=("itemsOld",))]
+
+
+class MigratedRecursive(Spec):
+    """Recursive Spec with migration alternatives and one definition identity."""
+
+    value: Annotated[int, Alias("valueNow", legacy=("valueOld",))]
+    children: list[MigratedRecursive]
+
+
 def tagged_contract(branch_count: int) -> Contract[object]:
     """Return one retained tagged union with ``branch_count`` definitions."""
 
@@ -141,6 +209,16 @@ def benchmark_projection() -> None:
     report("recursive TypedDict", measure(Contract(RecursiveTypedDict).json_schema))
     report("generic Page[int]", measure(Page[int].json_schema))
     report("partial 50-field Spec", measure(Partial.json_schema, _GRAPH_ITERATIONS))
+    report("migrated 1 legacy", measure(MigratedOne.json_schema))
+    report("migrated 4 legacy", measure(MigratedFour.json_schema))
+    report("migrated 16 legacy", measure(MigratedSixteen.json_schema))
+    report("migrated 10 fields", measure(MigratedTen.json_schema, _GRAPH_ITERATIONS))
+    report("migrated 50 fields", measure(MigratedFifty.json_schema, _GRAPH_ITERATIONS))
+    report("migrated partial 50", measure(MigratedPartial.json_schema, _GRAPH_ITERATIONS))
+    report("migrated dataclass", measure(Contract(MigratedRecord).json_schema))
+    report("migrated tagged", measure(Contract(MigratedTagged).openapi_schema))
+    report("migrated generic", measure(MigratedPage[int].json_schema))
+    report("migrated recursive", measure(MigratedRecursive.json_schema))
     for count, contract in TAGGED.items():
         report(f"tagged {count} branches", measure(contract.openapi_schema, _GRAPH_ITERATIONS))
     report("100-definition graph", measure(HundredDefinitions.json_schema, 20))
@@ -154,6 +232,16 @@ def benchmark_sizes() -> None:
         ("five-field", PrimitiveFive.json_schema),
         ("50-field", Fifty.json_schema),
         ("recursive Spec", RecursiveSpec.json_schema),
+        ("migrated 1 legacy", MigratedOne.json_schema),
+        ("migrated 4 legacy", MigratedFour.json_schema),
+        ("migrated 16 legacy", MigratedSixteen.json_schema),
+        ("migrated 10 fields", MigratedTen.json_schema),
+        ("migrated 50 fields", MigratedFifty.json_schema),
+        ("migrated partial 50", MigratedPartial.json_schema),
+        ("migrated dataclass", Contract(MigratedRecord).json_schema),
+        ("migrated tagged", Contract(MigratedTagged).openapi_schema),
+        ("migrated generic", MigratedPage[int].json_schema),
+        ("migrated recursive", MigratedRecursive.json_schema),
         ("tagged 32", TAGGED[32].openapi_schema),
         ("100 definitions", HundredDefinitions.json_schema),
     )
