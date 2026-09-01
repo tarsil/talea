@@ -170,6 +170,29 @@ def test_sensitive_environment_and_toml_failures_do_not_retain_values(tmp_path: 
     assert "toml-secret" not in repr(toml_error.value.errors())
 
 
+def test_secret_validation_failure_drops_plaintext_exception_state(tmp_path: Path) -> None:
+    class Credentials(Spec):
+        token: int
+
+    root = tmp_path / "secrets"
+    root.mkdir()
+    secret = "secret-exception-sentinel"
+    (root / "token").write_text(secret, encoding="utf-8")
+
+    with pytest.raises(ValidationError) as raised:
+        Settings(Credentials, secrets=root).load()
+
+    error = raised.value
+    assert error.value == "<redacted>"
+    assert error.__cause__ is None
+    assert error.__context__ is None
+    traceback = error.__traceback__
+    while traceback is not None:
+        if traceback.tb_frame.f_code.co_filename.endswith("talea/settings/plan.py"):
+            assert secret not in repr(traceback.tb_frame.f_locals)
+        traceback = traceback.tb_next
+
+
 def test_provenance_contains_only_canonical_paths_and_source_kinds() -> None:
     class Credentials(Spec):
         token: Annotated[str, Sensitive()]

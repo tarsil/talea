@@ -126,6 +126,19 @@ def test_secret_file_count_includes_unexpected_flat_files(tmp_path: Path) -> Non
     assert raised.value.observed == 3
 
 
+def test_secret_file_count_bounds_directory_enumeration(tmp_path: Path) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir()
+    for index in range(3):
+        (root / f"directory-{index}").mkdir()
+    policy = SettingsPolicy(max_secret_files=2)
+
+    with pytest.raises(ResourceLimitError) as raised:
+        Settings(FileSettings, secrets=root, policy=policy).load({"database": {"host": "x"}})
+    assert raised.value.code == "settings_secret_files"
+    assert raised.value.observed == 3
+
+
 def test_kubernetes_atomic_writer_style_symlinks_are_supported(tmp_path: Path) -> None:
     root = tmp_path / "mount"
     version = root / "..2026_09_01"
@@ -171,6 +184,41 @@ def test_aggregate_source_bytes_cover_toml_environment_and_secrets(tmp_path: Pat
             environment={"APP_DATABASE__PORT": "6000"}
         )
     assert raised.value.code == "settings_source_bytes"
+
+
+def test_aggregate_source_bytes_bound_each_file_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir()
+    (root / "database__host").write_bytes(b"x" * 100)
+    real_open = Path.open
+    read_sizes: list[int] = []
+
+    class TrackingStream:
+        def __init__(self, stream: object) -> None:
+            self.stream = stream
+
+        def __enter__(self) -> TrackingStream:
+            self.stream.__enter__()  # type: ignore[union-attr]
+            return self
+
+        def __exit__(self, *args: object) -> object:
+            return self.stream.__exit__(*args)  # type: ignore[union-attr]
+
+        def read(self, size: int = -1) -> bytes:
+            read_sizes.append(size)
+            return self.stream.read(size)  # type: ignore[union-attr,no-any-return]
+
+    def tracking_open(path: Path, *args: object, **kwargs: object) -> TrackingStream:
+        return TrackingStream(real_open(path, *args, **kwargs))  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "open", tracking_open)
+    policy = SettingsPolicy(max_source_bytes=4, max_secret_file_bytes=100)
+
+    with pytest.raises(ResourceLimitError) as raised:
+        Settings(FileSettings, secrets=root, policy=policy).load()
+    assert raised.value.code == "settings_source_bytes"
+    assert raised.value.observed == 5
+    assert read_sizes == [5]
 
 
 def test_explicit_secret_root_may_itself_be_a_symlink(tmp_path: Path) -> None:
