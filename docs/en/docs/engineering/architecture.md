@@ -32,6 +32,7 @@ identity, and discriminator truth are not reinterpreted by each branch.
 | tagged unions | one discriminator dispatch map |
 | recursive references | finite named back-edges and lazy publication |
 | resources | operation-local input budgets |
+| incremental Contract items | lazy indexes, failure decision, and stream counts |
 | standards projection | Draft 2020-12 and OpenAPI Schema Objects |
 
 ## Canonical owner map
@@ -47,6 +48,7 @@ representations:
 | nested include/exclude grammar and immutable selection tree | serialization selection owner validated against canonical schema | class-owned compiled output plans |
 | selected-plan retention | each Spec declaration's output artifacts | that class only, bounded to 32 immutable plans |
 | external-input budgets | operation-local `ResourcePolicy` state | Mapping and JSON input compilers |
+| incremental item and invalid-item budgets | immutable `talea.contract.ItemPolicy` plus iterator-local counters | `Contract.iter_validate` and `Contract.iter_python` |
 | JSON representations | canonical JSON representation owner | JSON input, JSON output, and standards projection |
 | public validation failures | `ErrorCode`, `ErrorData`, and `ValidationError` | every validation and input execution target |
 | represented domain values | one immutable `RepresentationSchema` association between internal, input, output, and callback identity | strict validation, input/output compilation, standards projection, introspection, and nested selection |
@@ -99,6 +101,27 @@ same node, not additional declaration models. A missing direction fails
 explicitly and never falls through to `repr`, `__dict__`, or internal-object
 serialization. `Representation` is root-public because these owners now form
 one complete boundary contract.
+
+### Incremental Contract ownership
+
+A retained Contract supplies its compiled strict validator or lazy
+external-Python input artifact to one small item-consumption owner. That owner
+adds only zero-based indexing, fail-fast versus explicit continuation, and
+operation-local item counts:
+
+```mermaid
+flowchart TD
+    A[Retained Contract artifacts] --> B[Incremental item owner]
+    B --> C[Strict validation]
+    B --> D[External Python conversion]
+    E[Future framing owner] --> B
+```
+
+The item owner is not a second Contract, schema interpreter, batch
+materializer, transport decoder, or stream framework. JSON Schema, OpenAPI,
+serialization, and `ContractInfo` continue to describe `T`; an execution
+iterator adds no structural truth. A future framing owner may compose decoded
+values with this boundary while retaining its own syntax and transport errors.
 
 ## Why compile generated Python
 

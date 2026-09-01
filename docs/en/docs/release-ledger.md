@@ -33,6 +33,10 @@ with explicit Mapping/environment/local-secrets/TOML sources, canonical-leaf
 precedence, schema-directed textual decoding, value-free provenance, bounded
 source acquisition, and no required dependency. This describes the development
 checkout and does not announce a 0.6.0 release.
+The same unreleased surface adds lazy retained-Contract item validation for
+synchronous Python iterables, with strict and external modes, canonical indexed
+errors, explicit continuation, and finite item/invalid-item limits. JSONL
+framing remains separate and is not implemented.
 
 ## Deliberate boundaries
 
@@ -45,7 +49,7 @@ checkout and does not announce a 0.6.0 release.
 | NamedTuple and ordinary-class mapping | Not implemented; core is not a general object mapper |
 | stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |
 | settings/environment loading | Implemented in the separate import-isolated `talea.settings` owner on the current unreleased development surface; no root exports, source registry, watcher, framework lifecycle, or remote sources |
-| streaming batches and JSONL | Not implemented; materialized batches use `Contract(list[T])` |
+| incremental records and JSONL | Synchronous Python item iteration is implemented through retained `Contract(T)`; JSONL framing/input/output and async iteration are not implemented |
 | arbitrary annotation callbacks | Explicit per-position `Representation` contracts are implemented; no registry/discovery |
 | field-local serializer output truth | Optional `@serialize(..., output=...)` contracts are implemented; undeclared hooks remain opaque |
 | retained global codec/Contract registries | Rejected for core; application boundaries own retained objects |

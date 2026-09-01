@@ -47,10 +47,13 @@ are not public.
 
 ## Contract operations
 
-`Contract.validate`, `Contract.from_python`, `Contract.from_json`,
+`Contract.validate`, `Contract.iter_validate`, `Contract.from_python`,
+`Contract.iter_python`, `Contract.from_json`,
 `Contract.to_python`, `Contract.to_json`, `Contract.json_schema`, and
 `Contract.openapi_schema` operate on the retained annotation. A policy supplied
 to `Contract(...)` is retained; an explicit per-call input policy replaces it.
+The domain-public `talea.contract.ItemPolicy` owns operation-local item and
+invalid-item limits without adding a root export.
 
 ## Introspection domain
 
@@ -170,13 +173,21 @@ remaining operations compile lazily and are retained by that Contract:
 | --- | --- | --- |
 | `validate(value)` | already-valid Python form | same validated root |
 | `from_python(value, *, policy=None)` | external structural Python form | converted/detached `T` |
+| `iter_validate(values, *, on_error=None, item_policy=None)` | iterable of strict Python items | lazy `Iterator[T]` |
+| `iter_python(values, *, on_error=None, item_policy=None, policy=None)` | iterable of external Python items | lazy converted `Iterator[T]` |
 | `from_json(data, *, loads=None, policy=None)` | JSON text/bytes/bytearray | converted `T` |
 | `to_python(value)` | valid `T` | detached Python representation |
 | `to_json(value, *, dumps=None)` | valid `T` | JSON text |
 | `json_schema(*, mode="input")` | retained annotation | fresh Draft 2020-12 document |
 | `openapi_schema(*, mode="input")` | retained annotation | fresh Schema Object/components fragment |
 
-An explicit per-call policy replaces the retained policy; it is not merged.
+An explicit per-call `ResourcePolicy` replaces the retained policy; it is not
+merged. `ItemPolicy(max_items=1_000_000, max_invalid_items=100)` is a separate
+immutable stream-count policy available from `talea.contract`; each dimension
+may be explicitly disabled with `None`. Invalid items raise located
+`ValidationError` by default or enter an explicit
+`Callable[[int, ValidationError], None]`. Stream and per-item resource failures
+remain terminal. See [Incremental Contract validation](../incremental-validation.md).
 Contract attributes are read-only. See [Arbitrary contracts](../contracts.md)
 for TypedDict, generic, recursive, tagged, and policy examples.
 

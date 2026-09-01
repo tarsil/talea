@@ -20,6 +20,7 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | declared serializer output | complete result validation, exact-once callback transport, callback-free schema/selection discovery, Sensitive cause suppression | callback CPU, memory, mutation, reentrancy, I/O, logging, and output amplification |
 | validated callables | generated-source safety, native binding shape, strict arguments and returns, Sensitive failure policy | function CPU, memory, I/O, locks, side effects, mutation, recursion, exceptions |
 | application Settings | finite source names, bounded file reads, collision rejection, leaf precedence, secret-error redaction, atomic snapshot publication | process/filesystem mutation by other code, file permissions, custom Mapping behavior, deployment integrity |
+| incremental Contract items | pulled-item and invalid-item limits, indexed errors, Sensitive redaction, no hidden accumulation | source I/O/lifetime, callback work and logging, explicit unbounded policy, wall-clock timeout |
 
 The finite default policy is 8 MiB JSON transport, depth 64, 100,000 compiled
 node visits, and 100 aggregated errors. It reduces Talea-owned unbounded work;
@@ -140,6 +141,24 @@ beneath the resolved mount root permits that layout without allowing a key to
 escape the configured directory. Talea does not authenticate the provider,
 lock the directory, guarantee atomic reads across files, or replace operating-
 system access control.
+
+## Incremental iterable threat model
+
+An application-owned iterable may be infinite, huge, all-invalid, expensive,
+stateful, or fail between values. `ItemPolicy.max_items` bounds pulled records
+and `max_invalid_items` bounds continued invalid records. Per-item external
+depth, node, and detail work remains governed independently by
+`ResourcePolicy`; continuation never catches either resource failure.
+
+Talea pulls no item speculatively, retains no prior result/error collection,
+does not retry, and applies canonical Sensitive redaction before an error
+reaches the callback. The callback receives no separate rejected-item argument;
+ordinary non-sensitive `ValidationError` facts remain available. The iterable
+and callback remain trusted application execution: either can block, allocate,
+perform I/O, mutate state, or log secrets, and Talea supplies no timeout or
+sandbox. Source and callback exceptions propagate unchanged. The caller owns
+cursor/file/transaction cleanup and must close it explicitly when early
+termination requires deterministic release.
 
 ## Supply chain
 

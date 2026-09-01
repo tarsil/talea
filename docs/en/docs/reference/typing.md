@@ -48,6 +48,22 @@ values: Contract[list[int]] = Contract(list[int])
 The fallback is `object`, not `Any`: it does not leak an unconstrained result
 type into `validate()`, input, or output methods.
 
+Both incremental operations preserve the retained Contract result exactly:
+
+```python
+from collections.abc import Iterator
+
+users: Contract[User] = Contract(User)
+strict: Iterator[User] = users.iter_validate(existing_users)
+external: Iterator[User] = users.iter_python(mapping_cursor)
+```
+
+The source boundary is `Iterable[object]`, which permits honest validation of
+untrusted Python items without public `Any`. `on_error` is exactly
+`Callable[[int, ValidationError], None]`; a wrong callback return, non-iterable
+source where statically visible, or `ResourcePolicy`/`ItemPolicy` mix-up is a
+typing error.
+
 ## Representation relationships
 
 Python 3.15 relates `Representation(input=...)` and `output=...` to the loader

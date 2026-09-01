@@ -59,6 +59,7 @@ nav:
       - Mental model: "concepts/mental-model.md"
       - Specs: "concepts/specs.md"
       - Contracts: "contracts.md"
+      - Incremental Contract validation: "incremental-validation.md"
       - Custom domain representations: "custom-representations.md"
       - Standard-library dataclasses: "dataclasses.md"
       - Strictness and boundaries: "concepts/strictness-boundaries.md"

@@ -32,6 +32,7 @@ whose root may be a scalar, container, union, `TypedDict`, dataclass, alias, or
 | Validate `list[User]` without a box class | `Contract[list[User]]` |
 | Convert an external mapping into `User` | `User.from_mapping` |
 | Convert an external list of mappings into users | `Contract[list[User]].from_python` |
+| Lazily convert iterable records one at a time | `Contract(User).iter_python` |
 | Keep a stdlib dataclass and add external boundaries | `Contract(DomainDataclass)` |
 | Validate an existing value without conversion | `Contract.validate` |
 | JSON for an arbitrary root | `Contract.from_json` / `Contract.to_json` |
@@ -102,6 +103,19 @@ assert customers.to_python(ada) == {"name": "Ada"}
 Dataclasses remain unchanged and are not copied into Specs. See
 [Standard-library dataclasses](dataclasses.md) for lifecycle, trust, generics,
 recursion, schema modes, and security boundaries.
+
+## Incremental item validation
+
+`Contract(list[T])` is one materialized container boundary. A retained
+`Contract(T)` also exposes `iter_validate()` for strict items and
+`iter_python()` for external Python records. They yield `Iterator[T]`, default
+to fail-fast, prefix errors with a zero-based item index, and require an
+explicit callback to continue after invalid data. `ItemPolicy` from
+`talea.contract` independently bounds pulled and invalid source items.
+
+See [Incremental Contract validation](incremental-validation.md) for source
+ownership, limits, error and callback behavior, typing, security, performance,
+and executable generator/cursor examples.
 
 ## JSON input and output
 
@@ -322,6 +336,7 @@ statically valid open generic is not an executable contract.
   forward references use Talea's restricted structural resolution policy.
 - Custom JSON codecs select syntax only; they cannot replace canonical
   conversion or output validation.
-- Use `Contract(list[T])` for a materialized batch. Streaming, JSONL, per-item
-  failure isolation, and callable decoration are not implemented. Use
+- Use `Contract(list[T])` for a materialized batch and retained `Contract(T)`
+  incremental methods for synchronous Python iterables. JSONL framing,
+  asynchronous iterables, and streaming output are not implemented. Use
   `derive_spec(..., partial=True)` for Spec PATCH contracts.

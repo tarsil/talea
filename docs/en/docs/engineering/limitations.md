@@ -16,7 +16,11 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
   dataclass unions, and interpretation of `dataclasses.field(metadata=...)` are
   not supported;
-- JSONL, streaming JSON, and per-item streaming failure isolation are absent;
+- synchronous Python iterable items support lazy strict/external validation,
+  fail-fast or explicit synchronous continuation, and finite item counts;
+  `AsyncIterable`, JSONL framing/input/output, streaming JSON/serialization,
+  automatic retry, silent skip, `Result` values, timeouts, and source/callback
+  sandboxing are absent;
 - directional Spec derivation is shallow; nested Specs, dataclasses, tagged
   branches, and TypedDicts are not implicitly rewritten;
 - open generic Specs, aliases, TypedDicts, and dataclasses must be concretely
@@ -92,6 +96,14 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   cannot roll back or resource-govern that application work;
 - callbacks have no timeout or cancellation boundary, and callback CPU,
   allocation, I/O, and output size remain application-owned;
+- incremental item sources and callbacks are application-owned; Talea does not
+  close the underlying source, govern source I/O, or retain prior outputs and
+  continued errors, and zero-based generic item indexes are not transport line
+  numbers;
+- per-item `ResourcePolicy` and stream-level `ItemPolicy` have distinct scopes;
+  explicitly unbounded stream dimensions cannot protect against infinite
+  sources, while finite stream policy does not bound arbitrary source or
+  callback execution time;
 - async callable boundaries add no timeout, retry, task, or cancellation
   policy; application coroutine I/O, task creation, cleanup, and resource use
   remain application-owned;
