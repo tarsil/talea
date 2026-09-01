@@ -214,12 +214,16 @@ def test_dataclass_and_spec_migration_compose_across_nesting_and_containers() ->
     nested = Contract(Envelope).from_python({"request": {"profiles": [{"account": {"id": 2}}]}})
     assert nested.request.profiles[0].account.identifier == 2
 
-    with pytest.raises(ResourceLimitError) as limited:
-        Contract(Envelope).from_python(
-            {"request": {"profiles": [{"account": {"id": 2}}]}},
-            policy=ResourcePolicy(max_nodes=2),
-        )
-    assert limited.value.code == "nodes"
+    for policy, code in (
+        (ResourcePolicy(max_nodes=2), "nodes"),
+        (ResourcePolicy(max_depth=2), "depth"),
+    ):
+        with pytest.raises(ResourceLimitError) as limited:
+            Contract(Envelope).from_python(
+                {"request": {"profiles": [{"account": {"id": 2}}]}},
+                policy=policy,
+            )
+        assert limited.value.code == code
 
 
 def _migrated_tagged_contract() -> Contract[object]:
