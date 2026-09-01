@@ -27,6 +27,13 @@ through `Alias(..., legacy=(...))`, with conflict rejection and current-only
 output across Specs, dataclasses, tagged unions, derived contracts, JSON Schema,
 OpenAPI, and introspection.
 
+The current unreleased development surface adds an import-isolated
+`talea.settings` subpackage. It loads concrete Specs through one immutable plan
+with explicit Mapping/environment/local-secrets/TOML sources, canonical-leaf
+precedence, schema-directed textual decoding, value-free provenance, bounded
+source acquisition, and no required dependency. This describes the development
+checkout and does not announce a 0.6.0 release.
+
 ## Deliberate boundaries
 
 | Capability | Current disposition |
@@ -37,7 +44,7 @@ OpenAPI, and introspection.
 | automatic runtime ReadOnly/WriteOnly enforcement | Deliberately absent; ordinary source-Spec behavior remains unchanged |
 | NamedTuple and ordinary-class mapping | Not implemented; core is not a general object mapper |
 | stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |
-| settings/environment loading | Separate integration or package, not core |
+| settings/environment loading | Implemented in the separate import-isolated `talea.settings` owner on the current unreleased development surface; no root exports, source registry, watcher, framework lifecycle, or remote sources |
 | streaming batches and JSONL | Not implemented; materialized batches use `Contract(list[T])` |
 | arbitrary annotation callbacks | Explicit per-position `Representation` contracts are implemented; no registry/discovery |
 | field-local serializer output truth | Optional `@serialize(..., output=...)` contracts are implemented; undeclared hooks remain opaque |

@@ -19,6 +19,7 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | represented custom values | declared input/output result validation, exact-once callback transport, Sensitive error policy | callback CPU, memory, mutation, I/O, logging, and output amplification |
 | declared serializer output | complete result validation, exact-once callback transport, callback-free schema/selection discovery, Sensitive cause suppression | callback CPU, memory, mutation, reentrancy, I/O, logging, and output amplification |
 | validated callables | generated-source safety, native binding shape, strict arguments and returns, Sensitive failure policy | function CPU, memory, I/O, locks, side effects, mutation, recursion, exceptions |
+| application Settings | finite source names, bounded file reads, collision rejection, leaf precedence, secret-error redaction, atomic snapshot publication | process/filesystem mutation by other code, file permissions, custom Mapping behavior, deployment integrity |
 
 The finite default policy is 8 MiB JSON transport, depth 64, 100,000 compiled
 node visits, and 100 aggregated errors. It reduces Talea-owned unbounded work;
@@ -105,6 +106,40 @@ exceptions and invalid declared results at a Sensitive boundary suppress unsafe
 causes. A callback may still mutate its source, reenter serialization, return a
 huge graph, or log secrets; output remains outside input `ResourcePolicy`
 governance.
+
+## Settings threat model
+
+The explicit [Settings boundary](../settings.md) adds source acquisition work
+without changing the strict Mapping owner:
+
+| Threat | Ownership and response |
+| --- | --- |
+| oversized process environment | Talea checks the snapshot entry count before known-name decoding; allocation and mutation by unrelated process code remain application/platform-owned |
+| oversized or parser-amplifying TOML | Talea performs a bounded read before `tomllib`; the standard-library parser owns syntax |
+| excessive secret files | Talea counts flat non-directory entries, including unknown files, before reading selected values |
+| oversized secret | Talea reads at most the configured limit plus one byte before UTF-8 or schema-directed decoding |
+| invalid encoding | strict UTF-8 fails the operation and publishes no snapshot |
+| symlink/path confusion | flat file symlinks may support atomic-writer mounts, but every resolved target must remain beneath the resolved explicit root |
+| source-name, alias, delimiter, or case-fold collision | plan collisions reject before loading; multiple accepted names within one source return `alias_conflict` without comparing values |
+| secret leakage | provenance retains no values or exact file paths; validation failure from a secret-backed load is redacted and loses callback causes |
+| provenance leakage | the baseline contains canonical paths and source kinds only; plan introspection contains names but no paths, snapshots, or contents |
+| partial-load state | merge, buffers, provenance, and counters are operation-local; failure cannot mutate an earlier snapshot |
+| concurrent source mutation | Talea snapshots the environment Mapping and reads bounded file bytes once per load; cross-source filesystem transactions are unsupported |
+| hostile override Mapping | Mapping methods are trusted application execution; the final detached structure still receives ordinary depth/node/error budgets |
+
+Source filenames and environment keys are inert data rather than generated
+source. Validation locations remain canonical external field paths. A normal
+acquisition `OSError` may identify the explicit application-provided path; it
+never contains a setting value. Unknown environment variables and secret
+filenames are ignored as values, though secret files still count toward the
+flat directory limit.
+
+Kubernetes projected Secrets and ConfigMaps commonly use visible-key symlinks
+through `..data` to a version directory. Requiring final targets to remain
+beneath the resolved mount root permits that layout without allowing a key to
+escape the configured directory. Talea does not authenticate the provider,
+lock the directory, guarantee atomic reads across files, or replace operating-
+system access control.
 
 ## Supply chain
 

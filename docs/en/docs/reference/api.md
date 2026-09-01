@@ -59,6 +59,30 @@ to `Contract(...)` is retained; an explicit per-call input policy replaces it.
 `ParameterInfo`, `inspect_spec`, `inspect_contract`, and `inspect_callable`. See
 [Introspection](introspection.md).
 
+## Settings domain
+
+`talea.settings` deliberately exports five names without adding root-package
+exports. The two generic classes are `Settings` and `SettingsResult`; their
+type parameters are shown in the table:
+
+| API | Contract |
+| --- | --- |
+| `Settings[T]` | Immutable source plan for one concrete complete `Spec` subtype; `load()` returns exactly `T` |
+| `SettingsPolicy` | Frozen environment, source-name, TOML, secret, aggregate-byte, and delegated `ResourcePolicy` limits |
+| `SettingsInfo` | Callback-free plan projection with model, source order, prefix, delimiter, case policy, and known environment names |
+| `SettingsResult[T]` | Frozen snapshot/provenance result returned by `load(provenance=True)` |
+| `SettingSource` | Literal source-kind type: `override`, `environment`, `secret`, `toml`, or `default` |
+
+`Settings(model, *, prefix="", case_sensitive=False, toml=None,
+secrets=None, policy=None)` compiles one finite plan.
+`load(overrides=None, *, environment=None, provenance=False)` resolves a fresh
+snapshot with precedence override > environment > secret > TOML > default.
+Without provenance it returns the exact model subtype. With provenance it
+returns `SettingsResult[Model]` containing only canonical paths and source
+kinds. Acquisition uses normal `OSError` or value-free parse `ValueError`, settings limits use
+`ResourceLimitError`, and contract-invalid values use ordinary
+`ValidationError`. See [Application settings](../settings.md).
+
 ## `validate_call`
 
 `validate_call(function, /)` returns the same statically typed callable shape

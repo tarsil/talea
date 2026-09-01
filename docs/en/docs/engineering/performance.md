@@ -34,6 +34,7 @@ approximately zero cost when unused.
 | `benchmark_dataclasses` | dataclass boundaries, cold work, memory, generated code, and zero-tax canaries |
 | `benchmark_representation` | represented strict/input/output paths, result validation, structural selection, allocation/retention, and zero-tax canaries |
 | `benchmark_callables` | direct/handwritten/compiled calls, binding comparator, structures, defaults, failures, allocations, retention, and bytecode |
+| `benchmark_settings` | cold/warm plans, 10/50/100-field environment/TOML loads, nesting, aliases, precedence, secrets, provenance, failures, resources, retention, concurrency, and zero-tax canaries |
 
 Run one task from the repository root, for example:
 
@@ -44,6 +45,7 @@ task benchmark_resources
 task benchmark_dataclasses
 task benchmark_representation
 task benchmark_callables
+task benchmark_settings
 ```
 
 For release review, run every permanent benchmark task listed in

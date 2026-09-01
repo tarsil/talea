@@ -83,6 +83,7 @@ nav:
       - Metadata and Sensitive: "metadata-security.md"
       - JSON Schema and OpenAPI: "json-schema-openapi.md"
       - ResourcePolicy: "resource-security.md"
+      - Application settings: "settings.md"
       - Typing: "reference/typing.md"
       - Introspection: "reference/introspection.md"
       - Dynamic Specs: "dynamic-utilities.md"
