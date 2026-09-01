@@ -163,10 +163,40 @@ legacy/legacy collisions fail during declaration so an input object cannot
 identify two fields with one name. This validation naturally includes ordinary
 inherited effective fields.
 
-Legacy-name consumption currently belongs to ordinary Spec Mapping/JSON input.
-Stdlib dataclass construction and tagged-union discriminator selection do not
-yet consume this vocabulary. Do not rely on a legacy tuple at those boundaries;
-their existing current-name behavior is unchanged.
+Migration truth follows the field through normal composition:
+
+- an inherited field keeps its current and legacy names; an annotation-only
+  override keeps that inherited `Alias`, while a local `Alias` replaces it as
+  one metadata item;
+- `Alias("accountId")` is therefore an explicit way to keep the current name
+  while removing inherited legacy names;
+- `derive_spec()` include, exclude, partial, input, and output projections keep
+  the canonical field object for every retained field; omitted fields leave no
+  migration vocabulary behind;
+- a legacy spelling supplied to a partial marks the canonical Python field in
+  `present_fields`, and `apply_patch()` applies that canonical field without
+  weakening exact-source provenance;
+- `create_spec()`, concrete generic specialization, recursion, containers, and
+  nested Specs consume the same retained field truth without rereading
+  annotations.
+
+Directional views select fields; they do not create a different field-name
+policy. If an output-derived Spec is later used as an ordinary Mapping or JSON
+input boundary, retained fields accept their legacy names. Its output still
+uses only current names.
+
+Stdlib dataclass fields retain the same `external_name`, `legacy_names`, and
+`accepted_input_names` projection in `DataclassField`. `Contract(Dataclass)`
+uses it for Mapping and JSON construction, while the original dataclass
+constructor remains the sole lifecycle owner. Tagged Spec unions require every
+branch discriminator field to share one complete accepted-name vocabulary.
+Dispatch looks up that vocabulary once, rejects multiple spellings before
+branch execution, and still runs only the selected branch. TypedDict keys do
+not gain `Alias` migration semantics in this release.
+
+These checks are compiled only for fields or discriminators with non-empty
+legacy tuples. Ordinary Spec, dataclass, and tagged-union generated paths keep
+their direct current-name lookup and contain no alias-conflict branch.
 
 ## Practical account fields
 

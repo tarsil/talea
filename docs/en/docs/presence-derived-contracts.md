@@ -252,16 +252,21 @@ from talea import Alias
 
 
 class Contact(Spec):
-    display_name: Annotated[str, Alias("displayName")]
+    display_name: Annotated[str, Alias("displayName", legacy=("name",))]
 
 
 ContactPatch = derive_spec(Contact, partial=True)
-patch = ContactPatch.from_mapping({"displayName": "Ada"})
+patch = ContactPatch.from_mapping({"name": "Ada"})
 
 assert patch.present_fields == frozenset({"display_name"})
 assert patch.to_dict() == {"displayName": "Ada"}
 assert patch.to_dict(by_alias=False) == {"display_name": "Ada"}
 ```
+
+The legacy key marks `display_name`, never `name`, as present. Supplying both
+`displayName` and `name` is `alias_conflict`, even when their values match.
+Applying this patch uses exact derivation provenance and forwards
+`display_name` through the source replacement lifecycle.
 
 Plain `to_dict()` and `to_json()` emit only present partial fields. Existing
 `include`, `exclude`, `exclude_none`, `by_alias`, and custom codec options then

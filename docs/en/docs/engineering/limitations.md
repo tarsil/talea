@@ -26,6 +26,11 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   unknowable;
 - nested serialization selection uses canonical field names only; aliases are
   output keys, not selector identities;
+- JSON Schema and OpenAPI project only current external names; legacy input
+  names have no deprecated-property or vendor-extension projection yet;
+- TypedDict keys do not consume `Alias(..., legacy=...)`; migration names are
+  supported by Spec fields, stdlib dataclass fields, and compatible tagged Spec
+  discriminators;
 - nested selection has no per-index sequence selection, mapping-key selection,
   wildcards, predicates, path expressions, or query-language callbacks;
 - serializer output without `output=` is a leaf; declared output contracts use

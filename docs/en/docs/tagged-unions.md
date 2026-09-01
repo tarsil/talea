@@ -11,12 +11,12 @@ from talea import Alias, Contract, Discriminator, Spec
 
 
 class CardPayment(Spec):
-    kind: Annotated[Literal["card"], Alias("type")]
+    kind: Annotated[Literal["card"], Alias("type", legacy=("kind",))]
     number: str
 
 
 class BankTransfer(Spec):
-    kind: Annotated[Literal["bank"], Alias("type")]
+    kind: Annotated[Literal["bank"], Alias("type", legacy=("kind",))]
     iban: str
 
 
@@ -48,7 +48,9 @@ whose JSON value is one of those types. Python tags remain type-sensitive, so
 are distinct in Python but collapse to the same JSON representation, such as
 an `IntEnum` member with value `1` and the integer tag `1`.
 
-All branches must resolve to the same canonical field name and external name.
+All branches must resolve to the same canonical field name, external name, and
+ordered accepted input names. A branch-specific legacy vocabulary is rejected
+because dispatch occurs before a branch has been selected.
 Spec branch types must not be nominally overlapping. Concrete generic Spec
 specializations work normally; an open generic branch is not a concrete
 contract. Mixed Spec/TypedDict unions and unrelated hybrid alternatives are
@@ -65,9 +67,17 @@ type OptionalPayment = Annotated[
 
 Strict validation of an existing Spec instance selects its branch by nominal
 identity and does not read a mapping tag. Mapping and JSON input locate the
-external discriminator, validate its exact type, select one branch, and run
-only that branch's compiled converter. TypedDict values necessarily dispatch
-from their key because dictionaries have no nominal branch identity.
+external discriminator or exactly one of its declared legacy names, validate
+its exact type, select one branch, and run only that branch's compiled
+converter. TypedDict values necessarily dispatch from their key because
+dictionaries have no nominal branch identity.
+
+If more than one accepted discriminator spelling is supplied, dispatch raises
+`alias_conflict` at the current external discriminator path before any branch
+runs. Equal tag values still conflict. With no accepted spelling the result is
+`discriminator_missing`; with one accepted spelling and an unknown tag it is
+`discriminator_unknown`. Legacy names affect key lookup only—tag identity
+remains exact and type-sensitive. Output always emits the current external key.
 
 Generated dispatch uses direct comparisons for two through four branches and
 a type-sensitive dictionary lookup bound directly to a compiled branch
@@ -108,7 +118,8 @@ through the existing declaration graph and the tagged schema retains finite
 Spec references rather than copying complete branch declarations.
 
 `inspect_contract()` and Spec field introspection expose `TaggedUnionSchema`.
-Its branch tuple is immutable and contains no public mutable dispatch table.
+Its immutable `accepted_input_names` is projected once from the compatible
+branch fields; its branch tuple contains no public mutable dispatch table.
 `json_schema()` projects `oneOf` branches from this truth.
 `openapi_schema()` additionally emits a discriminator with the common external
 property name and a mapping to branch components. Recursive, generic, and

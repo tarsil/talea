@@ -64,6 +64,12 @@ remains `None` or the explicitly declared current alias for compatibility.
 These tuples are projections of retained declaration truth; mutating a returned
 info object or collection cannot alter compiled execution.
 
+The same vocabulary is available on canonical `DataclassField` nodes reached
+through `inspect_contract().schema`. A `TaggedUnionSchema` exposes the one
+compatible discriminator `accepted_input_names` tuple projected from its Spec
+branches. Tooling therefore needs neither annotation rereading nor generated
+input inspection to discover runtime migration names.
+
 `SpecInfo.representations` and `ContractInfo.representations` contain each
 reachable represented contract once. Their `RepresentationInfo` values expose
 `internal`, optional `input`/`output`, `has_loader`, and `has_dumper`. They do

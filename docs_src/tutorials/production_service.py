@@ -2,11 +2,14 @@
 
 import json
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from talea import (
     Alias,
+    Contract,
+    Discriminator,
     MaxLength,
     MinLength,
     ReadOnly,
@@ -16,6 +19,8 @@ from talea import (
     Spec,
     ValidationError,
     WriteOnly,
+    apply_patch,
+    derive_spec,
 )
 
 
@@ -157,6 +162,63 @@ except ValidationError as error:
     assert "input" not in conflict
 else:
     raise AssertionError("multiple accepted names must never establish precedence")
+
+
+@dataclass
+class AccountOwner:
+    """Keep a stdlib domain record while its boundary name evolves."""
+
+    account_id: Annotated[UUID, Alias("accountId", legacy=("id", "account_id"))]
+
+
+class OwnerRequest(Spec):
+    owner: AccountOwner
+
+
+owner_request = OwnerRequest.from_json(f'{{"owner":{{"id":"{migration_id}"}}}}')
+assert owner_request.owner.account_id == UUID(migration_id)
+assert owner_request.to_json() == f'{{"owner":{{"accountId":"{migration_id}"}}}}'
+owner_contract = Contract(AccountOwner)
+assert owner_contract.from_python({"account_id": UUID(migration_id)}).account_id == UUID(migration_id)
+assert owner_contract.to_python(AccountOwner(UUID(migration_id))) == {"accountId": UUID(migration_id)}
+
+UserLookupPatch = derive_spec(UserLookup, partial=True, name="UserLookupPatch")
+replacement_id = UUID("87654321-4321-8765-4321-876543218765")
+lookup_patch = UserLookupPatch.from_mapping({"id": replacement_id})
+assert lookup_patch.present_fields == frozenset({"user_id"})
+updated_lookup = apply_patch(UserLookup(user_id=UUID(migration_id)), lookup_patch)
+assert updated_lookup.user_id == replacement_id
+assert updated_lookup.to_dict() == {"userId": replacement_id}
+
+
+class AccountCreated(Spec):
+    kind: Annotated[Literal["created"], Alias("eventType", legacy=("type", "kind"))]
+    owner: AccountOwner
+
+
+class AccountClosed(Spec):
+    kind: Annotated[Literal["closed"], Alias("eventType", legacy=("type", "kind"))]
+    account_id: Annotated[UUID, Alias("accountId", legacy=("id",))]
+
+
+type AccountEvent = Annotated[AccountCreated | AccountClosed, Discriminator("kind")]
+event_contract = Contract(AccountEvent)
+event = event_contract.from_json(f'{{"type":"created","owner":{{"id":"{migration_id}"}}}}')
+assert type(event) is AccountCreated
+assert event_contract.to_json(event) == (f'{{"eventType":"created","owner":{{"accountId":"{migration_id}"}}}}')
+try:
+    event_contract.from_python(
+        {
+            "eventType": "closed",
+            "kind": "closed",
+            "accountId": UUID(migration_id),
+        }
+    )
+except ValidationError as error:
+    assert error.code == "alias_conflict"
+    assert error.location == ("eventType",)
+else:
+    raise AssertionError("tagged discriminator spellings must not establish precedence")
 
 input_schema = UserCreate.openapi_schema(mode="input")
 output_schema = UserResponse.openapi_schema(mode="output")

@@ -50,6 +50,7 @@ containing:
 - exact dataclass type identity and concrete generic arguments;
 - effective inherited stored fields in stdlib order;
 - each field's canonical Talea schema and annotation metadata;
+- each field's current external name and ordered historical input names;
 - `init`, `kw_only`, static default, and default-factory participation;
 - the class's frozen binding policy;
 - finite identity for recursive declarations.
@@ -109,6 +110,34 @@ transitively immutable.
 `from_json()` requires a JSON object after decoding. External keys use `Alias`
 when present. Unknown keys are `unexpected`, required constructor fields are
 `missing`, and arbitrary attribute-bearing objects are not accepted.
+
+`Alias(..., legacy=(...))` uses the same migration contract as a Spec field:
+
+```python
+@dataclass
+class Account:
+    account_id: Annotated[
+        int,
+        Alias("accountId", legacy=("id", "account_id")),
+    ]
+
+
+accounts = Contract(Account)
+assert accounts.from_python({"id": 7}).account_id == 7
+assert accounts.from_json('{"account_id":8}').account_id == 8
+assert accounts.to_python(Account(9)) == {"accountId": 9}
+```
+
+Exactly one accepted spelling may be present. Current plus legacy,
+legacy plus legacy, and equal-valued duplicates all raise `alias_conflict` at
+the current external path (`accountId` above). The failure retains no supplied
+value or cause, including for `Sensitive` fields. Repeated identical JSON keys
+remain `json_duplicate`; two distinct accepted keys are `alias_conflict`.
+
+The immutable `DataclassField` is the owner of `external_name`, `legacy_names`,
+and `accepted_input_names`. Input compilation does not inspect `Annotated`
+again. Dataclasses without legacy names keep the existing direct current-name
+generated path.
 
 The original dataclass constructor remains the lifecycle owner:
 

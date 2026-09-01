@@ -136,9 +136,14 @@ there:
   publishing legacy runtime-input vocabulary;
 - introspection reports the Python, current, legacy, and complete accepted
   names plus the normalized constraint;
-- derived partial Specs retain the same field truth while changing presence.
+- derived partial Specs retain the same field truth while changing presence;
+- a `DataclassField` retains the equivalent projection before its Mapping/JSON
+  emitter compiles;
+- a `TaggedUnionSchema` retains the one branch-compatible discriminator
+  vocabulary needed for pre-branch direct dispatch.
 
-No subsystem independently rereads `Annotated`. This prevents the class of
+The dataclass and tagged nodes are canonical projections, not independent Alias
+interpreters. No runtime subsystem independently rereads `Annotated`. This prevents the class of
 bugs where validation accepts one name while schemas publish another, or PATCH
 forgets a constraint owned by the source.
 
