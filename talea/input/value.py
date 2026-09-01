@@ -23,6 +23,7 @@ def compile_value_input(
     title: str,
     *,
     sensitive: bool = False,
+    cycle_sensitive: bool | None = None,
 ) -> ValueInput:
     """Compile one arbitrary root boundary without a wrapper Spec.
 
@@ -53,5 +54,9 @@ def compile_value_input(
     exec(compile("\n".join(lines), f"<talea {mode} value input>", "exec"), namespace)
     compiled = cast(ValueInput, namespace["convert"])
     if schema_contains_named_reference(schema):
-        return wrap_named_input_root(compiled, title, sensitive)
+        return wrap_named_input_root(
+            compiled,
+            title,
+            sensitive if cycle_sensitive is None else cycle_sensitive,
+        )
     return compiled

@@ -19,7 +19,7 @@ are not public.
 | `transform` | Declare a pre-validation field transform | declaration `TypeError`; runtime `ValidationError` |
 | `check` | Declare a field or whole-Spec assertion | declaration `TypeError`; runtime `ValidationError` |
 | `serialize` | Declare a field output serializer, optionally with `output=` result truth | declaration `TypeError`; runtime `SerializationError` |
-| `Alias` | Declare one external field name | `TypeError` and declaration collisions |
+| `Alias` | Declare one current external name and finite historical input names | `TypeError` and declaration collisions |
 | `Discriminator` | Select a Literal-tagged union branch | tagged-union declaration errors |
 | `Title`, `Description`, `Examples`, `Deprecated` | Documentation metadata | invalid marker `TypeError`/`ValueError` |
 | `ReadOnly`, `WriteOnly` | Direction metadata; ordinary runtime unchanged, explicit derived views supported | invalid marker `TypeError` |
@@ -96,7 +96,10 @@ and declaration functions/errors `resolve_annotation`,
 
 These domain values are public for framework tooling and architectural
 extension. They are structural truth, not a generic runtime validation engine.
-No current `__all__` export is classified as an accidental internal leak.
+`RepresentationSchema` remains an internal association used by the compilers;
+it is intentionally absent from both `talea.schema.__all__` and the schema-node
+module's export inventory. No current `__all__` export is classified as an
+accidental internal leak.
 
 ## `Spec`
 

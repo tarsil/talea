@@ -22,7 +22,7 @@ _RECURSIVE_NAMED_INPUT: ContextVar[set[int] | None] = ContextVar(
 class _NamedInputReference:
     """Call one graph-owned boundary across a named declaration back-edge."""
 
-    __slots__ = ("mode", "reference", "sensitive", "title")
+    __slots__ = ("cycle_sensitive", "mode", "reference", "sensitive", "title")
 
     def __init__(
         self,
@@ -30,11 +30,13 @@ class _NamedInputReference:
         mode: InputMode,
         title: str,
         sensitive: bool,
+        cycle_sensitive: bool,
     ) -> None:
         self.reference = reference
         self.mode = mode
         self.title = title
         self.sensitive = sensitive
+        self.cycle_sensitive = cycle_sensitive
 
     def __call__(
         self,
@@ -44,12 +46,13 @@ class _NamedInputReference:
         from talea.input.value import compile_value_input
 
         compiled: ValueInput = self.reference._target.operation(
-            ("input", self.mode, self.sensitive),
+            ("input", self.mode, self.sensitive, self.cycle_sensitive),
             lambda schema: compile_value_input(
                 schema,
                 self.mode,
                 self.title,
                 sensitive=self.sensitive,
+                cycle_sensitive=self.cycle_sensitive,
             ),
         )
         return compiled(value, resource_state)

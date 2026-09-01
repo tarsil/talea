@@ -62,6 +62,12 @@ class RecursiveNode:
 
 
 @dataclass
+class SensitiveRecursiveNode:
+    secret: Annotated[str, Sensitive()]
+    children: list[SensitiveRecursiveNode] = field(default_factory=list)
+
+
+@dataclass
 class MutualParent:
     child: MutualChild | None = None
 
@@ -794,6 +800,26 @@ def test_runtime_cycle_policy_separates_strict_input_and_output() -> None:
         contract.from_python(cyclic)
     assert captured.value.errors()[0]["code"] == "cycle"
     assert captured.value.errors()[0]["location"] == ["children", 0]
+
+
+def test_nested_recursive_dataclass_cycle_uses_graph_sensitive_truth() -> None:
+    class Holder(Spec):
+        node: SensitiveRecursiveNode
+
+    secret = "CAMPAIGN_27E_DATACLASS_SECRET"
+    node: dict[str, object] = {"secret": secret}
+    node["children"] = [node]
+
+    with pytest.raises(ValidationError) as captured:
+        Holder.from_mapping({"node": node})
+
+    error = captured.value
+    assert error.code == "cycle"
+    assert error.location[0] == "node"
+    assert error.location[-2:] == ("children", 0)
+    assert error.value == "<redacted>"
+    assert error.__cause__ is None
+    assert secret not in f"{error!s}{error.errors()!r}{vars(error)!r}"
 
 
 def test_spec_typed_dict_alias_union_and_dataclass_composition_is_bidirectional() -> None:

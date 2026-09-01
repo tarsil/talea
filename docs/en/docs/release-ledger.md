@@ -1,6 +1,6 @@
 # Version, maturity, and support
 
-Talea is currently version 0.4.0 and deliberately remains in the 0.x release
+Talea is currently version 0.5.0 and deliberately remains in the 0.x release
 series. The implemented runtime is substantial, but compatibility, deprecation
 windows, long-term support, and formal vulnerability-reporting governance are
 not yet frozen. The 0.x series is an ongoing product stage, not an indication
@@ -22,7 +22,10 @@ introspection, and nested selection, plus optional declared output contracts on
 field serializers. Talea 0.4.0 adds strict compiled callable boundaries for
 synchronous and asynchronous functions, complete Python parameter binding,
 methods and descriptors, return validation, typing, and immutable
-introspection.
+introspection. Talea 0.5.0 adds finite historical Mapping and JSON input names
+through `Alias(..., legacy=(...))`, with conflict rejection and current-only
+output across Specs, dataclasses, tagged unions, derived contracts, JSON Schema,
+OpenAPI, and introspection.
 
 ## Deliberate boundaries
 
@@ -43,6 +46,9 @@ introspection.
 | abstract Mapping/Sequence conversion | Rejected because concrete output shape is ambiguous |
 | ORM attribute extraction | Rejected for core; an integration must own lazy access and errors |
 | output/schema resource governance | Caller-owned in the current threat model |
+| migration warnings, telemetry, and retirement timing | Application-owned; Talea declares finite accepted names and does not run a migration lifecycle |
+| TypedDict key migration names | Not implemented; migration names belong to Spec fields, stdlib dataclass fields, and compatible tagged Spec discriminators |
+| API-version negotiation | Application or framework-owned, not a Talea input-name policy |
 
 The complete operational list is on [Known limitations](engineering/limitations.md).
 
@@ -56,3 +62,30 @@ it is not a promise that every downstream environment is identical.
 
 Release history belongs in [Release notes](release-notes.md). Contributor
 workflow is documented in [Contributing](contributing.md).
+
+## 0.5.0 owner and evidence
+
+`Alias(name, *, legacy=())` is the only declaration surface for migration-safe
+field names. The resolved `SpecField`, `DataclassField`, and tagged discriminator
+schema retain the ordered current-plus-historical input vocabulary; compiled
+Mapping/JSON operations, standards projection, and immutable introspection
+consume that truth. Serialization consumes only the current external name.
+There is no migration registry, precedence rule, warning engine, telemetry, or
+retirement policy.
+
+Permanent acceptance evidence is grouped rather than duplicated into one test
+per claim:
+
+- `tests/test_aliases.py`, `tests/test_alias_composition.py`, and
+  `tests/test_alias_schema_projection.py` cover declaration, conflicts,
+  inheritance, derivation, PATCH, views, generics, recursion, dataclasses,
+  tagged dispatch, errors, security, introspection, JSON Schema, and OpenAPI;
+- the general Spec, dataclass, tagged-union, schema, serialization, resource,
+  representation, and callable suites remain zero-feature regression canaries;
+- the Mapping/JSON, presence, recursive/generic, dataclass, tagged, and JSON
+  Schema benchmark tasks measure migration execution, equivalent conflict
+  detection, direct dispatch, compositional projection growth, allocations,
+  retention, and no-migration paths;
+- release acceptance additionally requires Python 3.14 quality gates, the
+  configured Python 3.15 CI lane, checked wheel/sdist metadata and contents,
+  and an isolated no-dependency wheel smoke test.

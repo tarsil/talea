@@ -13,6 +13,7 @@ from talea.declaration.policies import (
     schema_contains_tagged_union,
     schema_values_are_immutable,
 )
+from talea.input.emission import _conversion_visit_depth
 from talea.input.value import compile_value_input
 from talea.introspection import inspect_contract
 from talea.schema import (
@@ -153,6 +154,8 @@ def test_self_and_mutually_recursive_aliases_use_finite_canonical_back_edges() -
     assert isinstance(json_schema, AliasSchema)
     assert len(_references(json_schema)) == 2
     assert all(reference.target is json_schema for reference in _references(json_schema))
+    reference = _references(json_schema)[0]
+    assert _conversion_visit_depth(reference, ("value",), frozenset({reference.identity})) == 2
     assert Contract(JSONValue).validate({"items": [1, "two", None]}) == {"items": [1, "two", None]}
     assert Contract(MutualA).validate([{"leaf": 1}]) == [{"leaf": 1}]
     assert _references(mutual_schema)
@@ -261,6 +264,30 @@ def test_runtime_cycle_policy_matches_recursive_spec_policy() -> None:
     with pytest.raises(SerializationError) as output_error:
         contract.to_python(value)
     assert output_error.value.location == (0,)
+
+
+def test_nested_recursive_typed_dict_cycle_uses_graph_sensitive_truth() -> None:
+    class SecretNode(TypedDict):
+        secret: Annotated[str, Sensitive()]
+        children: list[SecretNode]
+
+    class Holder(Spec):
+        node: SecretNode
+
+    secret = "CAMPAIGN_27E_TYPED_DICT_SECRET"
+    node: dict[str, object] = {"secret": secret}
+    node["children"] = [node]
+
+    with pytest.raises(ValidationError) as captured:
+        Holder.from_mapping({"node": node})
+
+    error = captured.value
+    assert error.code == "cycle"
+    assert error.location[0] == "node"
+    assert error.location[-2:] == ("children", 0)
+    assert error.value == "<redacted>"
+    assert error.__cause__ is None
+    assert secret not in f"{error!s}{error.errors()!r}{vars(error)!r}"
 
 
 @pytest.mark.parametrize("annotation", [SecretTree, SecretNode, Expr])

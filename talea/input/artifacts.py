@@ -22,6 +22,7 @@ class _InputArtifacts:
 
     slot_setters: tuple[Callable[[object, object], None], ...]
     recursive: bool = False
+    contains_sensitive: bool = False
     mapping_input: InputCallable | None = None
     json_input: InputCallable | None = None
     compiling: set[InputMode] | None = None
@@ -60,7 +61,7 @@ class _InputArtifacts:
                 finally:
                     self.compiling.remove(mode)
                 if self.recursive:
-                    compiled = _RecursiveInput(compiled, spec_type)
+                    compiled = _RecursiveInput(compiled, spec_type, self.contains_sensitive)
                 if mode == "mapping":
                     self.mapping_input = compiled
                 else:
@@ -89,9 +90,10 @@ class _PresenceInputArtifacts(_InputArtifacts):
         self,
         slot_setters: tuple[Callable[[object, object], None], ...],
         recursive: bool,
+        contains_sensitive: bool,
         presence_setter: Callable[[object, object], None],
     ) -> None:
-        super().__init__(slot_setters, recursive)
+        super().__init__(slot_setters, recursive, contains_sensitive)
         self._presence_setter = presence_setter
 
     @property
@@ -123,11 +125,12 @@ class _RecursiveInputReference:
 class _RecursiveInput:
     """Reject cyclic Mapping graphs with operation-local identity tracking."""
 
-    __slots__ = ("boundary", "spec_type")
+    __slots__ = ("boundary", "sensitive", "spec_type")
 
-    def __init__(self, boundary: InputCallable, spec_type: type[object]) -> None:
+    def __init__(self, boundary: InputCallable, spec_type: type[object], sensitive: bool) -> None:
         self.boundary = boundary
         self.spec_type = spec_type
+        self.sensitive = sensitive
 
     def __call__(
         self,
@@ -141,7 +144,14 @@ class _RecursiveInput:
             token = _RECURSIVE_INPUT.set(active)
         identity = id(data)
         if identity in active:
-            raise ValidationError(None, data, (), ErrorCode.CYCLE, title=self.spec_type.__name__) from None
+            raise ValidationError(
+                None,
+                data,
+                (),
+                ErrorCode.CYCLE,
+                title=self.spec_type.__name__,
+                sensitive=self.sensitive,
+            ) from None
         active.add(identity)
         try:
             return self.boundary(data, resource_state)

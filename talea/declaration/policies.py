@@ -145,7 +145,13 @@ def schema_contains_sensitive_metadata(
     if isinstance(schema, NamedReferenceSchema):
         if schema.identity in visiting:
             return False
-        return schema_contains_sensitive_metadata(schema.target, visiting | {schema.identity})
+        nested_visiting = visiting | {schema.identity}
+        if isinstance(schema.target, DataclassSchema):
+            return any(
+                bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema, nested_visiting)
+                for field in schema.target.fields
+            )
+        return schema_contains_sensitive_metadata(schema.target, nested_visiting)
     if isinstance(schema, SpecReferenceSchema):
         if schema.spec_type in visiting:
             return False

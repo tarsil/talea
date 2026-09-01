@@ -15,6 +15,7 @@ from typing import assert_never, cast
 from talea.codegen import _GeneratedNames
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.declaration.models import SpecSchema, ValidationHook
+from talea.declaration.policies import schema_contains_sensitive_metadata
 from talea.errors import ErrorCode
 from talea.errors.models import CustomValidationError, ValidationError
 from talea.errors.safety import REDACTED
@@ -587,7 +588,13 @@ class _ValidationEmitter:
         key = self.variable("key")
         item = self.variable("item")
         self.emit(indentation, f"for {key}, {item} in {value}.items():")
-        member_location = (*location, self.sensitive_location_segment(key))
+        member_location = (
+            *location,
+            self.sensitive_location_segment(
+                key,
+                sensitive=schema_contains_sensitive_metadata(schema.value),
+            ),
+        )
         self.emit_schema(schema.key, key, member_location, indentation + 1)
         self.emit_schema(schema.value, item, member_location, indentation + 1)
 

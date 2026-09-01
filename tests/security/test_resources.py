@@ -1,7 +1,8 @@
 import base64
 import sys
+from collections.abc import Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, dataclass
 from decimal import Decimal
 from typing import Annotated, Literal, TypedDict
 
@@ -122,6 +123,57 @@ def test_spec_and_contract_boundaries_share_spec_node_semantics() -> None:
     assert Contract(Payload).from_python({"value": 1}, policy=policy).value == 1
     existing = Payload(value=1)
     assert Contract(Payload).from_python(existing, policy=policy) is existing
+
+
+def test_conversion_work_is_budgeted_before_constructing_the_full_sequence() -> None:
+    constructed: list[int] = []
+
+    @dataclass
+    class Item:
+        value: int
+
+        def __post_init__(self) -> None:
+            constructed.append(1)
+
+    contract = Contract(list[Item])
+    values = [{"value": index} for index in range(20)]
+
+    with pytest.raises(ResourceLimitError) as captured:
+        contract.from_python(values, policy=ResourcePolicy(max_nodes=5))
+
+    assert (captured.value.code, captured.value.limit, captured.value.observed) == ("nodes", 5, 6)
+    assert constructed == [1, 1]
+
+
+def test_mapping_detachment_stops_at_the_node_budget() -> None:
+    class Payload(TypedDict):
+        value: int
+
+    @dataclass
+    class Record:
+        value: int
+
+    class CountingMapping(Mapping[str, object]):
+        def __init__(self) -> None:
+            self.data = {"value": 1, **{f"extra_{index}": index for index in range(20)}}
+            self.reads = 0
+
+        def __getitem__(self, key: str) -> object:
+            self.reads += 1
+            return self.data[key]
+
+        def __iter__(self) -> Iterator[str]:
+            return iter(self.data)
+
+        def __len__(self) -> int:
+            return len(self.data)
+
+    for annotation in (Payload, Record):
+        value = CountingMapping()
+        with pytest.raises(ResourceLimitError) as captured:
+            Contract(annotation).from_python(value, policy=ResourcePolicy(max_nodes=3))
+        assert (captured.value.code, captured.value.observed) == ("nodes", 4)
+        assert value.reads == 3
 
 
 @given(st.lists(st.integers(), max_size=50))
@@ -351,8 +403,26 @@ def test_unlimited_internal_state_preserves_direct_compiled_artifact_contract() 
     compiled = compile_value_input(PrimitiveSchema("int"), "mapping", "int")
 
     assert compiled(1) == 1
+    marker = UNLIMITED_RESOURCE_STATE.begin_reservations()
+    UNLIMITED_RESOURCE_STATE.reserve_node(1_000_000)
+    UNLIMITED_RESOURCE_STATE.end_reservations(marker)
     assert UNLIMITED_RESOURCE_STATE.call_nested(compiled, 1, 99) == 1
     assert UNLIMITED_RESOURCE_STATE.error_limit_reached(1_000_000) is False
     state = resource_state(ResourcePolicy(max_errors=None, max_nodes=None, max_depth=None))
     state.consume_node(1_000_000)
     assert state.error_limit_reached(1_000_000) is False
+
+
+def test_resource_reservation_scopes_enforce_depth_and_lifo_closure() -> None:
+    state = resource_state(ResourcePolicy(max_depth=1))
+    outer = state.begin_reservations()
+    inner = state.begin_reservations()
+
+    with pytest.raises(ResourceLimitError) as captured:
+        state.reserve_node(2)
+    assert (captured.value.code, captured.value.limit, captured.value.observed) == ("depth", 1, 2)
+    with pytest.raises(RuntimeError, match="out of order"):
+        state.end_reservations(outer)
+
+    state.end_reservations(inner)
+    state.end_reservations(outer)
