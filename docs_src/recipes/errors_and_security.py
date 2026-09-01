@@ -23,7 +23,11 @@ except ValidationError as error:
     detail = error.errors()[0]
     assert detail["location"] == ["credentials", "token"]
     assert detail["input"] == "<redacted>"
+    tree = error.error_tree()
+    assert tree.children["credentials"].children["token"].errors == (detail,)
+    assert tree.to_dict()["children"][0]["key"] == "credentials"
     assert secret not in str(error)
+    assert secret not in repr(tree.to_dict())
 else:
     raise AssertionError("invalid secret-bearing input must fail")
 
@@ -87,6 +91,7 @@ except ValidationError as error:
         ["secondary_id"],
         ["revision"],
     ]
+    assert list(error.error_tree().children) == ["primary_id", "secondary_id", "revision"]
 else:
     raise AssertionError("the error budget must terminate broad aggregation")
 

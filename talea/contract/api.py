@@ -1,20 +1,31 @@
 """Expose retained arbitrary annotation contracts over canonical Talea owners."""
 
-from collections.abc import Callable
-from typing import Generic, Literal, TypeVar, cast, overload
+from collections.abc import Callable, Iterable, Iterator
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast, overload
 
 from talea.contract.artifacts import _ContractArtifacts
+from talea.contract.items import ItemPolicy, iter_items
 from talea.declaration.policies import schema_contains_sensitive_metadata, schema_root_metadata
 from talea.input.json import JsonInput, JsonLoads, decode_json
+from talea.jsonl import JsonlError, JsonlPolicy, _iter_jsonl
 from talea.metadata import annotation_metadata
 from talea.resources.policy import ResourcePolicy, resolve_policy
 from talea.resources.state import resource_state
 from talea.schema.resolution import resolve_annotation
 from talea.serialization.json import JsonDumps, encode_json
 from talea.validation.compilation import compile_validator
+from talea.validation.errors import ValidationError
 from talea.validation.failure_contracts import describe_schema
 
 T = TypeVar("T")
+
+if TYPE_CHECKING:
+    import sys
+
+    if sys.version_info >= (3, 15):
+        from typing import TypeForm as _TypeForm
+    else:
+        type _TypeForm[T] = object
 
 
 class Contract(Generic[T]):
@@ -25,11 +36,10 @@ class Contract(Generic[T]):
     compile independently on first use and are retained by this Contract only.
     No process-global Contract cache or codec registry is created.
 
-    Python 3.14 cannot express the type of every runtime type form. Class
-    annotations, including stdlib dataclass classes, infer naturally;
-    container, union, Literal, Annotated, alias, and TypedDict forms should use
-    an explicit ``Contract[T]`` annotation when static output precision is
-    required.
+    Python 3.15 ``TypeForm`` relates arbitrary type expressions to ``T``.
+    Python 3.14 retains class inference and an honest ``object`` fallback, so
+    container, union, Literal, Annotated, alias, and TypedDict forms need an
+    explicit ``Contract[T]`` annotation when static output precision matters.
     """
 
     __slots__ = ("_annotation", "_artifacts", "_policy", "validate")
@@ -49,7 +59,7 @@ class Contract(Generic[T]):
     @overload
     def __init__(
         self,
-        annotation: object,
+        annotation: _TypeForm[T],
         /,
         *,
         policy: ResourcePolicy | None = None,
@@ -118,9 +128,11 @@ class Contract(Generic[T]):
 
         Primitive values remain strict. Mappings may construct nested Specs or
         stdlib dataclasses; TypedDict boundaries accept ``Mapping`` and return
-        detached exact dictionaries; containers recursively use the existing
-        Talea input semantics. Dataclass construction calls the original
-        constructor lifecycle once and then validates retained state.
+        detached exact dictionaries; annotated NamedTuple boundaries accept
+        exact list/tuple positional input and construct the declared class once;
+        containers recursively use the existing Talea input semantics.
+        Dataclass construction calls the original constructor lifecycle once
+        and then validates retained state.
         ``policy`` replaces the Contract's retained policy for this call; it is
         not merged with it.
 
@@ -135,6 +147,132 @@ class Contract(Generic[T]):
             compiled = self._artifacts.input_for("mapping")
         selected_policy = self._policy if policy is None else resolve_policy(policy)
         return compiled(value, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
+
+    def iter_validate(
+        self,
+        values: Iterable[object],
+        /,
+        *,
+        on_error: Callable[[int, ValidationError], None] | None = None,
+        item_policy: ItemPolicy | None = None,
+    ) -> Iterator[T]:
+        """Lazily validate strict Python items through retained artifacts.
+
+        Each source item is validated exactly once. Fail-fast is the default;
+        an explicit ``on_error(index, error)`` callback may admit continued
+        processing. Validation locations begin with the zero-based source
+        index. The source is not read until iteration begins and is never
+        materialized, drained, retried, or closed by Talea.
+
+        Args:
+            values: Application-owned iterable of strict Python values.
+            on_error: Optional synchronous callback for located item validation
+                failures. Returning normally continues; callback exceptions
+                propagate unchanged.
+            item_policy: Stream-level item and invalid-item limits. These do not
+                change strict validation semantics.
+
+        Raises:
+            ResourceLimitError: If a stream-level item limit is exceeded.
+            ValidationError: If an item is invalid and no callback is supplied.
+        """
+
+        return iter_items(values, self.validate, on_error=on_error, policy=item_policy)
+
+    def iter_python(
+        self,
+        values: Iterable[object],
+        /,
+        *,
+        on_error: Callable[[int, ValidationError], None] | None = None,
+        item_policy: ItemPolicy | None = None,
+        policy: ResourcePolicy | None = None,
+    ) -> Iterator[T]:
+        """Lazily convert external Python items through retained artifacts.
+
+        This is the per-item equivalent of :meth:`from_python`: each item gets
+        an independent ``ResourcePolicy`` state while this operation's
+        ``ItemPolicy`` counts pulled and invalid source items. Resource
+        failures are terminal and never enter ``on_error``.
+
+        Args:
+            values: Application-owned iterable of external Python values.
+            on_error: Optional synchronous callback for located item validation
+                failures. It receives no separate rejected-item argument;
+                ordinary non-sensitive ``ValidationError`` facts are unchanged.
+            item_policy: Stream-level item and invalid-item limits.
+            policy: Per-item external-input policy, replacing the Contract's
+                retained policy for every item in this iterator.
+
+        Raises:
+            ResourceLimitError: If a stream or per-item resource limit is
+                exceeded.
+            ValidationError: If conversion fails and no callback is supplied.
+        """
+
+        selected_policy = self._policy if policy is None else resolve_policy(policy)
+
+        def convert(value: object) -> T:
+            compiled = self._artifacts.python_input
+            if compiled is None:
+                compiled = self._artifacts.input_for("mapping")
+            return compiled(value, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
+
+        return iter_items(values, convert, on_error=on_error, policy=item_policy)
+
+    def iter_jsonl(
+        self,
+        records: Iterable[str] | Iterable[bytes],
+        /,
+        *,
+        on_error: Callable[[int, ValidationError], None] | None = None,
+        on_jsonl_error: Callable[[int, JsonlError], None] | None = None,
+        item_policy: ItemPolicy | None = None,
+        jsonl_policy: JsonlPolicy | None = None,
+        policy: ResourcePolicy | None = None,
+    ) -> Iterator[T]:
+        """Lazily decode and convert one JSON value per source record.
+
+        Text and bytes sources are strict UTF-8 JSON Lines record iterables,
+        not arbitrary chunks or paths. Framing failures use one-based line
+        numbers through ``JsonlError``; decoded validation failures preserve
+        the zero-based ``on_error(index, ValidationError)`` contract used by
+        :meth:`iter_python`. The caller owns source lifetime.
+
+        Args:
+            records: An application-owned iterable yielding only text records
+                or only bytes records.
+            on_error: Optional decoded-value validation callback.
+            on_jsonl_error: Optional framing/decoding callback. Returning
+                normally explicitly skips that malformed record.
+            item_policy: Logical record and invalid-record limits shared by
+                both failure domains.
+            jsonl_policy: Per-record and aggregate raw transport byte limits.
+            policy: Per-decoded-item traversal and validation limits.
+
+        Raises:
+            JsonlError: If framing or strict JSON decoding fails without a
+                continuation callback.
+            ResourceLimitError: If any selected resource limit is exceeded.
+            ValidationError: If decoded conversion fails without a callback.
+        """
+
+        selected_policy = self._policy if policy is None else resolve_policy(policy)
+
+        def convert(value: object) -> T:
+            compiled = self._artifacts.json_input
+            if compiled is None:
+                compiled = self._artifacts.input_for("json")
+            return compiled(value, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
+
+        return _iter_jsonl(
+            records,
+            convert,
+            on_error=on_error,
+            on_jsonl_error=on_jsonl_error,
+            item_policy=item_policy,
+            jsonl_policy=jsonl_policy,
+        )
 
     def from_json(
         self,

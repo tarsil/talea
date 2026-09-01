@@ -32,6 +32,8 @@ whose root may be a scalar, container, union, `TypedDict`, dataclass, alias, or
 | Validate `list[User]` without a box class | `Contract[list[User]]` |
 | Convert an external mapping into `User` | `User.from_mapping` |
 | Convert an external list of mappings into users | `Contract[list[User]].from_python` |
+| Lazily convert iterable records one at a time | `Contract(User).iter_python` |
+| Decode one JSON value per text/bytes record | `Contract(User).iter_jsonl` |
 | Keep a stdlib dataclass and add external boundaries | `Contract(DomainDataclass)` |
 | Validate an existing value without conversion | `Contract.validate` |
 | JSON for an arbitrary root | `Contract.from_json` / `Contract.to_json` |
@@ -102,6 +104,38 @@ assert customers.to_python(ada) == {"name": "Ada"}
 Dataclasses remain unchanged and are not copied into Specs. See
 [Standard-library dataclasses](dataclasses.md) for lifecycle, trust, generics,
 recursion, schema modes, and security boundaries.
+
+## Positional NamedTuple domains
+
+`Contract` supports annotated `typing.NamedTuple` declarations as nominal
+Python values with positional external semantics. Strict validation requires
+the exact declared class. External Python accepts an exact list or tuple, JSON
+accepts an array, Python output is an ordinary tuple, and JSON output is an
+array. Mapping and JSON-object input are rejected even though declaration field
+names remain visible through schema introspection.
+
+Trailing defaults, concrete generics, recursion, nested composition,
+`Representation`, constraints, `Sensitive`, standards projection, incremental
+input, JSONL, and `ResourcePolicy` reuse their existing owners. See
+[Positional NamedTuple contracts](namedtuples.md) for the complete boundary and
+selection rules.
+
+## Incremental item validation
+
+`Contract(list[T])` is one materialized container boundary. A retained
+`Contract(T)` also exposes `iter_validate()` for strict items and
+`iter_python()` for external Python records. They yield `Iterator[T]`, default
+to fail-fast, prefix errors with a zero-based item index, and require an
+explicit callback to continue after invalid data. `ItemPolicy` from
+`talea.contract` independently bounds pulled and invalid source items.
+
+See [Incremental Contract validation](incremental-validation.md) for source
+ownership, limits, error and callback behavior, typing, security, performance,
+and executable generator/cursor examples.
+
+For UTF-8 text or bytes records, `iter_jsonl()` composes the same retained
+external JSON artifact with line framing, strict decoding, safe malformed-record
+errors, and separate byte limits. See [JSON Lines input](jsonl-input.md).
 
 ## JSON input and output
 
@@ -298,13 +332,20 @@ There is no process-global Contract cache. Construct a Contract once at the
 service or message boundary that owns it, rather than recreating it for every
 request. Per-call codecs do not become retained configuration.
 
-## Python 3.14 typing
+## Python 3.14 and 3.15 typing
 
 Python 3.14 has no `typing.TypeForm`; PEP 747 targets Python 3.15. Consequently,
 `Contract(int)` can infer `int`, while arbitrary forms should be written as
 `Contract[list[int]](list[int])` when precise static output is required. Talea
 does not add a runtime dependency or claim inference Python 3.14 cannot express.
 This is a static typing limitation, not a runtime limitation.
+
+On Python 3.15, the same public constructor uses the standard-library
+`TypeForm[T]`, so `Contract(list[int])`, `Contract(str | int)`, aliases,
+`TypedDict`, and other valid type expressions infer `Contract[T]` directly.
+Invalid value expressions are rejected statically. Runtime resolution and the
+set of executable Talea annotations remain unchanged; in particular, a
+statically valid open generic is not an executable contract.
 
 ## Security and operational guidance
 
@@ -315,6 +356,7 @@ This is a static typing limitation, not a runtime limitation.
   forward references use Talea's restricted structural resolution policy.
 - Custom JSON codecs select syntax only; they cannot replace canonical
   conversion or output validation.
-- Use `Contract(list[T])` for a materialized batch. Streaming, JSONL, per-item
-  failure isolation, and callable decoration are not implemented. Use
+- Use `Contract(list[T])` for a materialized batch and retained `Contract(T)`
+  incremental methods for synchronous Python iterables. JSONL framing,
+  asynchronous iterables, and streaming output are not implemented. Use
   `derive_spec(..., partial=True)` for Spec PATCH contracts.

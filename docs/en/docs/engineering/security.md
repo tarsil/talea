@@ -15,10 +15,13 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | regex constraints | declaration-time compilation and safe binding | catastrophic backtracking; no timeout is provided |
 | output and schema tooling | cycle rejection and explicit projection failures | output size and tooling resource budgets |
 | dataclass Contract | declared stored fields, exact identity, structured boundaries | constructor, post-init, descriptors, generated repr |
+| NamedTuple Contract | exact nominal identity, direct slot validation, positional list/tuple or JSON-array conversion, arity, generated-constructor compatibility, resource accounting | trusted annotation execution, ordinary class methods, application logging and successful output disclosure |
 | nested output selection | canonical schema validation, immutable normalization, direct projection | authorization to request or disclose fields |
 | represented custom values | declared input/output result validation, exact-once callback transport, Sensitive error policy | callback CPU, memory, mutation, I/O, logging, and output amplification |
 | declared serializer output | complete result validation, exact-once callback transport, callback-free schema/selection discovery, Sensitive cause suppression | callback CPU, memory, mutation, reentrancy, I/O, logging, and output amplification |
 | validated callables | generated-source safety, native binding shape, strict arguments and returns, Sensitive failure policy | function CPU, memory, I/O, locks, side effects, mutation, recursion, exceptions |
+| application Settings | finite source names, bounded file reads, collision rejection, leaf precedence, secret-error redaction, atomic snapshot publication | process/filesystem mutation by other code, file permissions, custom Mapping behavior, deployment integrity |
+| incremental Contract items | pulled-item and invalid-item limits, indexed errors, Sensitive redaction, no hidden accumulation | source I/O/lifetime, callback work and logging, explicit unbounded policy, wall-clock timeout |
 
 The finite default policy is 8 MiB JSON transport, depth 64, 100,000 compiled
 node visits, and 100 aggregated errors. It reduces Talea-owned unbounded work;
@@ -54,6 +57,15 @@ Annotation resolution uses Python's supported annotation machinery and retained
 definition namespaces. Talea does not provide an API that evaluates arbitrary
 untrusted annotation strings. Application class bodies and imported modules are
 trusted Python code, as they are for any annotation-driven library.
+
+NamedTuple resolution accepts only annotated `typing.NamedTuple` declarations,
+not classes that merely expose `_fields`, unannotated `collections.namedtuple`
+types, arbitrary tuple subclasses, or custom sequences. Warm operations consume
+the frozen canonical schema and direct numeric slots; they do not reread
+annotations, invoke ordinary methods, call `_asdict()`, or use a global
+registry. An incompatible mutated constructor is rejected before external data
+can reach it. The outer tuple does not make mutable descendants trusted, and
+external positional traversal shares normal `ResourcePolicy` accounting.
 
 ## Sensitive data
 
@@ -105,6 +117,80 @@ exceptions and invalid declared results at a Sensitive boundary suppress unsafe
 causes. A callback may still mutate its source, reenter serialization, return a
 huge graph, or log secrets; output remains outside input `ResourcePolicy`
 governance.
+
+## Settings threat model
+
+The explicit [Settings boundary](../settings.md) adds source acquisition work
+without changing the strict Mapping owner:
+
+| Threat | Ownership and response |
+| --- | --- |
+| oversized process environment | Talea checks the snapshot entry count before known-name decoding; allocation and mutation by unrelated process code remain application/platform-owned |
+| oversized or parser-amplifying TOML | Talea performs a bounded read before `tomllib`; the standard-library parser owns syntax |
+| excessive secret files | Talea counts flat non-directory entries, including unknown files, before reading selected values |
+| oversized secret | Talea reads at most the configured limit plus one byte before UTF-8 or schema-directed decoding |
+| invalid encoding | strict UTF-8 fails the operation and publishes no snapshot |
+| symlink/path confusion | flat file symlinks may support atomic-writer mounts, but every resolved target must remain beneath the resolved explicit root |
+| source-name, alias, delimiter, or case-fold collision | plan collisions reject before loading; multiple accepted names within one source return `alias_conflict` without comparing values |
+| secret leakage | provenance retains no values or exact file paths; validation failure from a secret-backed load is redacted and loses callback causes |
+| provenance leakage | the baseline contains canonical paths and source kinds only; plan introspection contains names but no paths, snapshots, or contents |
+| partial-load state | merge, buffers, provenance, and counters are operation-local; failure cannot mutate an earlier snapshot |
+| concurrent source mutation | Talea snapshots the environment Mapping and reads bounded file bytes once per load; cross-source filesystem transactions are unsupported |
+| hostile override Mapping | Mapping methods are trusted application execution; the final detached structure still receives ordinary depth/node/error budgets |
+
+Source filenames and environment keys are inert data rather than generated
+source. Validation locations remain canonical external field paths. A normal
+acquisition `OSError` may identify the explicit application-provided path; it
+never contains a setting value. Unknown environment variables and secret
+filenames are ignored as values, though secret files still count toward the
+flat directory limit.
+
+Kubernetes projected Secrets and ConfigMaps commonly use visible-key symlinks
+through `..data` to a version directory. Requiring final targets to remain
+beneath the resolved mount root permits that layout without allowing a key to
+escape the configured directory. Talea does not authenticate the provider,
+lock the directory, guarantee atomic reads across files, or replace operating-
+system access control.
+
+## Incremental iterable threat model
+
+An application-owned iterable may be infinite, huge, all-invalid, expensive,
+stateful, or fail between values. `ItemPolicy.max_items` bounds pulled records
+and `max_invalid_items` bounds continued invalid records. Per-item external
+depth, node, and detail work remains governed independently by
+`ResourcePolicy`; continuation never catches either resource failure.
+
+Talea pulls no item speculatively, retains no prior result/error collection,
+does not retry, and applies canonical Sensitive redaction before an error
+reaches the callback. The callback receives no separate rejected-item argument;
+ordinary non-sensitive `ValidationError` facts remain available. The iterable
+and callback remain trusted application execution: either can block, allocate,
+perform I/O, mutate state, or log secrets, and Talea supplies no timeout or
+sandbox. Source and callback exceptions propagate unchanged. The caller owns
+cursor/file/transaction cleanup and must close it explicitly when early
+termination requires deterministic release.
+
+## JSON Lines threat model
+
+JSON Lines adds hostile transport concerns before a Python value exists.
+`JsonlPolicy.max_line_bytes` bounds one record before parsing, while an
+optional finite `max_total_bytes` bounds aggregate UTF-8 transport. The shared
+`ItemPolicy` counts every pulled physical record and every continued malformed
+or decoded-invalid record. Resource exhaustion is terminal and cannot enter a
+continuation callback.
+
+Bytes use strict UTF-8; text must be UTF-8 representable. BOMs, blank records,
+multiline source units, duplicate keys, non-finite numbers, malformed syntax,
+and Python's protected oversized integer conversions fail before Contract
+validation. `JsonlError` stores category and safe line/column facts only: no
+raw record, duplicate key, non-finite token, decoder exception, or traceback
+text. Decoded failures then use ordinary Sensitive-aware `ValidationError`.
+
+The source and both synchronous callbacks remain trusted application code.
+Talea does not authenticate or open files, decompress data, own sockets, bound
+blocking I/O, impose callback timeouts, or close caller resources. Explicitly
+unbounded total bytes or items are an application decision. See [JSON Lines
+input](../jsonl-input.md) for the complete operational contract.
 
 ## Supply chain
 

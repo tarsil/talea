@@ -3,7 +3,7 @@
 import keyword
 from collections.abc import Callable, Iterable, Mapping
 from sys import _getframe
-from typing import TypeVar, cast, overload
+from typing import TYPE_CHECKING, TypeVar, cast, overload
 from unicodedata import normalize
 
 from talea.spec.fields import field
@@ -11,13 +11,21 @@ from talea.spec.lifecycle import Spec
 
 BaseSpec = TypeVar("BaseSpec", bound=Spec)
 
+if TYPE_CHECKING:
+    import sys
+
+    if sys.version_info >= (3, 15):
+        from typing import TypeForm as _TypeForm
+    else:
+        type _TypeForm[T] = object
+
 _IDENTITY_KEYS = frozenset({"__annotations__", "__module__", "__qualname__", "__doc__"})
 
 
 @overload
 def create_spec(
     name: str,
-    fields: Mapping[str, object],
+    fields: Mapping[str, _TypeForm[object]],
     *,
     defaults: Mapping[str, object] | None = None,
     factories: Mapping[str, Callable[[], object]] | None = None,
@@ -33,7 +41,7 @@ def create_spec(
 @overload
 def create_spec(
     name: str,
-    fields: Mapping[str, object],
+    fields: Mapping[str, _TypeForm[object]],
     *,
     defaults: Mapping[str, object] | None = None,
     factories: Mapping[str, Callable[[], object]] | None = None,
@@ -90,9 +98,12 @@ def create_spec(
         TypeError: If identity metadata, mappings, fields, defaults, factories,
             namespace entries, annotations, or the base are invalid.
 
-    Dynamic fields cannot be inferred statically on Python 3.14. Pickling follows
-    normal Python rules: the caller must bind the result at its declared module
-    and qualified name. Talea never mutates a module to install the class.
+    Python 3.15 ``TypeForm`` checks that each ``fields`` value is a type
+    expression, but dynamic keys still cannot produce a statically inferred
+    constructor. Python 3.14 retains the honest ``object`` value fallback.
+    Pickling follows normal Python rules: the caller must bind the result at its
+    declared module and qualified name. Talea never mutates a module to install
+    the class.
     """
 
     _validate_class_name(name)

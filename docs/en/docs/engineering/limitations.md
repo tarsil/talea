@@ -11,12 +11,18 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   generators, async generators, and callable instances are unsupported,
   runtime generic-function specialization is unsupported, and lost local
   deferred annotation names may be unrecoverable;
-- NamedTuple, attrs, ordinary-class, ORM-object, and settings-source mapping
-  are not part of core;
+- attrs, ordinary-class, and ORM-object mapping are not part of core;
+  annotated `typing.NamedTuple` is supported only through its positional
+  contract, and Settings has a separate concrete-Spec application boundary;
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
   dataclass unions, and interpretation of `dataclasses.field(metadata=...)` are
   not supported;
-- JSONL, streaming JSON, and per-item streaming failure isolation are absent;
+- synchronous Python iterable items support lazy strict/external validation,
+  fail-fast or explicit synchronous continuation, and finite item counts;
+  JSON Lines input adds strict UTF-8 text/bytes records, bounded framing, and
+  separate malformed-record continuation, but `AsyncIterable`, JSONL output,
+  streaming serialization, automatic retry, silent skip, `Result` values,
+  timeouts, and source/callback sandboxing are absent;
 - directional Spec derivation is shallow; nested Specs, dataclasses, tagged
   branches, and TypedDicts are not implicitly rewritten;
 - open generic Specs, aliases, TypedDicts, and dataclasses must be concretely
@@ -35,6 +41,12 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   discriminators;
 - nested selection has no per-index sequence selection, mapping-key selection,
   wildcards, predicates, path expressions, or query-language callbacks;
+- NamedTuple external input is exact list/tuple or JSON array only; Mapping and
+  object input, `collections.namedtuple`, arbitrary tuple subclasses, slot
+  aliases/migration names, sparse ReadOnly/WriteOnly views, positional tagged
+  discriminators, derived/partial NamedTuples, and custom index selection are
+  unsupported; open generics require specialization and incompatible mutated
+  constructors are rejected;
 - serializer output without `output=` is a leaf; declared output contracts use
   the normal structural selection rules;
 - recursive selection requires an explicitly finite selection tree;
@@ -52,9 +64,31 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - Representation and serializer callbacks are synchronous trusted Python;
   undeclared `@serialize` results remain opaque to nested selection and output
   schema;
-- Python 3.14 has no `TypeForm`, so `Representation.input` and `.output` are
-  typed as `object` while declaration-time resolution still rejects unsupported
-  forms;
+- Python 3.15 uses `TypeForm` for `Contract`, `Representation.input` and
+  `.output`, `create_spec` field values, and declared serializer outputs;
+  Python 3.14 keeps a less precise `object` fallback without
+  `typing_extensions`; static TypeForm acceptance still does not imply Talea
+  runtime support for an open generic or unsupported type expression;
+- Settings roots must be concrete complete Specs; attrs, dataclasses,
+  TypedDicts, NamedTuples, ordinary classes, open generic origins, and partial
+  derived Specs are not settings roots (supported nested values still work
+  through a Spec root);
+- Settings provides no `.env` parser, YAML/INI/arbitrary JSON file, remote
+  secret manager, network/database source, custom source callback or registry,
+  profile engine, automatic CLI, framework startup hook, watcher, async I/O,
+  live mutable object, ContextVar, or global singleton;
+- environment and secret names flatten only finite Spec/dataclass/TypedDict
+  paths with `__`; containers, tagged unions, recursive back-edges, and
+  structurally ambiguous unions use JSON textual leaves;
+- a general union whose branches share one JSON shape may not textually express
+  every branch type; Settings deliberately adds no coercion priority or branch
+  query language;
+- Settings snapshots one environment Mapping and bounded file contents per
+  operation, but cannot guarantee atomicity against unrelated process, thread,
+  deployment, or filesystem mutation across multiple sources;
+- secret directories are flat UTF-8 sources with in-root symlink support and
+  one terminal newline removal; recursive walking, binary secret values, and
+  escaping symlinks are unsupported;
 
 ## Deliberate boundaries and trust model
 
@@ -70,6 +104,21 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   cannot roll back or resource-govern that application work;
 - callbacks have no timeout or cancellation boundary, and callback CPU,
   allocation, I/O, and output size remain application-owned;
+- incremental item sources and callbacks are application-owned; Talea does not
+  close the underlying source, govern source I/O, or retain prior outputs and
+  continued errors, and zero-based generic item indexes are not transport line
+  numbers;
+- JSON Lines consumes record iterables rather than arbitrary byte chunks and
+  provides no path opening, decompression, custom decoder, multiline recovery,
+  async source, I/O timeout, or source authentication; framing callback lines
+  are one-based while decoded validation indexes remain zero-based;
+- per-item `ResourcePolicy` and stream-level `ItemPolicy` have distinct scopes;
+  explicitly unbounded stream dimensions cannot protect against infinite
+  sources, while finite stream policy does not bound arbitrary source or
+  callback execution time;
+- `JsonlPolicy` is a third independent scope for raw line/total bytes;
+  `max_total_bytes=None` deliberately permits large caller-bounded imports but
+  cannot protect an otherwise unbounded source;
 - async callable boundaries add no timeout, retry, task, or cancellation
   policy; application coroutine I/O, task creation, cleanup, and resource use
   remain application-owned;
@@ -87,7 +136,7 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   strict current-state validation uses active-identity cycle handling;
 - no ORM-style attribute extraction or arbitrary object-to-dataclass conversion
   is performed;
-- no process-global Contract, codec, or dataclass class registry is provided.
+- no process-global Contract, codec, dataclass, Settings, or source registry is provided.
 
 ## Python and platform constraints
 
@@ -107,7 +156,7 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 
 Rejected core features include `Any`/`object` passthrough contracts, abstract
 container conversion, process-global registries, and silent ORM attribute
-extraction because they weaken or obscure the explicit contract. Settings,
-streaming protocols, framework routing, foreign schema conversion, and custom
-domain representation protocols require separate owners rather than implicit
-expansion of `Contract`.
+extraction because they weaken or obscure the explicit contract. Settings has
+its separate `talea.settings` owner; streaming protocols, framework routing,
+foreign schema conversion, and additional provider protocols require their own
+demonstrated owners rather than implicit expansion of `Contract` or Settings.

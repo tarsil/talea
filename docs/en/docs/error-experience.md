@@ -90,6 +90,59 @@ remain individual location segments. A segment that is not itself a safe JSON
 scalar becomes bounded representation text in `errors()`; the internal Python
 location remains structured and unchanged.
 
+## Nested error trees
+
+`error_tree()` groups the same canonical details for forms, API adapters, CLI
+diagnostics, and other location-oriented presentation. It does not validate
+again or retain a second error store:
+
+```python
+try:
+    User(name="Ada", age=15)
+except ValidationError as exc:
+    tree = exc.error_tree()
+
+age = tree.children["age"]
+assert age.errors[0]["code"] == "greater_than_or_equal"
+assert age.errors[0]["location"] == ["age"]
+```
+
+Every node is an `ErrorTree` with an `errors` tuple for failures exactly at that
+location and a read-only `children` mapping. Root failures live in
+`tree.errors`. A node may have both errors and children, and multiple errors at
+one location remain in canonical order. Children retain string field names and
+integer indexes and follow first appearance in the flat error order. Names such
+as `"errors"` and `"children"` are ordinary child keys because application names
+never share the node metadata namespace.
+
+Each call returns a fresh tree. Accessing `node.errors` also returns fresh
+`ErrorData` dictionaries, so adapting one projection cannot mutate the
+exception, another tree, or a later access. Full root-relative locations remain
+on every detail; the tree is an index, not a rewritten error model. Sensitive
+details remain redacted because projection consumes only the already captured
+failure facts.
+
+`tree.to_dict()` returns a fresh JSON-compatible recursive representation:
+
+```python
+{
+    "errors": [],
+    "children": [
+        {
+            "key": "age",
+            "node": {"errors": list(age.errors), "children": []},
+        }
+    ],
+}
+```
+
+Children are entries rather than JSON object members so an integer index stays
+an integer and cannot be confused with the string field name `"0"`. The public
+`ErrorTreeData` and `ErrorTreeChildData` typed dictionaries in `talea.errors`
+describe this wire-ready shape. `error.truncated` remains the sole signal that
+an error budget stopped collection; the tree contains exactly the collected
+prefix and does not infer missing failures.
+
 ## ErrorCode reference
 
 | Code | Meaning and typical location | Likely fix |

@@ -216,12 +216,17 @@ def benchmark_presentation() -> None:
         error = capture(FAILURES[name])
         print_measurement(f"str: {name}", measure(partial(str, error), _PROJECTION_ITERATIONS))
         print_measurement(f"errors(): {name}", measure(error.errors, _PROJECTION_ITERATIONS))
+        print_measurement(f"error_tree(): {name}", measure(error.error_tree, _PROJECTION_ITERATIONS))
+        tree = error.error_tree()
+        print_measurement(f"tree.to_dict(): {name}", measure(tree.to_dict, _PROJECTION_ITERATIONS))
 
 
 def benchmark_allocations() -> None:
     """Measure success and representative failure allocation peaks separately."""
 
     primitive = vars(Simple)["__talea_artifacts__"].validators[0]
+    deep_error = capture(FAILURES["deep nested failure"])
+    deep_tree = deep_error.error_tree()
     cases: dict[str, Operation] = {
         "successful primitive": lambda: primitive(1),
         "successful simple Spec": partial(Simple, identifier=1, active=True),
@@ -229,6 +234,8 @@ def benchmark_allocations() -> None:
         "failed nested field": partial(capture, FAILURES["deep nested failure"]),
         "failed union": partial(capture, FAILURES["union failure"]),
         "failed custom check": partial(capture, FAILURES["field-check failure"]),
+        "nested error tree": deep_error.error_tree,
+        "nested tree JSON data": deep_tree.to_dict,
     }
     print(f"Traced allocations ({_ALLOCATION_SAMPLES:,} warmed operations)")
     for name, operation in cases.items():

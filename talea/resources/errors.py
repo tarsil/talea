@@ -4,7 +4,24 @@ from typing import Literal
 
 __all__ = ["ResourceLimitError"]
 
-type ResourceLimitCode = Literal["input_size", "depth", "nodes"]
+type ResourceLimitCode = Literal[
+    "input_size",
+    "invalid_items",
+    "items",
+    "jsonl_line_size",
+    "jsonl_total_size",
+    "depth",
+    "nodes",
+    "settings_environment_entries",
+    "settings_override_depth",
+    "settings_override_entries",
+    "settings_override_key_bytes",
+    "settings_secret_file_bytes",
+    "settings_secret_files",
+    "settings_source_bytes",
+    "settings_source_names",
+    "settings_toml_bytes",
+]
 
 
 class ResourceLimitError(Exception):
@@ -23,7 +40,20 @@ class ResourceLimitError(Exception):
         self.observed = observed
         label = {
             "input_size": "JSON input bytes",
+            "invalid_items": "invalid source items",
+            "items": "source items",
+            "jsonl_line_size": "JSONL record bytes",
+            "jsonl_total_size": "JSONL transport bytes",
             "depth": "input depth",
             "nodes": "input work nodes",
+            "settings_environment_entries": "settings environment entries",
+            "settings_override_depth": "settings override depth",
+            "settings_override_entries": "settings override entries",
+            "settings_override_key_bytes": "settings override key bytes",
+            "settings_secret_file_bytes": "settings secret file bytes",
+            "settings_secret_files": "settings secret files",
+            "settings_source_bytes": "settings aggregate source bytes",
+            "settings_source_names": "compiled settings source names",
+            "settings_toml_bytes": "settings TOML bytes",
         }[code]
         super().__init__(f"{label} exceeded limit {limit} (observed {observed})")

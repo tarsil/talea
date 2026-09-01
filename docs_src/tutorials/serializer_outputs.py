@@ -1,6 +1,6 @@
 """Executable field-local serializer output-contract examples."""
 
-from typing import Annotated
+from typing import Annotated, cast
 
 from talea import Alias, SerializationError, Spec, serialize
 from talea.introspection import inspect_spec
@@ -63,8 +63,8 @@ class BrokenResponse(Spec):
     account: AccountRecord
 
     @serialize("account", output=AccountSummary)
-    def summarize(account: AccountRecord) -> object:
-        return {"display_name": account.display_name}
+    def summarize(account: AccountRecord) -> AccountSummary:
+        return cast(AccountSummary, {"display_name": account.display_name})
 
 
 try:

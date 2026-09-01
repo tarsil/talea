@@ -32,6 +32,8 @@ identity, and discriminator truth are not reinterpreted by each branch.
 | tagged unions | one discriminator dispatch map |
 | recursive references | finite named back-edges and lazy publication |
 | resources | operation-local input budgets |
+| incremental Contract items | lazy indexes, failure decision, and stream counts |
+| JSON Lines framing | record units, one-based lines, UTF-8/newlines, strict decode boundary, and transport bytes |
 | standards projection | Draft 2020-12 and OpenAPI Schema Objects |
 
 ## Canonical owner map
@@ -42,11 +44,14 @@ representations:
 | Truth | Canonical owner | Consumers |
 | --- | --- | --- |
 | dataclass stored fields and lifecycle classification | immutable `DataclassSchema` resolved by `schema` | validation, input, serialization, introspection, standards projection |
+| NamedTuple ordered slots, defaults, arity, declaration/specialization identity | immutable `NamedTupleSchema` resolved by `schema` | strict validation, positional input/output, recursion, resource policy, introspection, standards projection |
 | `ReadOnly`, `WriteOnly`, aliases, and `Sensitive` | normalized declaration metadata | derivation, input/output, errors, introspection, standards projection |
 | derived source, retained/omitted fields, selection, partial state, mode, and explicit name | immutable declaration provenance | presence, patching, introspection, standards projection |
 | nested include/exclude grammar and immutable selection tree | serialization selection owner validated against canonical schema | class-owned compiled output plans |
 | selected-plan retention | each Spec declaration's output artifacts | that class only, bounded to 32 immutable plans |
 | external-input budgets | operation-local `ResourcePolicy` state | Mapping and JSON input compilers |
+| incremental item and invalid-item budgets | immutable `talea.contract.ItemPolicy` plus iterator-local counters | `Contract.iter_validate` and `Contract.iter_python` |
+| JSONL record and transport-byte truth | immutable `talea.jsonl.JsonlPolicy` plus iterator-local framing state | `Contract.iter_jsonl` |
 | JSON representations | canonical JSON representation owner | JSON input, JSON output, and standards projection |
 | public validation failures | `ErrorCode`, `ErrorData`, and `ValidationError` | every validation and input execution target |
 | represented domain values | one immutable `RepresentationSchema` association between internal, input, output, and callback identity | strict validation, input/output compilation, standards projection, introspection, and nested selection |
@@ -56,6 +61,32 @@ second field map or rediscover `dataclasses.fields()`. Directional derivation
 projects normal Spec declarations from one provenance record. Nested selection
 copies caller input into an immutable tree before field access, compiles only
 when a nested selector is used, and has no process-global cache.
+
+### NamedTuple ownership
+
+An annotated `typing.NamedTuple` declaration resolves once into a frozen
+`NamedTupleSchema`. Its ordered fields, defaults, required count, nominal type,
+and generic or recursive identity are the only structural truth consumed by
+generated execution and public tooling:
+
+```mermaid
+flowchart TD
+    A[typing.NamedTuple declaration] --> B[Annotation resolution]
+    B --> C[NamedTupleSchema]
+    C --> D[Strict exact-type validation]
+    C --> E[Positional Python and JSON input]
+    C --> F[Tuple and JSON-array output]
+    C --> G[JSON Schema and OpenAPI]
+    C --> H[Introspection]
+```
+
+No consumer rereads `_fields`, `_field_defaults`, or `__annotations__` on a
+warm path. Direct positional operations preserve the protocol's array shape;
+there is no `_asdict()` or Mapping facade. Unlike a Spec or dataclass,
+NamedTuple therefore has no object-shaped external names or lifecycle hooks.
+Unlike TypedDict, it is nominal at strict Python boundaries. Nested selection
+treats the whole record as a leaf so this owner does not expand the established
+object-field selection grammar.
 
 ### Representation ownership
 
@@ -83,11 +114,12 @@ attempted input/result traversal consumes the shared resource budget. A union
 with multiple representation declarations for the same internal contract is
 rejected because callback ordering would otherwise be indistinguishable.
 
-Python 3.14 has no `TypeForm`, so the runtime `input` and `output` type-form
-parameters use `object` annotations. Generic callback relationships still
-express `InputT -> InternalT` and `InternalT -> OutputT`; runtime resolution
-validates the actual type forms. Moving to Python 3.15 `TypeForm` can strengthen
-those two annotations without changing declaration vocabulary or behavior.
+Python 3.15 uses `TypeForm` for the `input` and `output` type expressions, so
+generic callback relationships express both the declared external types and
+`InputT -> InternalT -> OutputT`. Python 3.14 retains the same relationships
+with an `object` fallback for the two type-form values. Runtime resolution
+validates the declarations on both versions; TypeForm adds no schema node,
+callback branch, or execution behavior.
 
 Output validates current internal truth, invokes the directly bound dumper once,
 validates the candidate against the declared output schema, and feeds that
@@ -98,6 +130,45 @@ same node, not additional declaration models. A missing direction fails
 explicitly and never falls through to `repr`, `__dict__`, or internal-object
 serialization. `Representation` is root-public because these owners now form
 one complete boundary contract.
+
+### Incremental Contract ownership
+
+A retained Contract supplies its compiled strict validator or lazy
+external-Python input artifact to one small item-consumption owner. That owner
+adds only zero-based indexing, fail-fast versus explicit continuation, and
+operation-local item counts:
+
+```mermaid
+flowchart TD
+    A[Retained Contract artifacts] --> B[Incremental item owner]
+    B --> C[Strict validation]
+    B --> D[External Python conversion]
+    E[JSONL framing owner] --> B
+```
+
+The item owner is not a second Contract, schema interpreter, batch
+materializer, transport decoder, or stream framework. JSONL owns physical
+records and safe pre-validation errors, reuses the ordinary strict JSON syntax
+owner, and shares this owner's counters for every pulled/continued record.
+JSON Schema, OpenAPI, serialization, and `ContractInfo` continue to describe
+`T`; an execution iterator adds no structural truth.
+
+### JSON Lines ownership
+
+```mermaid
+flowchart TD
+    A[Text or bytes record] --> B[JSONL framing]
+    B --> C[Strict JSON decoder]
+    C --> D[Decoded Python value]
+    D --> E[Incremental item owner]
+    E --> F[Retained Contract JSON input]
+```
+
+`JsonlPolicy` owns raw per-record and total transport bytes. `ItemPolicy` owns
+logical records and continued invalid records across framing and validation.
+`ResourcePolicy` owns traversal and error aggregation inside each decoded
+value. The JSONL path does not call `Contract.from_json()` per line, duplicate
+JSON policy, double-charge raw bytes, or compile per record.
 
 ## Why compile generated Python
 

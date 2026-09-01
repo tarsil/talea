@@ -34,6 +34,10 @@ approximately zero cost when unused.
 | `benchmark_dataclasses` | dataclass boundaries, cold work, memory, generated code, and zero-tax canaries |
 | `benchmark_representation` | represented strict/input/output paths, result validation, structural selection, allocation/retention, and zero-tax canaries |
 | `benchmark_callables` | direct/handwritten/compiled calls, binding comparator, structures, defaults, failures, allocations, retention, and bytecode |
+| `benchmark_settings` | cold/warm plans, 10/50/100-field environment/TOML loads, nesting, aliases, precedence, secrets, provenance, failures, resources, retention, concurrency, and zero-tax canaries |
+| `benchmark_incremental` | lazy strict/external items, structures, failure positions, continuation, stream limits, infinite-source stopping, retention, concurrency, and zero-tax canaries |
+| `benchmark_jsonl` | JSONL framing, decoded validation, limits, errors, retention, concurrency, and zero-tax canaries |
+| `benchmark_namedtuple` | strict and external positional paths, JSON, output, defaults, failures, composition, generics, recursion, large arity, cold work, allocation/retention, generated code, and existing-owner canaries |
 
 Run one task from the repository root, for example:
 
@@ -44,6 +48,10 @@ task benchmark_resources
 task benchmark_dataclasses
 task benchmark_representation
 task benchmark_callables
+task benchmark_settings
+task benchmark_incremental
+task benchmark_jsonl
+task benchmark_namedtuple
 ```
 
 For release review, run every permanent benchmark task listed in
@@ -97,6 +105,40 @@ Generic specialization and dynamic declaration are also schema work. Concrete
 specializations are cached weakly where identity matters, while independently
 created Contracts retain their own compiled operations. `create_spec()` and
 `derive_spec()` should not be driven by high-cardinality remote input.
+
+The NamedTuple owner measures strict validation, list/tuple conversion, JSON
+array conversion, tuple/array output, default omission, generic and recursive
+records, 2/5/10/50/100-slot scaling, cold Contract construction, allocations,
+retained artifacts, and specialization collection separately. Its handwritten
+comparators enforce exact type, arity, and slot checks and construct the same
+nominal record; a bare tuple constructor or `json.loads()` is not treated as
+equivalent. The benchmark also inspects generated instructions for direct
+indexing and the absence of annotation reflection or `_asdict()` calls. Results
+are machine-local acceptance evidence, not a cross-platform speed ranking.
+
+The acceptance run on CPython 3.14.3, arm64 Apple M4 Pro measured these medians
+with retained artifacts and three independent samples:
+
+| NamedTuple operation | Median |
+| --- | ---: |
+| strict two-slot validation | 79.3 ns |
+| external list construction | 1.26 us |
+| external tuple construction | 1.28 us |
+| JSON array construction | 2.88 us |
+| Python tuple output | 145.9 ns |
+| JSON array output | 1.35 us |
+| omitted trailing default | 1.17 us |
+| strict 50-slot validation | 707.8 ns |
+| strict 100-slot validation | 1.39 us |
+| cold two-slot Contract | 94.9 us |
+| cold 50-slot Contract | 825.5 us |
+| cold 100-slot Contract | 1.54 ms |
+
+The equivalent manual strict two-slot validator measured 68.4 ns and the
+equivalent manual list-to-record boundary measured 452.0 ns in the same run.
+The latter gap includes Talea's resource state, structured failure contract,
+and retained-operation call boundary; it is recorded evidence, not hidden by a
+weaker comparator.
 
 ## What “near manually written Python” means
 

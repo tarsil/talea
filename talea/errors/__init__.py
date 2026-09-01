@@ -1,6 +1,25 @@
 """Public structured validation-error API for Talea applications."""
 
 from talea.errors.codes import ErrorCode
-from talea.errors.models import ErrorBranchData, ErrorData, ErrorLocation, ValidationError
+from talea.errors.models import (
+    ErrorBranchData,
+    ErrorData,
+    ErrorLocation,
+    ErrorLocationPart,
+    ErrorTree,
+    ErrorTreeChildData,
+    ErrorTreeData,
+    ValidationError,
+)
 
-__all__ = ["ErrorBranchData", "ErrorCode", "ErrorData", "ErrorLocation", "ValidationError"]
+__all__ = [
+    "ErrorBranchData",
+    "ErrorCode",
+    "ErrorData",
+    "ErrorLocation",
+    "ErrorLocationPart",
+    "ErrorTree",
+    "ErrorTreeChildData",
+    "ErrorTreeData",
+    "ValidationError",
+]

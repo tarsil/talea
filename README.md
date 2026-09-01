@@ -149,6 +149,8 @@ replacement, or a guarantee of future superiority.
 | `User.from_mapping(data)` | an external Python Mapping represents an object | structural conversion with finite traversal policy |
 | `Contract(T).from_python(data)` | an external root may be a list, union, alias, or TypedDict | structural conversion with finite traversal policy |
 | `from_json(data)` | text or bytes crosses a serialized boundary | strict decoding, JSON representations, conversion, and resource policy |
+| `Contract(T).iter_python(data)` | a synchronous source contains independent external items | lazy per-item conversion with finite stream and item policies |
+| `Contract(T).iter_jsonl(records)` | a text or bytes iterable contains one JSON value per record | bounded JSON Lines framing plus canonical JSON conversion |
 | `to_dict()` / `to_python()` | an application needs detached Python output | schema-aware projection and current-state validation |
 | `to_json()` | an application needs JSON text | schema-aware projection followed by encoding |
 | `json_schema()` / `openapi_schema()` | tooling needs a standards description | projection from the same canonical graph |
@@ -170,9 +172,13 @@ Talea currently provides:
 - aliases, titles, descriptions, examples, deprecation, read/write metadata,
   and sensitive-value handling;
 - `Contract` for primitives, containers, unions, `TypedDict`, type aliases,
-  stdlib dataclasses, recursive graphs, tagged unions, and concrete generic
-  specializations;
+  stdlib dataclasses, annotated `typing.NamedTuple` declarations, recursive
+  graphs, tagged unions, and concrete generic specializations;
 - first-class Mapping and JSON input with structured nested errors;
+- lazy bounded item validation and strict UTF-8 JSON Lines input;
+- deterministic, import-isolated Spec settings from overrides, environment,
+  secrets directories, TOML, and defaults;
+- fresh read-only nested error-tree projection from canonical validation facts;
 - finite transport-size, depth, traversal-node, and error-aggregation policy;
 - presence-aware partial Specs, `derive_spec()`, and `apply_patch()` for PATCH
   semantics where absent is not confused with `None`;
@@ -265,8 +271,8 @@ It is likely the wrong choice when:
 - the application depends heavily on Pydantic-specific integrations or wants
   broad coercion by default;
 - Python 3.13 or earlier must remain supported;
-- settings, ORM extraction, or a large plugin ecosystem must come from the
-  same package;
+- ORM extraction or a broad framework/plugin ecosystem must come from the same
+  package;
 - msgspec already exactly matches a high-throughput native serialization
   workflow;
 - the only requirement is a small internal record, where a dataclass or attrs
@@ -282,6 +288,11 @@ It is likely the wrong choice when:
 - [Five-minute quickstart](https://talea.tarsild.io/getting-started/quickstart/)
 - [Progressive tutorial](https://talea.tarsild.io/getting-started/tutorial/)
 - [Production service boundary](https://talea.tarsild.io/getting-started/production-service/)
+- [Application settings](https://talea.tarsild.io/settings/)
+- [Incremental Contract validation](https://talea.tarsild.io/incremental-validation/)
+- [JSON Lines input](https://talea.tarsild.io/jsonl-input/)
+- [Positional NamedTuple contracts](https://talea.tarsild.io/namedtuples/)
+- [Validation errors and ErrorTree](https://talea.tarsild.io/error-experience/)
 - [Strict callable boundaries](https://talea.tarsild.io/callable-boundaries/)
 - [Concepts and mental model](https://talea.tarsild.io/concepts/)
 - [How-to recipes](https://talea.tarsild.io/guides/recipes/)
@@ -303,7 +314,7 @@ ongoing product stage, not a signal that a 1.0 freeze is imminent.
 
 Repository gates include unit and integration tests, 100% line coverage,
 linting, formatting, static typing, package checks, executable documentation,
-standards-conformance tests, security/adversarial cases, and 19 permanent
+standards-conformance tests, security/adversarial cases, and 25 permanent
 benchmark workloads. Performance comparisons require semantically equivalent
 operations; no claim is based on removing validation from one side.
 

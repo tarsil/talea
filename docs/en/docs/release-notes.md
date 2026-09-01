@@ -1,5 +1,28 @@
 # Release Notes
 
+## 0.6.0
+
+### Added
+
+- Python 3.15 `TypeForm` typing now relates supported type expressions to
+  `Contract`, `Representation`, dynamic Spec fields, and declared serializer
+  outputs while Python 3.14 remains supported without a compatibility runtime
+  dependency.
+- The import-isolated `talea.settings` package loads immutable Spec snapshots
+  from deterministic overrides, environment variables, secrets directories,
+  TOML, and defaults, with bounded acquisition and optional value-free
+  provenance.
+- `Contract.iter_validate()` and `Contract.iter_python()` provide lazy,
+  bounded item validation with fail-fast or explicit continuation behavior.
+- `Contract.iter_jsonl()` consumes strict UTF-8 JSON Lines records with
+  separate framing errors, byte limits, and shared item limits.
+- Annotated `typing.NamedTuple` declarations participate as positional
+  contracts across strict validation, external input, serialization,
+  composition, introspection, JSON Schema, and OpenAPI.
+- `ValidationError.error_tree()` projects stored failures into a fresh,
+  read-only nested tree without rerunning validation or duplicating canonical
+  error facts.
+
 ## 0.5.0
 
 ### Added

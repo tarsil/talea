@@ -3,9 +3,18 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import FunctionType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from talea.declaration.models import MISSING_SERIALIZER_OUTPUT
+
+if TYPE_CHECKING:
+    import sys
+    from typing import overload
+
+    if sys.version_info >= (3, 15):
+        from typing import TypeForm as _TypeForm
+    else:
+        type _TypeForm[T] = object
 
 __all__ = ["serialize"]
 
@@ -16,6 +25,21 @@ _SERIALIZER_MARKER = "__talea_serialization_hook__"
 class _SerializerMarker:
     field: str
     output: object = MISSING_SERIALIZER_OUTPUT
+
+
+if TYPE_CHECKING:
+
+    @overload
+    def serialize[**P, R](
+        field_name: str,
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
+
+    @overload
+    def serialize[**P, R](
+        field_name: str,
+        *,
+        output: _TypeForm[R],
+    ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
 def serialize[**P, R](
@@ -32,6 +56,8 @@ def serialize[**P, R](
     results are validated and projected through that schema; omitted output
     contracts keep the callback result opaque.
 
+    On Python 3.15, ``TypeForm`` relates a declared ``output`` expression to
+    the callback result. Python 3.14 retains the existing truthful fallback.
     Serializer methods inherit and override by normal Python method name. A
     Spec may have at most one effective serializer per field. Async functions,
     generators, descriptors, and incompatible signatures are rejected when the

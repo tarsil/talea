@@ -1,3 +1,5 @@
+import gc
+import weakref
 from dataclasses import FrozenInstanceError
 from typing import Annotated
 
@@ -58,6 +60,20 @@ def test_spec_introspection_is_cached_and_cannot_mutate_canonical_truth() -> Non
     with pytest.raises(FrozenInstanceError):
         first.fields[0].schema.kind = "str"  # type: ignore[misc]
     assert Point(x=1).x == 1
+
+
+def test_spec_introspection_cache_does_not_retain_dynamic_classes() -> None:
+    def references() -> tuple[weakref.ReferenceType[type[Spec]], weakref.ReferenceType[SpecInfo]]:
+        class Dynamic(Spec):
+            value: int
+
+        info = inspect_spec(Dynamic)
+        return weakref.ref(Dynamic), weakref.ref(info)
+
+    class_ref, info_ref = references()
+    gc.collect()
+    assert class_ref() is None
+    assert info_ref() is None
 
 
 def test_spec_introspection_reports_hooks_serializers_generics_and_recursion() -> None:

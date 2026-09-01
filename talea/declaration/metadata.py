@@ -32,11 +32,11 @@ class Alias:
     legacy: tuple[str, ...] = field(default=(), kw_only=True)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.name, str) or not self.name:
+        if type(self.name) is not str or not self.name:
             raise TypeError("Alias requires a non-empty string")
         if type(self.legacy) is not tuple:
             raise TypeError("Alias legacy names must be a tuple of strings")
-        if any(not isinstance(name, str) or not name for name in self.legacy):
+        if any(type(name) is not str or not name for name in self.legacy):
             raise TypeError("Alias legacy names must be non-empty strings")
         if len(self.legacy) != len(set(self.legacy)):
             raise TypeError("Alias legacy names must be unique")

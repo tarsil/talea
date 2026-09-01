@@ -9,7 +9,15 @@ from collections.abc import Callable
 from functools import partial
 from inspect import getattr_static, iscoroutinefunction, isgeneratorfunction
 from types import BuiltinFunctionType, FunctionType
-from typing import overload
+from typing import TYPE_CHECKING, overload
+
+if TYPE_CHECKING:
+    import sys
+
+    if sys.version_info >= (3, 15):
+        from typing import TypeForm as _TypeForm
+    else:
+        type _TypeForm[T] = object
 
 __all__ = ["Representation"]
 
@@ -46,11 +54,11 @@ class Representation[InputT, InternalT, OutputT]:
     ``Annotated`` base type, and dump results are validated against ``output``
     before Talea projects or returns them.
 
-    Python 3.14 cannot describe arbitrary runtime type forms with ``TypeForm``.
-    Consequently ``input`` and ``output`` accept ``object`` at the type level,
-    while the callback parameters retain their generic relationships. Talea
-    validates the supplied type forms when resolving the annotation. A future
-    ``TypeForm`` annotation can replace ``object`` without changing this API.
+    Python 3.15 ``TypeForm`` relates ``input`` and ``output`` type expressions
+    to the callback parameter and result types. Python 3.14 uses an honest
+    ``object`` fallback while retaining the callback generic relationships.
+    Talea validates the supplied declarations during schema resolution on both
+    versions; these annotations add no runtime branch or schema node.
     """
 
     __slots__ = ("_dump", "_input", "_load", "_output", "_sealed")
@@ -65,9 +73,9 @@ class Representation[InputT, InternalT, OutputT]:
     def __init__(
         self,
         *,
-        input: object,
+        input: _TypeForm[InputT],
         load: Callable[[InputT], InternalT],
-        output: object,
+        output: _TypeForm[OutputT],
         dump: Callable[[InternalT], OutputT],
     ) -> None: ...
 
@@ -75,7 +83,7 @@ class Representation[InputT, InternalT, OutputT]:
     def __init__(
         self,
         *,
-        input: object,
+        input: _TypeForm[InputT],
         load: Callable[[InputT], InternalT],
     ) -> None: ...
 
@@ -83,7 +91,7 @@ class Representation[InputT, InternalT, OutputT]:
     def __init__(
         self,
         *,
-        output: object,
+        output: _TypeForm[OutputT],
         dump: Callable[[InternalT], OutputT],
     ) -> None: ...
 

@@ -29,6 +29,7 @@ are not public.
 | `MinLength`, `MaxLength`, `Pattern` | Sized and string constraints | declaration `TypeError`/`ValueError`/`re.error` |
 | `ValidationError` | Structured one-or-many validation failure | — |
 | `ErrorCode`, `ErrorData` | Stable codes and JSON-compatible projected detail | — |
+| `ErrorTree` | Read-only nested projection over canonical validation-error facts | — |
 | `ResourcePolicy`, `ResourceLimitError` | Finite external-input budgets and rejection | invalid policy `ValueError` |
 | `SerializationError` | Safe output projection/encoding failure | — |
 | `SchemaProjectionError` | Statically unknowable or unsupported schema projection | — |
@@ -47,10 +48,13 @@ are not public.
 
 ## Contract operations
 
-`Contract.validate`, `Contract.from_python`, `Contract.from_json`,
+`Contract.validate`, `Contract.iter_validate`, `Contract.from_python`,
+`Contract.iter_python`, `Contract.from_json`,
 `Contract.to_python`, `Contract.to_json`, `Contract.json_schema`, and
 `Contract.openapi_schema` operate on the retained annotation. A policy supplied
 to `Contract(...)` is retained; an explicit per-call input policy replaces it.
+The domain-public `talea.contract.ItemPolicy` owns operation-local item and
+invalid-item limits without adding a root export.
 
 ## Introspection domain
 
@@ -58,6 +62,30 @@ to `Contract(...)` is retained; an explicit per-call input policy replaces it.
 `ContractInfo`, `RepresentationInfo`, `SerializerInfo`, `CallableInfo`,
 `ParameterInfo`, `inspect_spec`, `inspect_contract`, and `inspect_callable`. See
 [Introspection](introspection.md).
+
+## Settings domain
+
+`talea.settings` deliberately exports five names without adding root-package
+exports. The two generic classes are `Settings` and `SettingsResult`; their
+type parameters are shown in the table:
+
+| API | Contract |
+| --- | --- |
+| `Settings[T]` | Immutable source plan for one concrete complete `Spec` subtype; `load()` returns exactly `T` |
+| `SettingsPolicy` | Frozen environment, source-name, TOML, secret, aggregate-byte, and delegated `ResourcePolicy` limits |
+| `SettingsInfo` | Callback-free plan projection with model, source order, prefix, delimiter, case policy, and known environment names |
+| `SettingsResult[T]` | Frozen snapshot/provenance result returned by `load(provenance=True)` |
+| `SettingSource` | Literal source-kind type: `override`, `environment`, `secret`, `toml`, or `default` |
+
+`Settings(model, *, prefix="", case_sensitive=False, toml=None,
+secrets=None, policy=None)` compiles one finite plan.
+`load(overrides=None, *, environment=None, provenance=False)` resolves a fresh
+snapshot with precedence override > environment > secret > TOML > default.
+Without provenance it returns the exact model subtype. With provenance it
+returns `SettingsResult[Model]` containing only canonical paths and source
+kinds. Acquisition uses normal `OSError` or value-free parse `ValueError`, settings limits use
+`ResourceLimitError`, and contract-invalid values use ordinary
+`ValidationError`. See [Application settings](../settings.md).
 
 ## `validate_call`
 
@@ -72,7 +100,8 @@ introspection, security, performance, and the current callable-form limits.
 
 ## Error and validation domains
 
-`talea.errors` additionally exposes `ErrorBranchData` and `ErrorLocation`.
+`talea.errors` additionally exposes `ErrorBranchData`, `ErrorLocation`,
+`ErrorLocationPart`, `ErrorTreeChildData`, and `ErrorTreeData`.
 `talea.validation` exposes the advanced `Validator`, `compile_validator`, and
 compatibility `CustomValidationError` contracts. Applications normally use the
 root `ValidationError`; compiler consumers must compile only a canonical schema
@@ -87,7 +116,7 @@ structural consumers. `talea.schema` exposes immutable nodes:
 `SpecReferenceSchema`, `TypeSchema`, `LiteralValue`, `LiteralSchema`,
 `EnumSchema`, `SequenceSchema`, `MappingSchema`, `FixedTupleSchema`,
 `VariadicTupleSchema`, `UnionSchema`, `DataclassField`, `DataclassSchema`,
-`TypedDictField`, `TypedDictSchema`,
+`TypedDictField`, `TypedDictSchema`, `NamedTupleField`, `NamedTupleSchema`,
 `NamedReferenceSchema`, `NamedSchemaIdentity`, `TaggedUnionBranch`, and
 `TaggedUnionSchema`; tags `PrimitiveKind`, `SequenceKind`, and `TypeCheckMode`;
 and declaration functions/errors `resolve_annotation`,
@@ -146,15 +175,36 @@ remaining operations compile lazily and are retained by that Contract:
 | --- | --- | --- |
 | `validate(value)` | already-valid Python form | same validated root |
 | `from_python(value, *, policy=None)` | external structural Python form | converted/detached `T` |
+| `iter_validate(values, *, on_error=None, item_policy=None)` | iterable of strict Python items | lazy `Iterator[T]` |
+| `iter_python(values, *, on_error=None, item_policy=None, policy=None)` | iterable of external Python items | lazy converted `Iterator[T]` |
+| `iter_jsonl(records, *, on_error=None, on_jsonl_error=None, item_policy=None, jsonl_policy=None, policy=None)` | iterable of UTF-8 text records or bytes records | lazy converted `Iterator[T]` |
 | `from_json(data, *, loads=None, policy=None)` | JSON text/bytes/bytearray | converted `T` |
 | `to_python(value)` | valid `T` | detached Python representation |
 | `to_json(value, *, dumps=None)` | valid `T` | JSON text |
 | `json_schema(*, mode="input")` | retained annotation | fresh Draft 2020-12 document |
 | `openapi_schema(*, mode="input")` | retained annotation | fresh Schema Object/components fragment |
 
-An explicit per-call policy replaces the retained policy; it is not merged.
+An explicit per-call `ResourcePolicy` replaces the retained policy; it is not
+merged. `ItemPolicy(max_items=1_000_000, max_invalid_items=100)` is a separate
+immutable stream-count policy available from `talea.contract`; each dimension
+may be explicitly disabled with `None`. Invalid items raise located
+`ValidationError` by default or enter an explicit
+`Callable[[int, ValidationError], None]`. Stream and per-item resource failures
+remain terminal. See [Incremental Contract validation](../incremental-validation.md).
 Contract attributes are read-only. See [Arbitrary contracts](../contracts.md)
 for TypedDict, generic, recursive, tagged, and policy examples.
+
+For an annotated `typing.NamedTuple`, strict input is the exact nominal class;
+external Python is an exact list or tuple; JSON input/output is an array; and
+Python output is an ordinary tuple. Defaults affect accepted trailing arity.
+Mapping input is not supported. See [Positional NamedTuple
+contracts](../namedtuples.md).
+
+`iter_jsonl()` keeps decoded validation on `on_error(index, ValidationError)`
+and gives framing/strict-decoding failures to the separate
+`on_jsonl_error(line, JsonlError)` callback. `JsonlPolicy`, `JsonlError`, and
+the `JsonlErrorCode` type alias are domain-public from `talea.jsonl`, not the
+root package. See [JSON Lines input](../jsonl-input.md).
 
 ## `Representation`
 

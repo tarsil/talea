@@ -50,6 +50,7 @@ contract for JSON strings. Talea provides no global coercion policy. See
 | IPv4/IPv6 addresses, networks, and interfaces | Exact declared IP class | Versions and address/network/interface families never cross-match |
 | `TypedDict` | Exact `dict` for strict validation; `Mapping` at external input | Required/optional keys and unknown-key rejection follow structural declaration truth |
 | stdlib dataclass | Exact declared class with current stored state | Mapping/JSON constructs the original class; `init=False` is output-only |
+| `typing.NamedTuple` | Exact declared class with current positional state | External list/tuple and JSON array construct the original class; Mapping/object input is rejected |
 | PEP 695 `type` aliases and `NewType` | Underlying supported contract | Named identity is retained without runtime alias dispatch |
 | `Annotated[A | B, Discriminator(name)]` | Required single-Literal Spec or TypedDict branches | Direct tag selection; see [Tagged unions](tagged-unions.md) |
 | `Annotated[T, Representation(...)]` | Strict internal `T` plus explicitly declared directional schemas | Trusted callbacks run once and their results are validated; see [custom representations](custom-representations.md) |
@@ -142,6 +143,7 @@ recursion](recursive-generics.md).
 | Spec | instance of the declared nominal type | Mapping constructs a Spec | object constructs a Spec | aliased detached mapping | object | named object definition |
 | TypedDict | exact dict with closed keys | Mapping becomes a detached dict | object becomes a detached dict | detached dict | object | named closed object definition |
 | stdlib dataclass | exact declared instance | Mapping constructs the original dataclass | object constructs the original dataclass | aliased detached dictionary | object | directional named object definition |
+| `typing.NamedTuple` | exact declared instance; plain tuple/list reject | exact list or tuple constructs one instance | array constructs one instance | ordinary positional tuple | array | named array definition with `prefixItems`, `minItems`, and `maxItems`; OpenAPI reuses it |
 | untagged union | first strict branch that succeeds | branches attempted in canonical order | branches attempted in canonical order | selected runtime branch | selected branch representation | `anyOf` |
 | tagged union | nominal Spec or exact tagged dict | direct discriminator dispatch | direct external-tag dispatch | selected branch | selected branch | `oneOf`; OpenAPI discriminator |
 | recursive named graph | strict acyclic/cycle-aware graph | resource-governed traversal | resource-governed traversal | detached acyclic graph | acyclic JSON | finite definitions and references |
@@ -208,6 +210,12 @@ also use arrays at JSON boundaries and reject duplicate decoded values rather
 than silently collapsing them. JSON dictionaries require representable string
 keys; a Python mapping contract with non-string keys cannot claim an ordinary
 JSON-object schema.
+
+Annotated `typing.NamedTuple` declarations are nominal Python values with the
+same positional external shape. Strict validation requires the exact declared
+class, while external Python accepts exact list or tuple input. Trailing
+defaults reduce `minItems` without changing `maxItems`. See [Positional
+NamedTuple contracts](namedtuples.md).
 
 ## Financial composition example
 

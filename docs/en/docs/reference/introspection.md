@@ -43,6 +43,13 @@ fields, `init`/keyword-only/default lifecycle truth, frozen transitive trust,
 generic specialization identity, and finite recursive references without
 exposing mutable stdlib `Field` objects.
 
+For `Contract(UserNamedTuple)`, the same property is a frozen
+`NamedTupleSchema`. Its ordered `NamedTupleField` values expose developer-facing
+field names, slot schemas, trailing defaults, required positional count, exact
+declared type, and specialization identity. This is sufficient public
+projection: there is no parallel NamedTuple info hierarchy and no mutable
+stdlib metadata or compiler state is exposed.
+
 `inspect_spec()` accepts a Spec class, including an open generic declaration.
 Concrete declarations return a cached immutable `SpecInfo`; open generics expose
 the declaration truth available before specialization. `inspect_contract()`

@@ -17,6 +17,7 @@ from talea import (
     Discriminator,
     ErrorCode,
     ErrorData,
+    ErrorTree,
     Examples,
     Ge,
     MaxLength,
@@ -40,6 +41,7 @@ from talea import (
     transform,
     validate_call,
 )
+from talea.errors import ErrorTreeData
 from talea.introspection import (
     CallableInfo,
     ContractInfo,
@@ -657,4 +659,7 @@ def project_validation_error(error: ValidationError) -> list[ErrorData]:
     assert_type(error.code, ErrorCode)
     assert_type(error.location, tuple[object, ...])
     assert_type(error.errors(), list[ErrorData])
+    tree = assert_type(error.error_tree(), ErrorTree)
+    assert_type(tree.errors, tuple[ErrorData, ...])
+    assert_type(tree.to_dict(), ErrorTreeData)
     return error.errors()

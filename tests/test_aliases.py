@@ -60,6 +60,22 @@ def test_legacy_names_are_one_ordered_immutable_field_truth() -> None:
     assert User.from_json('{"user_id":6}').user_id == 6
 
 
+def test_aliases_require_exact_strings_without_evaluating_subclass_repr() -> None:
+    evaluated = False
+
+    class HostileString(str):
+        def __repr__(self) -> str:
+            nonlocal evaluated
+            evaluated = True
+            return "hostile()"
+
+    with pytest.raises(TypeError, match="non-empty string"):
+        Alias(HostileString("external"))
+    with pytest.raises(TypeError, match="non-empty strings"):
+        Alias("external", legacy=(HostileString("old"),))
+    assert not evaluated
+
+
 def test_no_alias_and_existing_single_alias_semantics_are_unchanged() -> None:
     class Plain(Spec):
         value: int

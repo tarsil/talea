@@ -256,8 +256,8 @@ Talea is likely a poor fit when:
 - the application depends deeply on Pydantic-specific integrations or wants
   its coercion-first workflow;
 - supported Python versions include anything below 3.14;
-- ORM extraction, settings management, or callable validation must come from
-  the same mature package ecosystem;
+- ORM extraction or a broad framework/integration ecosystem must come from the
+  same mature package;
 - msgspec's native serialization workflow already matches the dominant
   workload and representation choices;
 - mutable internal records need no external validation, making dataclasses or

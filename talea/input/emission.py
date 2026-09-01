@@ -27,6 +27,7 @@ from talea.schema.nodes import (
     LiteralSchema,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -64,6 +65,8 @@ def schema_needs_conversion(schema: Schema, mode: InputMode) -> bool:
     if isinstance(schema, SpecReferenceSchema):
         return True
     if isinstance(schema, DataclassSchema):
+        return True
+    if isinstance(schema, NamedTupleSchema):
         return True
     if isinstance(schema, PrimitiveSchema):
         return mode == "json" and schema.kind in ("float", "bytes")
@@ -109,6 +112,8 @@ def schema_may_construct_spec(schema: Schema) -> bool:
         return not artifacts.schema.instances_are_permanently_trusted
     if isinstance(schema, DataclassSchema):
         return True
+    if isinstance(schema, NamedTupleSchema):
+        return True
     if isinstance(schema, RepresentationSchema):
         return schema.input is not None and schema_may_construct_spec(schema.input)
     if isinstance(schema, SequenceSchema):
@@ -141,6 +146,7 @@ def _resource_visit_depth(schema: Schema, location: tuple[str, ...]) -> int | No
             MappingSchema,
             TypedDictSchema,
             DataclassSchema,
+            NamedTupleSchema,
             TaggedUnionSchema,
             VariadicTupleSchema,
             FixedTupleSchema,
@@ -473,6 +479,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             self.emit_spec_conversion(schema, value, location, indentation)
         elif isinstance(schema, DataclassSchema):
             self.emit_dataclass_conversion(schema, value, location, indentation)
+        elif isinstance(schema, NamedTupleSchema):
+            self.emit_named_tuple_conversion(schema, value, location, indentation)
         elif isinstance(schema, PrimitiveSchema):
             if self.mode == "json":
                 if schema.kind == "float":
@@ -804,6 +812,80 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             location,
             indentation + 1,
             return_on_construction,
+        )
+
+    def emit_named_tuple_conversion(
+        self,
+        schema: NamedTupleSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Convert an exact list/tuple boundary and construct the declaration once."""
+
+        type_name = self.runtime("type", type)
+        declared = self.bind("named_tuple_type", schema.named_tuple_type)
+        existing = f"{type_name}({value}) is {declared}"
+        list_type = self.runtime("list", list)
+        tuple_type = self.runtime("tuple", tuple)
+        if self.mode == "json":
+            positional = f"{type_name}({value}) is {list_type}"
+        else:
+            positional = f"{type_name}({value}) in ({list_type}, {tuple_type})"
+        length = self.runtime("len", len)
+        size = self.variable("named_tuple_length")
+        title = self.title_name or self.bind("named_tuple_title", schema.named_tuple_type.__name__)
+        self.emit(indentation, f"if not {existing} and ({positional}):")
+        self.emit(indentation + 1, f"{size} = {length}({value})")
+        if schema.required_count:
+            self.emit(indentation + 1, f"if {size} < {schema.required_count}:")
+            missing = self.variable("missing_error")
+            self.emit(
+                indentation + 2,
+                f"{missing} = {self.validation_error_name}._missing((*{self.location_expression(location)}, {size}), title={title})",
+            )
+            self.emit(indentation + 2, f"raise {missing} from None")
+        self.emit(indentation + 1, f"if {size} > {len(schema.fields)}:")
+        unexpected = self.variable("unexpected_error")
+        code = self.runtime("error_code_unexpected", ErrorCode.UNEXPECTED)
+        self.emit(
+            indentation + 2,
+            f"{unexpected} = {self.validation_error_name}(None, {value}[{len(schema.fields)}], "
+            f"(*{self.location_expression(location)}, {len(schema.fields)}), {code}, title={title}"
+            f"{self.sensitive_argument()})",
+        )
+        self.emit(indentation + 2, f"raise {unexpected} from None")
+        items = tuple(self.variable("named_tuple_item") for _ in schema.fields)
+        defaults = self.bind("named_tuple_defaults", tuple(field.default for field in schema.fields))
+        for index, (field, item) in enumerate(zip(schema.fields, items, strict=True)):
+            self.emit(indentation + 1, f"if {size} > {index}:")
+            self._emit_conversion_visit(field.schema, (*location, str(index)), indentation + 2)
+            self.emit(indentation + 2, f"{item} = {value}[{index}]")
+            self.emit_schema(
+                field.schema,
+                item,
+                (*location, str(index)),
+                indentation + 2,
+                sensitive=bool(field.metadata.sensitive),
+            )
+            if field.has_default:
+                self.emit(indentation + 1, "else:")
+                self.emit(indentation + 2, f"{item} = {defaults}[{index}]")
+                self.emit_strict_schema(
+                    field.schema,
+                    item,
+                    (*location, str(index)),
+                    indentation + 2,
+                    sensitive=bool(field.metadata.sensitive),
+                )
+        self.emit(indentation + 1, f"{value} = {declared}({', '.join(items)})")
+        assert self.trusted_instances is not None
+        set_type = self.runtime("set", set)
+        self.emit(indentation + 1, f"if {self.trusted_instances} is None:")
+        self.emit(indentation + 2, f"{self.trusted_instances} = {set_type}()")
+        self.emit(
+            indentation + 1,
+            f"{self.trusted_instances}.add({self.runtime('id', id)}({value}))",
         )
 
     def _emit_dataclass_construction_commit(
@@ -1256,6 +1338,11 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                 existing = self.top_level_condition(schema, value)
                 mapping = self.runtime("mapping", Mapping)
                 return f"({existing}) or {self.runtime('isinstance', isinstance)}({value}, {mapping})"
+            if isinstance(schema, NamedTupleSchema):
+                existing = self.top_level_condition(schema, value)
+                type_name = self.runtime("type", type)
+                accepted = self.bind("named_tuple_input_types", (list, tuple))
+                return f"({existing}) or {type_name}({value}) in {accepted}"
             if isinstance(schema, TaggedUnionSchema):
                 existing = self.top_level_condition(schema, value)
                 mapping = self.runtime("mapping", Mapping)
@@ -1285,6 +1372,9 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         if isinstance(schema, DataclassSchema):
             existing = self.top_level_condition(schema, value)
             return f"({existing}) or {type_name}({value}) is {self.runtime('dict', dict)}"
+        if isinstance(schema, NamedTupleSchema):
+            existing = self.top_level_condition(schema, value)
+            return f"({existing}) or {type_name}({value}) is {self.runtime('list', list)}"
         if isinstance(schema, SequenceSchema):
             existing = self.top_level_condition(schema, value)
             return f"({existing}) or {type_name}({value}) is {self.runtime('list', list)}"

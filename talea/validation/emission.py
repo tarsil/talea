@@ -29,6 +29,7 @@ from talea.schema.nodes import (
     LiteralValue,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -153,6 +154,9 @@ class _ValidationEmitter:
             return
         if isinstance(base, DataclassSchema):
             self.emit_dataclass(base, value, location, indentation)
+            return
+        if isinstance(base, NamedTupleSchema):
+            self.emit_named_tuple(base, value, location, indentation)
             return
         if isinstance(base, SequenceSchema):
             self.emit_sequence(base, value, location, indentation, constraints)
@@ -369,6 +373,40 @@ class _ValidationEmitter:
                 nested,
                 member_location,
                 indentation,
+                sensitive=bool(field.metadata.sensitive),
+            )
+
+    def emit_named_tuple(
+        self,
+        schema: NamedTupleSchema,
+        value: str,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Emit exact declaration identity and direct positional slot checks."""
+
+        type_name = self.runtime("type", type)
+        expected_type = self.bind("named_tuple_type", schema.named_tuple_type)
+        length = self.runtime("len", len)
+        self.emit(
+            indentation,
+            f"if {type_name}({value}) is not {expected_type} or {length}({value}) != {len(schema.fields)}:",
+        )
+        self.emit_failure(schema, value, location, indentation + 1)
+        field_indentation = indentation
+        if self.trusted_instances is not None:
+            identity = self.runtime("id", id)
+            self.emit(
+                indentation,
+                f"if {self.trusted_instances} is None or {identity}({value}) not in {self.trusted_instances}:",
+            )
+            field_indentation += 1
+        for index, field in enumerate(schema.fields):
+            self.emit_schema(
+                field.schema,
+                f"{value}[{index}]",
+                (*location, str(index)),
+                field_indentation,
                 sensitive=bool(field.metadata.sensitive),
             )
 
@@ -970,6 +1008,10 @@ class _ValidationEmitter:
         if isinstance(schema, DataclassSchema):
             type_name = self.runtime("type", type)
             expected_type = self.bind("dataclass_type", schema.dataclass_type)
+            return f"{type_name}({value}) is {expected_type}"
+        if isinstance(schema, NamedTupleSchema):
+            type_name = self.runtime("type", type)
+            expected_type = self.bind("named_tuple_type", schema.named_tuple_type)
             return f"{type_name}({value}) is {expected_type}"
         if isinstance(schema, SequenceSchema):
             type_name = self.runtime("type", type)

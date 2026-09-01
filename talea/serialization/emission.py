@@ -30,6 +30,7 @@ from talea.schema.nodes import (
     LiteralSchema,
     MappingSchema,
     NamedReferenceSchema,
+    NamedTupleSchema,
     PrimitiveSchema,
     RepresentationSchema,
     Schema,
@@ -436,6 +437,8 @@ class _ValueProjectionCompiler:
             return f"{project}({value}, {nested}, {location}{self._sensitive_argument()})"
         if isinstance(schema, DataclassSchema):
             return self._dataclass_expression(schema, value, location, names, namespace, include, exclude, exclude_none)
+        if isinstance(schema, NamedTupleSchema):
+            return self._named_tuple_expression(schema, value, location, names, namespace)
         if isinstance(schema, SequenceSchema):
             return self._sequence_expression(schema, value, location, names, namespace, include, exclude, exclude_none)
         if isinstance(schema, MappingSchema):
@@ -681,6 +684,32 @@ class _ValueProjectionCompiler:
             names, namespace, "list" if self.mode == "json" else "tuple", list if self.mode == "json" else tuple
         )
         return f"{constructor}{generator}"
+
+    def _named_tuple_expression(
+        self,
+        schema: NamedTupleSchema,
+        value: str,
+        location: str,
+        names: _GeneratedNames,
+        namespace: dict[str, object],
+    ) -> str:
+        """Project direct positional slots; NamedTuple is a selection leaf."""
+
+        items = tuple(
+            self.expression(
+                field.schema,
+                f"{value}[{index}]",
+                f"(*{location}, {index})",
+                names,
+                namespace,
+                sensitive=bool(field.metadata.sensitive),
+            )
+            for index, field in enumerate(schema.fields)
+        )
+        if self.mode == "json":
+            return f"[{', '.join(items)}]"
+        suffix = "," if len(items) == 1 else ""
+        return f"({', '.join(items)}{suffix})"
 
     def _fixed_tuple_expression(
         self,
