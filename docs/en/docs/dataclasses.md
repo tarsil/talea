@@ -139,6 +139,14 @@ and `accepted_input_names`. Input compilation does not inspect `Annotated`
 again. Dataclasses without legacy names keep the existing direct current-name
 generated path.
 
+The standards projector consumes that same `DataclassField` tuple. Input JSON
+Schema/OpenAPI properties include every accepted spelling and reject ambiguous
+spellings compositionally. Requiredness applies across the alternatives.
+Output schemas contain only `external_name`; `init=False` fields keep their
+existing required, `readOnly` output policy. Static defaults are documented on
+the current property only, and default factories never execute during
+projection.
+
 The original dataclass constructor remains the lifecycle owner:
 
 1. Talea validates and converts supplied `init=True` field values.

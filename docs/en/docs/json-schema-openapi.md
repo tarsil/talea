@@ -168,9 +168,64 @@ generated schema.
 
 ## Objects, aliases, and requiredness
 
-Spec schemas use the canonical external field name. An `Alias` replaces the
-Python attribute name in `properties`, `required`, nested paths, and
-discriminator `propertyName`. Talea does not emit both names.
+Without migration names, a Spec schema uses only the canonical external field
+name. `Alias("userId", legacy=("id", "user_id"))` changes input projection:
+all three accepted spellings appear in `properties` with the same value
+contract, and an object-level constraint requires the field's spelling choice
+to be unambiguous.
+
+Draft 2020-12 defines `required` as property presence and `oneOf` as exactly one
+successful subschema. Talea composes those rules once per migrated field:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "userId": {"type": "integer"},
+    "id": {"type": "integer"},
+    "user_id": {"type": "integer"}
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "oneOf": [
+        {"required": ["userId"]},
+        {"required": ["id"]},
+        {"required": ["user_id"]}
+      ]
+    }
+  ]
+}
+```
+
+For an optional or defaulted migrated field, the `oneOf` also contains one
+branch whose `not`/`anyOf` condition means that none of the accepted names is
+present. Zero or one spelling is then valid; two spellings are invalid even
+when their values are equal. A required migrated field has no absent branch.
+Ordinary required fields continue to use the top-level `required` array.
+
+This is linear in the total number of accepted names and adds one `allOf`
+member per migrated field. It never enumerates whole-object combinations.
+Legacy property schemas reuse the already-projected value contract and
+definition references. Documentation metadata such as descriptions and
+value-level examples remains available on each accepted spelling, but a static
+`default` appears only on the current property: legacy properties do not own
+independent default behavior. Legacy names are not automatically marked
+`deprecated`; migration warnings and retirement policy remain application
+concerns.
+
+Output mode remains deliberately smaller: it contains the current external
+property only, with ordinary output requiredness. The Python field name and all
+legacy properties are absent unless one of them independently is the current
+external name of another field.
+
+OpenAPI 3.1 Schema Objects carry the same input constraints. Its Discriminator
+Object has only one `propertyName`, so Talea uses the current external
+discriminator key there. Referenced branch schemas still validate current and
+legacy discriminator keys exactly as JSON Schema does. The discriminator is a
+canonical tooling hint; OpenAPI states that it cannot change schema validation.
+Some documentation renderers may display only that canonical hint even though
+the surrounding Schema Objects accept historical keys.
 
 Spec, TypedDict, and dataclass boundaries reject unknown keys, so their schemas
 use:
@@ -196,7 +251,7 @@ are checked before projection because the stdlib constructor itself is not a
 validation owner. Default factories are never called during schema generation
 because a factory does not declare one stable default value.
 
-Sensitive defaults are omitted. A static default is also omitted when its
+Sensitive defaults and examples are omitted. A static default is also omitted when its
 nested graph contains sensitive metadata or a serializer callback. This
 prevents schema tooling from becoming a secret-value or application-code
 execution path.

@@ -132,8 +132,9 @@ there:
 - Mapping/JSON input reads exactly one of `displayName` or `name`, rejects both
   as `alias_conflict`, and reports the current external path;
 - serialization projects `displayName` unless alias output is disabled;
-- JSON Schema uses the current `displayName` and `minLength: 1` without
-  publishing legacy runtime-input vocabulary;
+- JSON Schema/OpenAPI input projects `displayName` and `name` with the same
+  `minLength: 1` value contract plus one per-field exact-spelling constraint;
+  output projects `displayName` only;
 - introspection reports the Python, current, legacy, and complete accepted
   names plus the normalized constraint;
 - derived partial Specs retain the same field truth while changing presence;

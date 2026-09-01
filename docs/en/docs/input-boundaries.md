@@ -150,6 +150,12 @@ An alias conflict occupies its declared field position in this order. It does
 not become a missing or unexpected error merely because the selected spelling
 was historical.
 
+Draft 2020-12 and OpenAPI 3.1 input schemas project this same presence law:
+each accepted spelling has the field's value schema, a required field accepts
+any one spelling, and `oneOf` rejects multiple spellings. JSON duplicate keys
+remain a decoder concern because the JSON Schema data model contains at most
+one member for a given key.
+
 ```python
 from typing import Annotated
 

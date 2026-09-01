@@ -70,6 +70,11 @@ compatible discriminator `accepted_input_names` tuple projected from its Spec
 branches. Tooling therefore needs neither annotation rereading nor generated
 input inspection to discover runtime migration names.
 
+JSON Schema and OpenAPI consume these retained tuples directly. Frameworks
+should use the standards projection APIs for complete Schema Objects and use
+introspection for field descriptors; generated schema fragments are outputs,
+not a second canonical field model.
+
 `SpecInfo.representations` and `ContractInfo.representations` contain each
 reachable represented contract once. Their `RepresentationInfo` values expose
 `internal`, optional `input`/`output`, `has_loader`, and `has_dumper`. They do

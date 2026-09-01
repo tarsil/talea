@@ -144,11 +144,13 @@ assert lookup.to_dict() == {"userId": 7}
 assert lookup.to_json() == '{"userId":7}'
 ```
 
-Legacy names are never emitted. JSON Schema and OpenAPI likewise continue to
-describe the current external property name; they do not project historical
-input vocabulary. `inspect_spec()` exposes each field's `external_name`,
+Legacy names are never emitted. JSON Schema and OpenAPI input mode publish each
+accepted spelling with a per-field Draft 2020-12 `oneOf` presence law, so any
+one spelling is accepted and conflicts are rejected. Output mode publishes the
+current property only. `inspect_spec()` exposes each field's `external_name`,
 immutable `legacy_names`, and complete ordered `accepted_input_names`. The
-order is retained for deterministic inspection and future projection only.
+order determines stable projection and inspection order, never runtime
+precedence. See [JSON Schema and OpenAPI projection](json-schema-openapi.md#objects-aliases-and-requiredness).
 
 Talea owns accepted external-name truth, deterministic ambiguity rejection,
 validation, errors, and introspection. The application owns the decision to
@@ -156,6 +158,16 @@ make a name legacy, warnings and telemetry, retirement timing, API-version
 policy, semantic value migration, and source-version negotiation. Talea does
 not infer migration chronology from tuple position and does not provide a
 migration registry or version manager.
+
+A staged rollout keeps those responsibilities explicit:
+
+1. Phase A declares and emits `id`.
+2. Phase B changes the current name to `userId` and declares
+   `legacy=("id",)`. Clients may send either one; sending both is rejected,
+   and server output immediately uses `userId` only.
+3. After application telemetry and policy say old clients are gone, a later
+   application release removes `id` from the tuple. Talea does not warn,
+   schedule, negotiate, or decide that retirement.
 
 Current names and legacy names must be unique within one field. Across an
 effective ordinary Spec declaration, current/current, current/legacy, and

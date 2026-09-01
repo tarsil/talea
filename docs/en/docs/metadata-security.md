@@ -304,9 +304,10 @@ metadata without copying it per instance or per recursive expansion.
 
 `json_schema()` and `openapi_schema()` project titles, descriptions, examples,
 deprecation, `readOnly`, and `writeOnly` from canonical field, Spec, Contract,
-TypedDict, and alias metadata. `Sensitive` is intentionally absent from public
-standards output because it is a Talea error-redaction policy, not a standard
-schema keyword. See [JSON Schema and OpenAPI](json-schema-openapi.md).
+TypedDict, and alias metadata. A Sensitive field omits examples and static
+defaults because those values may be secret. `Sensitive` itself is absent from
+public standards output because it is a Talea error-redaction policy, not a
+standard schema keyword. See [JSON Schema and OpenAPI](json-schema-openapi.md).
 
 ## Security guidance and limitations
 

@@ -26,8 +26,10 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   unknowable;
 - nested serialization selection uses canonical field names only; aliases are
   output keys, not selector identities;
-- JSON Schema and OpenAPI project only current external names; legacy input
-  names have no deprecated-property or vendor-extension projection yet;
+- OpenAPI's Discriminator Object can point to only the current external
+  discriminator property; surrounding input Schema Objects still validate
+  legacy discriminator keys, but documentation UIs may display only the
+  canonical hint;
 - TypedDict keys do not consume `Alias(..., legacy=...)`; migration names are
   supported by Spec fields, stdlib dataclass fields, and compatible tagged Spec
   discriminators;

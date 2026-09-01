@@ -94,6 +94,24 @@ A hook also cannot replace an entire field whose reachable schema contains a
 tagged union; that would bypass branch projection and could silently emit a
 different or missing tag. Hooks on ordinary branch-body fields remain normal.
 
+## JSON Schema and OpenAPI
+
+Input branch schemas publish the complete discriminator
+`accepted_input_names` vocabulary. Their per-field Draft 2020-12 `oneOf`
+constraint accepts `type` or `kind` in the example above and rejects both,
+while each property's literal schema preserves the unchanged tag value.
+Missing and unknown tags consequently remain invalid schema shapes. Recursive
+tagged graphs reuse the canonical branch definitions; legacy keys do not create
+new branch identities.
+
+Output branch schemas contain only the current external discriminator key.
+OpenAPI's Discriminator Object can name one property only, so
+`propertyName` is the current external key (`type` above), and `mapping` keeps
+the existing tag-value-to-branch references. The referenced input branch
+schemas describe legacy-key acceptance. Some UI tooling may surface only the
+canonical discriminator hint; Talea does not weaken validation or invent a
+vendor extension to hide that standards limitation.
+
 ## Errors
 
 A missing key produces `discriminator_missing`; an exact, supported tag type

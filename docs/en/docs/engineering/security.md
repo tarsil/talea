@@ -32,6 +32,15 @@ pattern text and aliases are not inserted into source. Repository tests cover
 quotes, newlines, malicious-looking names, aliases, patterns, and callback
 identities.
 
+Standards projection likewise treats current and legacy property names as
+inert dictionary keys. It escapes references through the existing definition
+owner, never interpolates names into JSON Pointers, rereads annotations, or
+executes factories and callbacks. Migration constraints grow with the sum of
+accepted names, not the product of per-field alternatives; declarations remain
+trusted, but the projector does not introduce a combinatorial amplification
+path. Sensitive defaults and examples retain the ordinary omission policy on
+every accepted spelling.
+
 Nested selector keys are treated as data and validated against canonical field
 truth before compilation. Caller-owned dictionaries and sets are copied into
 an immutable tree before field access. There is no global selector cache; each
