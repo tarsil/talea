@@ -203,3 +203,8 @@ tasks:
     desc: Benchmarks compiled strict callable execution, failures, and retained artifacts
     cmds:
       - hatch run test:benchmark_callables
+
+  benchmark_settings:
+    desc: Benchmarks deterministic settings plans, sources, failures, and zero-tax canaries
+    cmds:
+      - hatch run test:benchmark_settings

@@ -4,7 +4,17 @@ from typing import Literal
 
 __all__ = ["ResourceLimitError"]
 
-type ResourceLimitCode = Literal["input_size", "depth", "nodes"]
+type ResourceLimitCode = Literal[
+    "input_size",
+    "depth",
+    "nodes",
+    "settings_environment_entries",
+    "settings_secret_file_bytes",
+    "settings_secret_files",
+    "settings_source_bytes",
+    "settings_source_names",
+    "settings_toml_bytes",
+]
 
 
 class ResourceLimitError(Exception):
@@ -25,5 +35,11 @@ class ResourceLimitError(Exception):
             "input_size": "JSON input bytes",
             "depth": "input depth",
             "nodes": "input work nodes",
+            "settings_environment_entries": "settings environment entries",
+            "settings_secret_file_bytes": "settings secret file bytes",
+            "settings_secret_files": "settings secret files",
+            "settings_source_bytes": "settings aggregate source bytes",
+            "settings_source_names": "compiled settings source names",
+            "settings_toml_bytes": "settings TOML bytes",
         }[code]
         super().__init__(f"{label} exceeded limit {limit} (observed {observed})")
