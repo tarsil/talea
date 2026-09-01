@@ -2,7 +2,8 @@
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from decimal import Decimal
@@ -371,16 +372,24 @@ class _StandardsProjector:
 
     def _dataclass(self, schema: DataclassSchema) -> dict[str, object]:
         fields = tuple(field for field in schema.fields if self._mode == "output" or field.init)
+        if self._mode == "input":
+            return self._input_object(
+                (
+                    (
+                        field.accepted_input_names,
+                        field.required,
+                        self._dataclass_field(field),
+                    )
+                    for field in fields
+                )
+            )
         properties = {field.external_name: self._dataclass_field(field) for field in fields}
         projected: dict[str, object] = {
             "type": "object",
             "properties": properties,
             "additionalProperties": False,
         }
-        if self._mode == "input":
-            required = [field.external_name for field in fields if field.required]
-        else:
-            required = [field.external_name for field in fields]
+        required = [field.external_name for field in fields]
         if required:
             projected["required"] = required
         return projected
@@ -418,6 +427,19 @@ class _StandardsProjector:
                 f"{undeclared.name!r} does not declare its return contract"
             )
         serializer_by_field = {serializer.field: serializer for serializer in schema.serializers}
+        if self._mode == "input":
+            projected = self._input_object(
+                (
+                    (
+                        field.accepted_input_names,
+                        field.required,
+                        self._spec_field(field, serializer_by_field.get(field.name)),
+                    )
+                    for field in schema.fields
+                )
+            )
+            self._apply_metadata(projected, schema.metadata)
+            return projected
         properties = {
             field.external_name: self._spec_field(field, serializer_by_field.get(field.name)) for field in schema.fields
         }
@@ -426,13 +448,49 @@ class _StandardsProjector:
             "properties": properties,
             "additionalProperties": False,
         }
-        if self._mode == "input":
-            required = [field.external_name for field in schema.fields if field.required]
-        else:
-            required = [field.external_name for field in schema.fields if not field.omittable]
+        required = [field.external_name for field in schema.fields if not field.omittable]
         if required:
             projected["required"] = required
         self._apply_metadata(projected, schema.metadata)
+        return projected
+
+    @staticmethod
+    def _input_object(
+        fields: Iterable[tuple[tuple[str, ...], bool, dict[str, object]]],
+    ) -> dict[str, object]:
+        """Project alternative input names with linear, per-field presence laws."""
+
+        properties: dict[str, object] = {}
+        required: list[str] = []
+        name_constraints: list[dict[str, object]] = []
+        for accepted_names, field_required, field_schema in fields:
+            current_name = accepted_names[0]
+            properties[current_name] = field_schema
+            if len(accepted_names) == 1:
+                if field_required:
+                    required.append(current_name)
+                continue
+
+            presence_branches: list[dict[str, object]] = [{"required": [name]} for name in accepted_names]
+            branches = list(presence_branches)
+            if not field_required:
+                branches.insert(0, {"not": {"anyOf": presence_branches}})
+            name_constraints.append({"oneOf": branches})
+
+            for legacy_name in accepted_names[1:]:
+                legacy_schema = deepcopy(field_schema)
+                legacy_schema.pop("default", None)
+                properties[legacy_name] = legacy_schema
+
+        projected: dict[str, object] = {
+            "type": "object",
+            "properties": properties,
+            "additionalProperties": False,
+        }
+        if required:
+            projected["required"] = required
+        if name_constraints:
+            projected["allOf"] = name_constraints
         return projected
 
     def _spec_field(
@@ -463,7 +521,7 @@ class _StandardsProjector:
             compile_validator(schema)(value)
             projected = compile_value_projector(schema, "json", True)(value, ())
             json.dumps(projected, allow_nan=False)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return MISSING_DEFAULT
         return projected
 
@@ -563,7 +621,7 @@ class _StandardsProjector:
             projected["title"] = metadata.title
         if metadata.description is not None:
             projected["description"] = metadata.description
-        if metadata.examples is not None:
+        if metadata.examples is not None and not metadata.sensitive:
             projected["examples"] = [_thaw_example(value) for value in metadata.examples]
         if metadata.deprecated is not None:
             projected["deprecated"] = metadata.deprecated
