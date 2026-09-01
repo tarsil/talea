@@ -33,6 +33,12 @@ with explicit Mapping/environment/local-secrets/TOML sources, canonical-leaf
 precedence, schema-directed textual decoding, value-free provenance, bounded
 source acquisition, and no required dependency. This describes the development
 checkout and does not announce a 0.6.0 release.
+Its carried Settings performance debt is closed in the development checkout by
+an audited equivalent-semantics comparator, differential tests, measured stage
+decomposition, preselected canonical decoders, and specialized single-source
+and leaf-merge execution. The historical narrow manual comparator remains
+labelled non-equivalent; final release convergence still belongs to the next
+campaign.
 The same unreleased surface adds lazy retained-Contract item validation for
 synchronous Python iterables, with strict and external modes, canonical indexed
 errors, explicit continuation, and finite item/invalid-item limits. It also adds

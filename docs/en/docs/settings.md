@@ -242,7 +242,7 @@ SettingsPolicy(
     max_environment_entries=10_000,
     max_source_names=10_000,
     max_toml_bytes=8 * 1024 * 1024,
-    max_secret_files=256,
+    max_secret_files=256,  # bounds all entries enumerated from the directory
     max_secret_file_bytes=1024 * 1024,
     max_source_bytes=16 * 1024 * 1024,
     input_policy=ResourcePolicy(),
@@ -299,8 +299,38 @@ the same API; Settings does not require a 3.15-only syntax contract.
 `task benchmark_settings` measures cold plans, repeated loads, 10/50/100-field
 environment and TOML models, nested fields, case policy, aliases, precedence,
 secret directories, provenance, failures, resource rejection, retention,
-concurrency, and ordinary Talea canaries. Settings is startup/cold-path work;
-the benchmark makes no universal fastest-settings-library claim.
+concurrency, and ordinary Talea canaries. It also keeps two manual baselines:
+the historical narrow loader and an audited equivalent-semantics loader that
+shares only the final canonical `Spec.from_mapping` boundary.
+
+The historical approximately 2.49 µs manual result is a useful direct-access
+lower bound, not an equivalent Settings comparison. It omits complete source
+snapshot validation, acquisition limits, case folding, accepted-name conflict
+detection, canonical Mapping materialization, `ResourcePolicy`, and Spec
+construction. Earlier approximately 20.85 µs and 20.35 µs Talea results used
+the historical ten-integer environment workload against that weaker baseline.
+
+On the Campaign 28H development machine, the same Talea workload measured
+approximately 6.3–7.0 µs minimum after convergence, while the audited manual
+executor measured approximately 7.1 µs. The representative mixed ten-field
+model measured approximately 10.0 µs versus 8.3 µs. These are reproducible
+development-checkout measurements rather than cross-machine promises.
+
+The ten-integer Talea path decomposed to about 0.17 µs for the detached source
+snapshot, 0.40 µs for case-normalized names, 1.43 µs for textual decoding,
+0.07 µs for canonical assignment, 1.97 µs for final `Spec.from_mapping`, and
+the remaining control and materialization work. The retained plan now preselects
+primitive decoders, single-environment loads materialize resolved leaves
+without general multi-source merge bookkeeping, and schema-proven leaf sources
+use a leaf merge. Generic structured decoding, final model construction,
+source limits, and full snapshot scanning remain intentional canonical owners.
+A direct-probe environment path would miss whole-source type checks, entry
+limits, and accepted-name conflict detection, so source-size cost remains
+linear. Provenance remains pay-for-play and costs additional canonical-path
+projection and immutable publication only when requested. Cold plan work is
+reported separately from warm loads and filesystem I/O.
+
+The benchmark makes no universal fastest-settings-library claim.
 
 ## Security boundaries and non-goals
 
