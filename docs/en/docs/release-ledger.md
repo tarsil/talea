@@ -40,6 +40,13 @@ bounded JSON Lines input for strict UTF-8 text/bytes record iterables, reusing
 the canonical JSON decoder and retained external Contract artifact with safe
 one-based framing errors, explicit continuation, and separate line/total byte
 limits. This remains development-checkout behavior, not a 0.6.0 release.
+The unreleased development surface also supports annotated
+`typing.NamedTuple` declarations through one canonical positional schema:
+exact nominal strict validation, exact list/tuple and JSON-array input,
+tuple/array output, trailing defaults, concrete generics, recursion,
+composition, immutable introspection, and Draft 2020-12/OpenAPI array
+projection. It does not add Mapping compatibility, a root export, or a runtime
+dependency, and it does not announce a 0.6.0 release.
 
 ## Deliberate boundaries
 
@@ -49,7 +56,7 @@ limits. This remains development-checkout behavior, not a 0.6.0 release.
 | explicit ReadOnly/WriteOnly input/output Spec views | Implemented through declaration-time `derive_spec(mode=...)` selection |
 | nested runtime output projection | Implemented through finite canonical-name include/exclude trees on `Spec.to_dict()` and `Spec.to_json()`; schema/OpenAPI remain unchanged |
 | automatic runtime ReadOnly/WriteOnly enforcement | Deliberately absent; ordinary source-Spec behavior remains unchanged |
-| NamedTuple and ordinary-class mapping | Not implemented; core is not a general object mapper |
+| NamedTuple and ordinary-class mapping | Annotated `typing.NamedTuple` has positional list/tuple and array interoperability; object/Mapping compatibility and ordinary-class mapping remain deliberately absent |
 | stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |
 | settings/environment loading | Implemented in the separate import-isolated `talea.settings` owner on the current unreleased development surface; no root exports, source registry, watcher, framework lifecycle, or remote sources |
 | incremental records and JSONL | Synchronous Python item iteration and JSONL input are implemented through retained `Contract(T)`; JSONL output and async iteration are not implemented |

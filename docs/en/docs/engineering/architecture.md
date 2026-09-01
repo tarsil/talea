@@ -44,6 +44,7 @@ representations:
 | Truth | Canonical owner | Consumers |
 | --- | --- | --- |
 | dataclass stored fields and lifecycle classification | immutable `DataclassSchema` resolved by `schema` | validation, input, serialization, introspection, standards projection |
+| NamedTuple ordered slots, defaults, arity, declaration/specialization identity | immutable `NamedTupleSchema` resolved by `schema` | strict validation, positional input/output, recursion, resource policy, introspection, standards projection |
 | `ReadOnly`, `WriteOnly`, aliases, and `Sensitive` | normalized declaration metadata | derivation, input/output, errors, introspection, standards projection |
 | derived source, retained/omitted fields, selection, partial state, mode, and explicit name | immutable declaration provenance | presence, patching, introspection, standards projection |
 | nested include/exclude grammar and immutable selection tree | serialization selection owner validated against canonical schema | class-owned compiled output plans |
@@ -60,6 +61,32 @@ second field map or rediscover `dataclasses.fields()`. Directional derivation
 projects normal Spec declarations from one provenance record. Nested selection
 copies caller input into an immutable tree before field access, compiles only
 when a nested selector is used, and has no process-global cache.
+
+### NamedTuple ownership
+
+An annotated `typing.NamedTuple` declaration resolves once into a frozen
+`NamedTupleSchema`. Its ordered fields, defaults, required count, nominal type,
+and generic or recursive identity are the only structural truth consumed by
+generated execution and public tooling:
+
+```mermaid
+flowchart TD
+    A[typing.NamedTuple declaration] --> B[Annotation resolution]
+    B --> C[NamedTupleSchema]
+    C --> D[Strict exact-type validation]
+    C --> E[Positional Python and JSON input]
+    C --> F[Tuple and JSON-array output]
+    C --> G[JSON Schema and OpenAPI]
+    C --> H[Introspection]
+```
+
+No consumer rereads `_fields`, `_field_defaults`, or `__annotations__` on a
+warm path. Direct positional operations preserve the protocol's array shape;
+there is no `_asdict()` or Mapping facade. Unlike a Spec or dataclass,
+NamedTuple therefore has no object-shaped external names or lifecycle hooks.
+Unlike TypedDict, it is nominal at strict Python boundaries. Nested selection
+treats the whole record as a leaf so this owner does not expand the established
+object-field selection grammar.
 
 ### Representation ownership
 

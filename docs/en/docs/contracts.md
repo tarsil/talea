@@ -105,6 +105,21 @@ Dataclasses remain unchanged and are not copied into Specs. See
 [Standard-library dataclasses](dataclasses.md) for lifecycle, trust, generics,
 recursion, schema modes, and security boundaries.
 
+## Positional NamedTuple domains
+
+`Contract` supports annotated `typing.NamedTuple` declarations as nominal
+Python values with positional external semantics. Strict validation requires
+the exact declared class. External Python accepts an exact list or tuple, JSON
+accepts an array, Python output is an ordinary tuple, and JSON output is an
+array. Mapping and JSON-object input are rejected even though declaration field
+names remain visible through schema introspection.
+
+Trailing defaults, concrete generics, recursion, nested composition,
+`Representation`, constraints, `Sensitive`, standards projection, incremental
+input, JSONL, and `ResourcePolicy` reuse their existing owners. See
+[Positional NamedTuple contracts](namedtuples.md) for the complete boundary and
+selection rules.
+
 ## Incremental item validation
 
 `Contract(list[T])` is one materialized container boundary. A retained

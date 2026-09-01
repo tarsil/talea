@@ -11,8 +11,9 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   generators, async generators, and callable instances are unsupported,
   runtime generic-function specialization is unsupported, and lost local
   deferred annotation names may be unrecoverable;
-- NamedTuple, attrs, ordinary-class, and ORM-object mapping are not part of
-  core; Settings has a separate concrete-Spec application boundary;
+- attrs, ordinary-class, and ORM-object mapping are not part of core;
+  annotated `typing.NamedTuple` is supported only through its positional
+  contract, and Settings has a separate concrete-Spec application boundary;
 - dataclass `InitVar`, incompatible constructors, Talea method hooks, tagged
   dataclass unions, and interpretation of `dataclasses.field(metadata=...)` are
   not supported;
@@ -40,6 +41,12 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   discriminators;
 - nested selection has no per-index sequence selection, mapping-key selection,
   wildcards, predicates, path expressions, or query-language callbacks;
+- NamedTuple external input is exact list/tuple or JSON array only; Mapping and
+  object input, `collections.namedtuple`, arbitrary tuple subclasses, slot
+  aliases/migration names, sparse ReadOnly/WriteOnly views, positional tagged
+  discriminators, derived/partial NamedTuples, and custom index selection are
+  unsupported; open generics require specialization and incompatible mutated
+  constructors are rejected;
 - serializer output without `output=` is a leaf; declared output contracts use
   the normal structural selection rules;
 - recursive selection requires an explicitly finite selection tree;

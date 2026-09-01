@@ -114,7 +114,7 @@ structural consumers. `talea.schema` exposes immutable nodes:
 `SpecReferenceSchema`, `TypeSchema`, `LiteralValue`, `LiteralSchema`,
 `EnumSchema`, `SequenceSchema`, `MappingSchema`, `FixedTupleSchema`,
 `VariadicTupleSchema`, `UnionSchema`, `DataclassField`, `DataclassSchema`,
-`TypedDictField`, `TypedDictSchema`,
+`TypedDictField`, `TypedDictSchema`, `NamedTupleField`, `NamedTupleSchema`,
 `NamedReferenceSchema`, `NamedSchemaIdentity`, `TaggedUnionBranch`, and
 `TaggedUnionSchema`; tags `PrimitiveKind`, `SequenceKind`, and `TypeCheckMode`;
 and declaration functions/errors `resolve_annotation`,
@@ -191,6 +191,12 @@ may be explicitly disabled with `None`. Invalid items raise located
 remain terminal. See [Incremental Contract validation](../incremental-validation.md).
 Contract attributes are read-only. See [Arbitrary contracts](../contracts.md)
 for TypedDict, generic, recursive, tagged, and policy examples.
+
+For an annotated `typing.NamedTuple`, strict input is the exact nominal class;
+external Python is an exact list or tuple; JSON input/output is an array; and
+Python output is an ordinary tuple. Defaults affect accepted trailing arity.
+Mapping input is not supported. See [Positional NamedTuple
+contracts](../namedtuples.md).
 
 `iter_jsonl()` keeps decoded validation on `on_error(index, ValidationError)`
 and gives framing/strict-decoding failures to the separate

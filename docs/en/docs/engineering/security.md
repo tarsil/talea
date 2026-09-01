@@ -15,6 +15,7 @@ callbacks, codecs, and ordinary Python execution as trusted code.
 | regex constraints | declaration-time compilation and safe binding | catastrophic backtracking; no timeout is provided |
 | output and schema tooling | cycle rejection and explicit projection failures | output size and tooling resource budgets |
 | dataclass Contract | declared stored fields, exact identity, structured boundaries | constructor, post-init, descriptors, generated repr |
+| NamedTuple Contract | exact nominal identity, direct slot validation, positional list/tuple or JSON-array conversion, arity, generated-constructor compatibility, resource accounting | trusted annotation execution, ordinary class methods, application logging and successful output disclosure |
 | nested output selection | canonical schema validation, immutable normalization, direct projection | authorization to request or disclose fields |
 | represented custom values | declared input/output result validation, exact-once callback transport, Sensitive error policy | callback CPU, memory, mutation, I/O, logging, and output amplification |
 | declared serializer output | complete result validation, exact-once callback transport, callback-free schema/selection discovery, Sensitive cause suppression | callback CPU, memory, mutation, reentrancy, I/O, logging, and output amplification |
@@ -56,6 +57,15 @@ Annotation resolution uses Python's supported annotation machinery and retained
 definition namespaces. Talea does not provide an API that evaluates arbitrary
 untrusted annotation strings. Application class bodies and imported modules are
 trusted Python code, as they are for any annotation-driven library.
+
+NamedTuple resolution accepts only annotated `typing.NamedTuple` declarations,
+not classes that merely expose `_fields`, unannotated `collections.namedtuple`
+types, arbitrary tuple subclasses, or custom sequences. Warm operations consume
+the frozen canonical schema and direct numeric slots; they do not reread
+annotations, invoke ordinary methods, call `_asdict()`, or use a global
+registry. An incompatible mutated constructor is rejected before external data
+can reach it. The outer tuple does not make mutable descendants trusted, and
+external positional traversal shares normal `ResourcePolicy` accounting.
 
 ## Sensitive data
 

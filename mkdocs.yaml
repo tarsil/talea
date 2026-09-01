@@ -63,6 +63,7 @@ nav:
       - JSON Lines input: "jsonl-input.md"
       - Custom domain representations: "custom-representations.md"
       - Standard-library dataclasses: "dataclasses.md"
+      - Positional NamedTuple contracts: "namedtuples.md"
       - Strictness and boundaries: "concepts/strictness-boundaries.md"
       - Strict callable boundaries: "callable-boundaries.md"
       - Composition and inheritance: "composition-inheritance.md"
