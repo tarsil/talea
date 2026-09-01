@@ -37,12 +37,7 @@ def test_settings_public_api_is_domain_owned_and_root_import_is_isolated() -> No
         "SettingsPolicy",
         "SettingsResult",
     ]
-    command = (
-        "import sys, talea; "
-        "assert 'talea.settings' not in sys.modules; "
-        "assert not hasattr(talea, 'Settings'); "
-        "assert talea.__version__ == '0.5.0'"
-    )
+    command = "import sys, talea; assert 'talea.settings' not in sys.modules; assert not hasattr(talea, 'Settings')"
     subprocess.run([sys.executable, "-c", command], check=True)
 
 

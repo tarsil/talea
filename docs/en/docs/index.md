@@ -194,12 +194,13 @@ technical consequences in detail.
 | --- | --- |
 | Records | strict keyword-only immutable slotted Specs, defaults/factories, inheritance, generics, recursion |
 | Validation | exact Python types, constraints, transforms, field and whole-Spec checks, structured errors |
-| Boundaries | trusted Python, external Mapping, strict JSON, arbitrary Contract roots |
+| Boundaries | trusted Python, external Mapping, strict JSON, lazy item validation, bounded JSON Lines input, arbitrary Contract roots |
 | Callables | strict compiled sync/async argument and return validation with native Python binding and methods |
-| Composition | nested Specs, stdlib dataclasses, TypedDict, aliases, represented custom domain types, unions, canonical tagged dispatch, recursive named graphs |
+| Composition | nested Specs, stdlib dataclasses, positional NamedTuple contracts, TypedDict, aliases, represented custom domain types, unions, canonical tagged dispatch, recursive named graphs |
+| Settings | import-isolated deterministic Spec snapshots from overrides, environment, secrets directories, TOML, and defaults |
 | Updates | `copy.replace`, `derive_spec`, presence-aware partials, `apply_patch` |
 | Output | detached Python projection, JSON representations, nested selection, field serializers with optional declared output truth, per-call codec boundaries |
-| Security | Sensitive-aware failure redaction; finite transport, depth, work, and error budgets |
+| Security | Sensitive-aware failure redaction; finite transport, depth, work, and error budgets; fresh read-only ErrorTree projection |
 | Standards | JSON Schema Draft 2020-12 and OpenAPI 3.1-compatible Schema Objects |
 | Tooling | immutable field/schema introspection and dynamic `create_spec` declarations |
 | Execution | compile-once specialized pure-Python operations and permanent benchmark canaries |

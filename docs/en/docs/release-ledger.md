@@ -1,118 +1,90 @@
 # Version, maturity, and support
 
-Talea is currently version 0.5.0 and deliberately remains in the 0.x release
+Talea is currently version 0.6.0 and deliberately remains in the 0.x release
 series. The implemented runtime is substantial, but compatibility, deprecation
 windows, long-term support, and formal vulnerability-reporting governance are
-not yet frozen. The 0.x series is an ongoing product stage, not an indication
-that a 1.0 compatibility freeze is imminent.
-Meaningful 0.4.x, 0.5.x, 0.6.x, and later 0.x releases are expected over the
-coming years; there is no declared 1.0 target date.
+not yet frozen. Meaningful later 0.x releases will continue; there is no
+declared 1.0 target date.
+
+## 0.6.0 release identity
+
+Talea 0.6.0 focuses on application boundaries, record ingestion, and Python
+interoperability. The release retains Python 3.14 as its minimum, declares
+Python 3.15 support, is implemented in pure Python, and has zero required
+runtime dependencies.
+
+The six 0.6 owners are accepted and frozen:
+
+| Owner | Canonical authority | Permanent evidence | Remaining boundary |
+| --- | --- | --- | --- |
+| Python 3.15 TypeForm typing | public declarations in `Contract`, `Representation`, `create_spec`, and `serialize` | Python 3.14 and 3.15-target `ty` contracts | Python 3.14 uses an honest `object` fallback; runtime support remains narrower than all statically valid type expressions |
+| Settings source resolution | immutable `talea.settings.Settings` source plan over canonical Spec introspection | Settings runtime, security, property, typing, documentation, and permanent benchmark suites | no dotenv, remote provider, registry, watcher, profile engine, automatic CLI, or framework lifecycle |
+| incremental Contract validation | retained `Contract` artifacts plus operation-local `ItemPolicy` state | incremental runtime, typing, documentation, retention, and permanent benchmark suites | synchronous iterables only; source lifetime and callback work remain application-owned |
+| JSON Lines input | `talea.jsonl` framing and `JsonlPolicy`, reusing Contract item policy and strict JSON decoding | JSONL runtime, adversarial, typing, documentation, retention, and permanent benchmark suites | input records only; no paths, compression, output, multiline recovery, chunks, or async streams |
+| NamedTuple interoperability | immutable `NamedTupleSchema` positional truth | NamedTuple runtime, composition, typing, standards, documentation, and permanent benchmark suites | annotated `typing.NamedTuple` only; no Mapping/object input, slot aliases, derived views, or arbitrary tuple subclasses |
+| nested validation-error projection | canonical `ErrorData` facts projected by `ValidationError.error_tree()` | error-tree runtime, composition, Sensitive, documentation, and errors benchmark suites | projection is read-only and location-based; it is not a second mutable error store |
+
+These owners consume the same canonical schema graph as existing validation,
+serialization, introspection, JSON Schema, and OpenAPI operations. None adds a
+second schema interpretation or a required dependency.
 
 ## Implemented product surface
 
-The release includes Specs, Contracts, strict validation, constraints,
-standard-library types, defaults/factories, inheritance, recursive and generic
-types, stdlib dataclass Contracts, TypedDict and PEP 695 aliases, tagged unions, Mapping/JSON input,
-serialization, structured errors, metadata and redaction, presence-aware
-derived/PATCH Specs, explicit input/output derived views, introspection, dynamic creation, JSON Schema Draft 2020-12,
-OpenAPI 3.1-compatible projection, and finite external-input resource policies.
-Talea 0.3.0 added root-public `Representation` contracts for explicit
-custom domain types across directional input/output, standards projection,
-introspection, and nested selection, plus optional declared output contracts on
-field serializers. Talea 0.4.0 adds strict compiled callable boundaries for
-synchronous and asynchronous functions, complete Python parameter binding,
-methods and descriptors, return validation, typing, and immutable
-introspection. Talea 0.5.0 adds finite historical Mapping and JSON input names
-through `Alias(..., legacy=(...))`, with conflict rejection and current-only
-output across Specs, dataclasses, tagged unions, derived contracts, JSON Schema,
-OpenAPI, and introspection.
+The release includes Specs, arbitrary Contracts, strict construction and
+validation, constraints, Mapping and JSON input, serialization, structured
+errors, Sensitive redaction, finite resource policies, stdlib dataclass and
+NamedTuple contracts, TypedDict and PEP 695 aliases, tagged unions, recursive
+and generic graphs, presence-aware derived/PATCH Specs, explicit directional
+views, `Representation`, strict callable boundaries, introspection, dynamic
+Spec creation, JSON Schema Draft 2020-12, and OpenAPI 3.1-compatible
+projection.
 
-The current unreleased development surface adds an import-isolated
-`talea.settings` subpackage. It loads concrete Specs through one immutable plan
-with explicit Mapping/environment/local-secrets/TOML sources, canonical-leaf
-precedence, schema-directed textual decoding, value-free provenance, bounded
-source acquisition, and no required dependency. This describes the development
-checkout and does not announce a 0.6.0 release.
-Its carried Settings performance debt is closed in the development checkout by
-an audited equivalent-semantics comparator, differential tests, measured stage
-decomposition, preselected canonical decoders, and specialized single-source
-and leaf-merge execution. The historical narrow manual comparator remains
-labelled non-equivalent; final release convergence still belongs to the next
-campaign.
-The same unreleased surface adds lazy retained-Contract item validation for
-synchronous Python iterables, with strict and external modes, canonical indexed
-errors, explicit continuation, and finite item/invalid-item limits. It also adds
-bounded JSON Lines input for strict UTF-8 text/bytes record iterables, reusing
-the canonical JSON decoder and retained external Contract artifact with safe
-one-based framing errors, explicit continuation, and separate line/total byte
-limits. This remains development-checkout behavior, not a 0.6.0 release.
-The unreleased development surface also supports annotated
-`typing.NamedTuple` declarations through one canonical positional schema:
-exact nominal strict validation, exact list/tuple and JSON-array input,
-tuple/array output, trailing defaults, concrete generics, recursion,
-composition, immutable introspection, and Draft 2020-12/OpenAPI array
-projection. It does not add Mapping compatibility, a root export, or a runtime
-dependency, and it does not announce a 0.6.0 release.
+For application configuration, `talea.settings` loads concrete Specs through
+the deterministic precedence order override > environment > secrets directory
+> TOML > defaults. It snapshots each operation, supports current and historical
+aliases, schema-directed textual decoding, optional value-free provenance, and
+separate acquisition and final-input resource policies. Importing `talea` does
+not import the settings package.
+
+For record ingestion, retained Contracts provide lazy strict and external
+Python item validation with finite defaults, exact source indexes, fail-fast or
+explicit continuation behavior, and fresh per-item external-input state. JSON
+Lines adds homogeneous text/bytes records, strict UTF-8, strict canonical JSON
+semantics, one-based framing locations, raw-byte policy, and the same shared
+item/invalid-item budget.
 
 ## Deliberate boundaries
 
 | Capability | Current disposition |
 | --- | --- |
-| callable argument/return validation | Implemented for synchronous and asynchronous functions and methods through `validate_call`; generators, async generators, callable instances, runtime generic-function specialization, callable `ResourcePolicy`, timeouts, and retries remain outside this owner |
-| explicit ReadOnly/WriteOnly input/output Spec views | Implemented through declaration-time `derive_spec(mode=...)` selection |
-| nested runtime output projection | Implemented through finite canonical-name include/exclude trees on `Spec.to_dict()` and `Spec.to_json()`; schema/OpenAPI remain unchanged |
-| automatic runtime ReadOnly/WriteOnly enforcement | Deliberately absent; ordinary source-Spec behavior remains unchanged |
-| NamedTuple and ordinary-class mapping | Annotated `typing.NamedTuple` has positional list/tuple and array interoperability; object/Mapping compatibility and ordinary-class mapping remain deliberately absent |
-| stdlib dataclass boundaries | Implemented through `Contract`; no ORM-style attribute extraction |
-| settings/environment loading | Implemented in the separate import-isolated `talea.settings` owner on the current unreleased development surface; no root exports, source registry, watcher, framework lifecycle, or remote sources |
-| incremental records and JSONL | Synchronous Python item iteration and JSONL input are implemented through retained `Contract(T)`; JSONL output and async iteration are not implemented |
-| arbitrary annotation callbacks | Explicit per-position `Representation` contracts are implemented; no registry/discovery |
-| field-local serializer output truth | Optional `@serialize(..., output=...)` contracts are implemented; undeclared hooks remain opaque |
-| retained global codec/Contract registries | Rejected for core; application boundaries own retained objects |
-| `Any`/`object` passthrough contracts | Rejected because they erase contract truth |
-| abstract Mapping/Sequence conversion | Rejected because concrete output shape is ambiguous |
-| ORM attribute extraction | Rejected for core; an integration must own lazy access and errors |
-| output/schema resource governance | Caller-owned in the current threat model |
-| migration warnings, telemetry, and retirement timing | Application-owned; Talea declares finite accepted names and does not run a migration lifecycle |
-| TypedDict key migration names | Not implemented; migration names belong to Spec fields, stdlib dataclass fields, and compatible tagged Spec discriminators |
-| API-version negotiation | Application or framework-owned, not a Talea input-name policy |
+| callable argument/return validation | Implemented for synchronous and asynchronous functions and methods through `validate_call`; generators, async generators, callable instances, runtime generic-function specialization, callable resource policy, timeouts, and retries remain outside this owner |
+| settings/environment loading | Implemented in the import-isolated `talea.settings` owner; no root export, dotenv parser, source registry, watcher, profile engine, framework lifecycle, automatic CLI, or remote source |
+| incremental records and JSONL | Synchronous Python item iteration and JSON Lines record input are implemented; JSONL output, arbitrary chunks, paths, compression, and async iteration are not |
+| NamedTuple and ordinary-class mapping | Annotated `typing.NamedTuple` has positional list/tuple and JSON-array interoperability; object/Mapping compatibility, ordinary-class guessing, and ORM extraction remain absent |
+| explicit custom representations | Per-position `Representation` declarations are implemented; no registry, discovery, generic factory, or custom format vocabulary |
+| output/schema resource governance | Caller-owned in the current trust model |
+| migration warnings and retirement timing | Application-owned; Talea declares a finite accepted-name vocabulary without a migration lifecycle |
+| schema compatibility/version tooling | Not implemented; JSON Schema and OpenAPI project the current contract only |
 
 The complete operational list is on [Known limitations](engineering/limitations.md).
 
 ## Quality evidence
 
-Repository acceptance requires tests, enforced 100% line coverage, Ruff lint
-and formatting, `ty` contracts, executable documentation examples, internal
-navigation/link validation, documentation and package builds, and permanent
-benchmark tasks. A passing development checkout is evidence for that commit;
-it is not a promise that every downstream environment is identical.
+Repository acceptance requires Python 3.14 tests, exactly 100% line coverage,
+Ruff lint and formatting, Python 3.14 and Python 3.15-target `ty` contracts,
+executable documentation examples, navigation and internal-link validation,
+documentation and package builds, isolated no-dependency wheel checks, and all
+25 permanent benchmark tasks. GitHub CI additionally executes the test and
+package matrix on Python 3.14 and 3.15.
 
-Release history belongs in [Release notes](release-notes.md). Contributor
-workflow is documented in [Contributing](contributing.md).
+Settings performance evidence compares the complete Talea source-resolution
+operation with an equivalent handwritten implementation. The earlier narrow
+manual lower bound omitted required behavior and remains non-equivalent; it is
+not the release comparator. Timing varies by machine, but the permanent suite
+guards the converged architectural class and the no-Settings core canary.
 
-## 0.5.0 owner and evidence
-
-`Alias(name, *, legacy=())` is the only declaration surface for migration-safe
-field names. The resolved `SpecField`, `DataclassField`, and tagged discriminator
-schema retain the ordered current-plus-historical input vocabulary; compiled
-Mapping/JSON operations, standards projection, and immutable introspection
-consume that truth. Serialization consumes only the current external name.
-There is no migration registry, precedence rule, warning engine, telemetry, or
-retirement policy.
-
-Permanent acceptance evidence is grouped rather than duplicated into one test
-per claim:
-
-- `tests/test_aliases.py`, `tests/test_alias_composition.py`, and
-  `tests/test_alias_schema_projection.py` cover declaration, conflicts,
-  inheritance, derivation, PATCH, views, generics, recursion, dataclasses,
-  tagged dispatch, errors, security, introspection, JSON Schema, and OpenAPI;
-- the general Spec, dataclass, tagged-union, schema, serialization, resource,
-  representation, and callable suites remain zero-feature regression canaries;
-- the Mapping/JSON, presence, recursive/generic, dataclass, tagged, and JSON
-  Schema benchmark tasks measure migration execution, equivalent conflict
-  detection, direct dispatch, compositional projection growth, allocations,
-  retention, and no-migration paths;
-- release acceptance additionally requires Python 3.14 quality gates, the
-  configured Python 3.15 CI lane, checked wheel/sdist metadata and contents,
-  and an isolated no-dependency wheel smoke test.
+A passing checkout or release artifact is evidence for that exact revision; it
+is not a promise that every downstream environment is identical. Release
+history belongs in [Release notes](release-notes.md), contributor workflow in
+[Contributing](contributing.md), and trust boundaries in
+[Security architecture](engineering/security.md).
