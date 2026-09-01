@@ -6,6 +6,7 @@ import re
 from collections.abc import Mapping
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal, InvalidOperation
+from functools import partial
 from ipaddress import (
     IPv4Address,
     IPv4Interface,
@@ -16,7 +17,7 @@ from ipaddress import (
 )
 from pathlib import Path, PosixPath, PurePath, PurePosixPath, PureWindowsPath, WindowsPath
 from types import NoneType
-from typing import cast
+from typing import Callable, cast
 from uuid import UUID
 
 from talea.introspection import inspect_spec
@@ -45,6 +46,7 @@ from talea.schema.nodes import (
 
 _INTEGER = re.compile(r"-?(?:0|[1-9]\d*)\Z")
 _FLOAT = re.compile(r"-?(?:(?:0|[1-9]\d*)(?:\.\d+)?)(?:[eE][+-]?\d+)?\Z")
+type TextDecoder = Callable[[str], object]
 _STANDARD_TEXT_TYPES = frozenset(
     {
         Decimal,
@@ -72,7 +74,10 @@ _STANDARD_TEXT_TYPES = frozenset(
 def decode_text(schema: Schema, text: str) -> object:
     """Return one source-specific external value, leaving failures for Spec input."""
 
-    base = _unwrap(schema)
+    return _decode_base(_unwrap(schema), text)
+
+
+def _decode_base(base: Schema, text: str) -> object:
     try:
         if isinstance(base, PrimitiveSchema):
             return _decode_primitive(base, text)
@@ -90,11 +95,32 @@ def decode_text(schema: Schema, text: str) -> object:
             return _decode_union(base, text)
         decoded = _json_load(text)
         return _convert_json_value(base, decoded)
-    except (ValueError, TypeError, OverflowError, OSError, InvalidOperation, json.JSONDecodeError):
+    except (
+        ValueError,
+        TypeError,
+        OverflowError,
+        OSError,
+        InvalidOperation,
+        json.JSONDecodeError,
+    ):
         # The ordinary Mapping boundary creates the canonical, Sensitive-aware
         # ValidationError. Retaining the original text here would create a
         # second failure vocabulary and bypass existing field locations.
         return text
+
+
+def compile_text_decoder(schema: Schema) -> TextDecoder:
+    """Select one canonical decoder for repeated source-plan execution.
+
+    Primitive dispatch is retained by the immutable Settings plan. Other
+    schemas still execute through the same generic decoder owner with schema
+    unwrapping completed once at plan compilation.
+    """
+
+    base = _unwrap(schema)
+    if isinstance(base, PrimitiveSchema):
+        return _primitive_decoder(base)
+    return partial(_decode_base, base)
 
 
 def _unwrap(schema: Schema) -> Schema:
@@ -107,24 +133,55 @@ def _unwrap(schema: Schema) -> Schema:
 
 
 def _decode_primitive(schema: PrimitiveSchema, text: str) -> object:
+    return _primitive_decoder(schema)(text)
+
+
+def _primitive_decoder(schema: PrimitiveSchema) -> TextDecoder:
     if schema.kind == "str":
-        return text
+        return _identity
     if schema.kind == "none":
-        return None if text == "null" else text
+        return _decode_none
     if schema.kind == "bool":
-        if text == "true":
-            return True
-        if text == "false":
-            return False
-        return text
+        return _decode_bool
     if schema.kind == "int":
-        return int(text) if _INTEGER.fullmatch(text) else text
+        return _decode_int
     if schema.kind == "float":
-        if _FLOAT.fullmatch(text) is None:
-            return text
-        value = float(text)
-        return value if math.isfinite(value) else text
-    return decode_bytes(text)
+        return _decode_float
+    return _decode_bytes
+
+
+def _identity(text: str) -> object:
+    return text
+
+
+def _decode_none(text: str) -> object:
+    return None if text == "null" else text
+
+
+def _decode_bool(text: str) -> object:
+    if text == "true":
+        return True
+    if text == "false":
+        return False
+    return text
+
+
+def _decode_int(text: str) -> object:
+    return int(text) if _INTEGER.fullmatch(text) else text
+
+
+def _decode_float(text: str) -> object:
+    if _FLOAT.fullmatch(text) is None:
+        return text
+    value = float(text)
+    return value if math.isfinite(value) else text
+
+
+def _decode_bytes(text: str) -> object:
+    try:
+        return decode_bytes(text)
+    except ValueError, TypeError, OverflowError, OSError:
+        return text
 
 
 def _decode_standard_type(python_type: type[object], text: str) -> object:

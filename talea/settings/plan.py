@@ -25,7 +25,7 @@ from talea.schema.nodes import (
 )
 from talea.spec import Spec
 
-from .decoding import decode_text
+from .decoding import TextDecoder, compile_text_decoder
 from .models import SettingsInfo, SettingSource, SettingsPolicy, SettingsResult
 
 _DELIMITER = "__"
@@ -37,7 +37,7 @@ class _FieldPlan:
     canonical: str
     external: str
     accepted: tuple[str, ...]
-    schema: Schema
+    decoder: TextDecoder
     sensitive: bool
     nested: "_ObjectPlan | None"
 
@@ -52,7 +52,7 @@ class _SourceBinding:
     canonical_path: tuple[str, ...]
     external_path: tuple[str, ...]
     accepted_path: tuple[str, ...]
-    schema: Schema
+    decoder: TextDecoder
     sensitive: bool
 
 
@@ -73,8 +73,6 @@ class _SourceBudget:
 
     def consume(self, amount: int) -> None:
         self.observed += amount
-        if self.maximum is not None and self.observed > self.maximum:
-            raise ResourceLimitError("settings_source_bytes", self.maximum, self.observed)
 
 
 class Settings[SettingsT: Spec]:
@@ -227,45 +225,65 @@ class Settings[SettingsT: Spec]:
         if type(provenance) is not bool:
             raise TypeError("provenance must be bool")
         budget = _SourceBudget(self._policy.max_source_bytes)
-        winners: dict[tuple[str, ...], _Contribution] = {}
-        if self._toml is not None:
-            _merge(winners, self._load_toml(budget))
-        if self._secrets is not None:
-            _merge(winners, self._load_secrets(budget))
-        _merge(winners, self._load_environment(environment, budget))
-        if overrides is not None:
-            contributions: list[_Contribution] = []
-            _collect_mapping(
-                self._object,
-                overrides,
-                (),
-                (),
-                "override",
-                self._normalize,
-                self._model.__name__,
-                contributions,
-            )
-            _merge(winners, contributions)
-        external = _materialize(winners.values())
+        resolved_environment: dict[tuple[str, ...], tuple[_SourceBinding, str, str]]
+        winners: dict[tuple[str, ...], _Contribution] | None
+        if self._toml is None and self._secrets is None and overrides is None:
+            resolved_environment = self._resolve_environment(environment, budget)
+            external = _materialize_resolved(resolved_environment.values())
+            winners = None
+        else:
+            winners = {}
+            if self._toml is not None:
+                _merge(winners, self._load_toml(budget))
+            if self._secrets is not None:
+                _merge_leaves(winners, self._load_secrets(budget))
+            resolved_environment = self._resolve_environment(environment, budget)
+            _merge_leaves(winners, _environment_contributions(resolved_environment))
+            if overrides is not None:
+                contributions: list[_Contribution] = []
+                _collect_mapping(
+                    self._object,
+                    overrides,
+                    (),
+                    (),
+                    "override",
+                    self._normalize,
+                    self._model.__name__,
+                    contributions,
+                )
+                _merge(winners, contributions)
+            external = _materialize(winners.values())
+        redacted_failure: ValidationError | None = None
         try:
             value = self._model.from_mapping(external, policy=self._policy.input_policy)
         except ValidationError as error:
-            if any(item.source == "secret" for item in winners.values()):
-                raise error.prefixed((), sensitive=True) from None
-            raise
+            if winners is not None and any(item.source == "secret" for item in winners.values()):
+                redacted_failure = error.prefixed((), sensitive=True)
+            else:
+                raise
+        if redacted_failure is not None:
+            external = {}
+            winners = None
+            resolved_environment = {}
+            raise redacted_failure from None
         if not provenance:
             return value
+        if winners is None:
+            winners = {
+                path: _Contribution(path, binding.external_path, None, "environment")
+                for path, (binding, _, _) in resolved_environment.items()
+            }
         origins = _provenance(self._object, winners)
         return SettingsResult(value, origins)
 
     def _normalize(self, name: str) -> str:
         return name if self._case_sensitive else name.casefold()
 
-    def _load_environment(
+    def _resolve_environment(
         self,
         supplied: Mapping[str, str] | None,
         budget: _SourceBudget,
-    ) -> list[_Contribution]:
+    ) -> dict[tuple[str, ...], tuple[_SourceBinding, str, str]]:
         source = os.environ if supplied is None else supplied
         maximum = self._policy.max_environment_entries
         observed = len(source)
@@ -273,25 +291,36 @@ class Settings[SettingsT: Spec]:
             raise ResourceLimitError("settings_environment_entries", maximum, observed)
         snapshot = tuple(source.items())
         resolved: dict[tuple[str, ...], tuple[_SourceBinding, str, str]] = {}
+        normalizer = None if self._case_sensitive else str.casefold
+        maximum_bytes = budget.maximum
+        observed_bytes = budget.observed
         for key, text in snapshot:
             if type(key) is not str or type(text) is not str:
                 raise TypeError("environment keys and values must be str")
-            binding = self._environment.get(self._normalize(key))
+            normalized = key if normalizer is None else normalizer(key)
+            binding = self._environment.get(normalized)
             if binding is None:
                 continue
-            budget.consume(_utf8_size(key) + _utf8_size(text))
+            observed_bytes += (len(key) if key.isascii() else len(key.encode("utf-8"))) + (
+                len(text) if text.isascii() else len(text.encode("utf-8"))
+            )
+            if maximum_bytes is not None and observed_bytes > maximum_bytes:
+                raise ResourceLimitError("settings_source_bytes", maximum_bytes, observed_bytes)
             previous = resolved.get(binding.canonical_path)
             if previous is not None:
                 _raise_source_conflict(self._model, binding, previous[1], binding.accepted_path[-1])
             resolved[binding.canonical_path] = (binding, binding.accepted_path[-1], text)
-        return [
-            _Contribution(path, binding.external_path, decode_text(binding.schema, text), "environment")
-            for path, (binding, _, text) in resolved.items()
-        ]
+        budget.observed = observed_bytes
+        return resolved
 
     def _load_toml(self, budget: _SourceBudget) -> list[_Contribution]:
         assert self._toml is not None
-        data = _bounded_file(self._toml, self._policy.max_toml_bytes, "settings_toml_bytes")
+        data = _bounded_file(
+            self._toml,
+            self._policy.max_toml_bytes,
+            "settings_toml_bytes",
+            budget,
+        )
         budget.consume(len(data))
         try:
             text = data.decode("utf-8")
@@ -319,7 +348,12 @@ class Settings[SettingsT: Spec]:
         root = self._secrets.resolve(strict=True)
         if not root.is_dir():
             raise NotADirectoryError(str(self._secrets))
-        entries = tuple(root.iterdir())
+        entries = []
+        maximum = self._policy.max_secret_files
+        for entry in root.iterdir():
+            entries.append(entry)
+            if maximum is not None and len(entries) > maximum:
+                raise ResourceLimitError("settings_secret_files", maximum, len(entries))
         files = []
         for entry in entries:
             try:
@@ -333,9 +367,6 @@ class Settings[SettingsT: Spec]:
             except ValueError:
                 raise ValueError("secret symlink target must remain within the configured directory") from None
             files.append((entry.name, target))
-        maximum = self._policy.max_secret_files
-        if maximum is not None and len(files) > maximum:
-            raise ResourceLimitError("settings_secret_files", maximum, len(files))
         resolved: dict[tuple[str, ...], tuple[_SourceBinding, str, Path]] = {}
         for name, target in files:
             binding = self._secret_names.get(self._normalize(name))
@@ -351,6 +382,7 @@ class Settings[SettingsT: Spec]:
                 target,
                 self._policy.max_secret_file_bytes,
                 "settings_secret_file_bytes",
+                budget,
             )
             budget.consume(len(data))
             try:
@@ -361,9 +393,7 @@ class Settings[SettingsT: Spec]:
                 text = text[:-2]
             elif text.endswith("\n"):
                 text = text[:-1]
-            contributions.append(
-                _Contribution(path, binding.external_path, decode_text(binding.schema, text), "secret")
-            )
+            contributions.append(_Contribution(path, binding.external_path, binding.decoder(text), "secret"))
         return contributions
 
 
@@ -379,7 +409,7 @@ def _field_from_info(field: FieldInfo, visiting: frozenset[object]) -> _FieldPla
         field.name,
         field.external_name,
         field.accepted_input_names,
-        field.schema,
+        compile_text_decoder(field.schema),
         field.sensitive,
         nested,
     )
@@ -406,7 +436,7 @@ def _nested_object(schema: Schema, visiting: frozenset[object]) -> _ObjectPlan |
                 field.name,
                 field.external_name,
                 field.accepted_input_names,
-                field.schema,
+                compile_text_decoder(field.schema),
                 bool(field.metadata.sensitive),
                 _nested_object(field.schema, visiting | {identity}),
             )
@@ -422,7 +452,7 @@ def _nested_object(schema: Schema, visiting: frozenset[object]) -> _ObjectPlan |
                     field.name,
                     field.name,
                     (field.name,),
-                    field.schema,
+                    compile_text_decoder(field.schema),
                     bool(field.metadata.sensitive),
                     _nested_object(field.schema, visiting | {identity}),
                 )
@@ -473,7 +503,7 @@ def _compile_source_names(
                     next_canonical,
                     next_external,
                     combination,
-                    field.schema,
+                    field.decoder,
                     field.sensitive,
                 )
                 displays.append(display)
@@ -509,7 +539,7 @@ def _collect_mapping(
                 (*canonical, field.canonical),
                 (*external, field.external),
                 (field.external,),
-                field.schema,
+                field.decoder,
                 field.sensitive,
             )
             _raise_source_conflict(title, binding, str(matches[0][0]), str(matches[1][0]))
@@ -548,10 +578,31 @@ def _raise_source_conflict(
 def _merge(target: dict[tuple[str, ...], _Contribution], values: list[_Contribution]) -> None:
     for contribution in values:
         path = contribution.canonical_path
+        for length in range(1, len(path) + 1):
+            target.pop(path[:length], None)
         for existing in tuple(target):
-            if _is_prefix(path, existing) or _is_prefix(existing, path):
+            if len(existing) > len(path) and existing[: len(path)] == path:
                 target.pop(existing)
         target[path] = contribution
+
+
+def _merge_leaves(target: dict[tuple[str, ...], _Contribution], values: list[_Contribution]) -> None:
+    """Merge schema-proven leaf contributions without descendant scans."""
+
+    for contribution in values:
+        path = contribution.canonical_path
+        for length in range(1, len(path)):
+            target.pop(path[:length], None)
+        target[path] = contribution
+
+
+def _environment_contributions(
+    resolved: Mapping[tuple[str, ...], tuple[_SourceBinding, str, str]],
+) -> list[_Contribution]:
+    return [
+        _Contribution(path, binding.external_path, binding.decoder(text), "environment")
+        for path, (binding, _, text) in resolved.items()
+    ]
 
 
 def _is_prefix(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
@@ -569,6 +620,22 @@ def _materialize(values: Iterable[_Contribution]) -> dict[str, object]:
                 current[segment] = nested
             current = nested
         current[contribution.external_path[-1]] = contribution.value
+    return cast(dict[str, object], result)
+
+
+def _materialize_resolved(
+    values: Iterable[tuple[_SourceBinding, str, str]],
+) -> dict[str, object]:
+    result: dict[object, object] = {}
+    for binding, _, text in values:
+        current = result
+        for segment in binding.external_path[:-1]:
+            nested = current.get(segment)
+            if not isinstance(nested, dict):
+                nested = {}
+                current[segment] = nested
+            current = nested
+        current[binding.external_path[-1]] = binding.decoder(text)
     return cast(dict[str, object], result)
 
 
@@ -596,19 +663,21 @@ def _bounded_file(
     path: Path,
     maximum: int | None,
     code: Literal["settings_secret_file_bytes", "settings_toml_bytes"],
+    budget: _SourceBudget,
 ) -> bytes:
     if not path.is_file():
         if path.exists():
             raise IsADirectoryError(str(path))
         raise FileNotFoundError(str(path))
+    read_maximum = maximum
+    if budget.maximum is not None:
+        remaining = budget.maximum - budget.observed
+        if read_maximum is None or remaining < read_maximum:
+            read_maximum = remaining
     with path.open("rb") as stream:
-        data = stream.read() if maximum is None else stream.read(maximum + 1)
+        data = stream.read() if read_maximum is None else stream.read(read_maximum + 1)
     if maximum is not None and len(data) > maximum:
         raise ResourceLimitError(code, maximum, len(data))
+    if budget.maximum is not None and budget.observed + len(data) > budget.maximum:
+        raise ResourceLimitError("settings_source_bytes", budget.maximum, budget.observed + len(data))
     return data
-
-
-def _utf8_size(value: str) -> int:
-    if value.isascii():
-        return len(value)
-    return len(value.encode("utf-8"))
