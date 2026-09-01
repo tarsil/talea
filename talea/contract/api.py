@@ -1,7 +1,7 @@
 """Expose retained arbitrary annotation contracts over canonical Talea owners."""
 
 from collections.abc import Callable
-from typing import Generic, Literal, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast, overload
 
 from talea.contract.artifacts import _ContractArtifacts
 from talea.declaration.policies import schema_contains_sensitive_metadata, schema_root_metadata
@@ -16,6 +16,14 @@ from talea.validation.failure_contracts import describe_schema
 
 T = TypeVar("T")
 
+if TYPE_CHECKING:
+    import sys
+
+    if sys.version_info >= (3, 15):
+        from typing import TypeForm as _TypeForm
+    else:
+        type _TypeForm[T] = object
+
 
 class Contract(Generic[T]):
     """Retain Talea capabilities for one arbitrary supported annotation.
@@ -25,11 +33,10 @@ class Contract(Generic[T]):
     compile independently on first use and are retained by this Contract only.
     No process-global Contract cache or codec registry is created.
 
-    Python 3.14 cannot express the type of every runtime type form. Class
-    annotations, including stdlib dataclass classes, infer naturally;
-    container, union, Literal, Annotated, alias, and TypedDict forms should use
-    an explicit ``Contract[T]`` annotation when static output precision is
-    required.
+    Python 3.15 ``TypeForm`` relates arbitrary type expressions to ``T``.
+    Python 3.14 retains class inference and an honest ``object`` fallback, so
+    container, union, Literal, Annotated, alias, and TypedDict forms need an
+    explicit ``Contract[T]`` annotation when static output precision matters.
     """
 
     __slots__ = ("_annotation", "_artifacts", "_policy", "validate")
@@ -49,7 +56,7 @@ class Contract(Generic[T]):
     @overload
     def __init__(
         self,
-        annotation: object,
+        annotation: _TypeForm[T],
         /,
         *,
         policy: ResourcePolicy | None = None,

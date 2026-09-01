@@ -165,15 +165,22 @@ def main() -> None:
         ("depth 15", expression_data(15)),
         ("broad depth 6", broad_expression(6)),
     ):
-        encoded = expressions.to_json(value)
+        typed_value = cast(LiteralNode | AddNode, value)
+        encoded = expressions.to_json(typed_value)
         report(f"{label} Mapping input", measure(lambda value=value: expressions.from_python(value)))
         report(f"{label} JSON input", measure(lambda encoded=encoded: expressions.from_json(encoded)))
-        report(f"{label} JSON output", measure(lambda value=value: expressions.to_json(value)))
+        report(
+            f"{label} JSON output",
+            measure(lambda value=typed_value: expressions.to_json(value)),
+        )
 
     cyclic: list[object] = []
     cyclic.append(cyclic)
     report("cycle detection input", measure(lambda: capture_cycle(lambda: recursive.from_python(cyclic))))
-    report("cycle detection output", measure(lambda: capture_cycle(lambda: recursive.to_python(cyclic))))
+    report(
+        "cycle detection output",
+        measure(lambda: capture_cycle(lambda: recursive.to_python(cast(JSONValue, cyclic)))),
+    )
     retained, peak = retained_bytes()
     print(f"\n100 discarded recursive Contracts retained={retained} bytes peak={peak} bytes")
 

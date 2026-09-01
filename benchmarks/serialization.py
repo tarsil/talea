@@ -256,8 +256,8 @@ class InvalidDeclaredScalar(Spec):
     value: int
 
     @serialize("value", output=str)
-    def output(value: int) -> int:
-        return value
+    def output(value: int) -> str:
+        return cast(str, value)
 
 
 class FailingDeclaredScalar(Spec):
@@ -280,8 +280,8 @@ class SensitiveInvalidDeclared(Spec):
     value: Annotated[int, Sensitive()]
 
     @serialize("value", output=str)
-    def output(value: int) -> int:
-        return value
+    def output(value: int) -> str:
+        return cast(str, value)
 
 
 class SensitiveFailingDeclared(Spec):
