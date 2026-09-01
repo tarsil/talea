@@ -216,9 +216,10 @@ class Spec(metaclass=_SpecMeta):
             A fully validated immutable instance of the invoked Spec subclass.
 
         Raises:
-            ResourceLimitError: If the selected depth, node, or error-work
-                policy terminates the operation.
-            ValidationError: If mapping conversion or validation fails.
+            ResourceLimitError: If the selected depth or node policy terminates
+                the operation.
+            ValidationError: If mapping conversion or validation fails, or if
+                the error budget returns a truncated failure prefix.
 
         The boundary callable is compiled once on first use and retained by the
         declaration.

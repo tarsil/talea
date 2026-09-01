@@ -8,6 +8,7 @@ from math import isfinite
 from typing import assert_never
 
 from talea.codegen import _GeneratedNames
+from talea.declaration.policies import schema_contains_sensitive_metadata
 from talea.errors import ErrorCode
 from talea.input.references import InputMode, _NamedInputReference
 from talea.json.representations import (
@@ -149,6 +150,25 @@ def _resource_visit_depth(schema: Schema, location: tuple[str, ...]) -> int | No
     return len(location) + int(container)
 
 
+def _conversion_visit_depth(
+    schema: Schema,
+    location: tuple[str, ...],
+    visiting: frozenset[object] = frozenset(),
+) -> int:
+    """Return the depth of work that conversion performs before validation."""
+
+    if isinstance(schema, (ConstrainedSchema, AliasSchema)):
+        return _conversion_visit_depth(schema.schema, location, visiting)
+    if isinstance(schema, RepresentationSchema):
+        return _conversion_visit_depth(_representation_input(schema), location, visiting)
+    if isinstance(schema, NamedReferenceSchema):
+        if schema.identity in visiting:
+            return len(location) + 1
+        return _conversion_visit_depth(schema.target, location, visiting | {schema.identity})
+    depth = _resource_visit_depth(schema, location)
+    return len(location) if depth is None else depth
+
+
 def _json_enum_members(schema: EnumSchema | LiteralSchema) -> dict[tuple[type[object], object], object]:
     members: dict[tuple[type[object], object], object] = {}
     values = (
@@ -234,22 +254,27 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         previous = self.sensitive
         if sensitive is not None:
             self.sensitive = previous or sensitive
+        marker = self.variable("resource_reservations")
+        self.emit(indentation, f"{marker} = {self.resource_state}.begin_reservations()")
+        self.emit(indentation, "try:")
         try:
-            self._emit_resource_visit(schema, location, indentation)
+            self._emit_resource_visit(schema, location, indentation + 1)
             self.emit_dataclass_conversion(
                 schema,
                 value,
                 location,
-                indentation,
+                indentation + 1,
                 return_on_construction=True,
             )
             self._validating = True
             try:
-                super().emit_dataclass(schema, value, location, indentation)
+                super().emit_dataclass(schema, value, location, indentation + 1)
             finally:
                 self._validating = False
         finally:
             self.sensitive = previous
+        self.emit(indentation, "finally:")
+        self.emit(indentation + 1, f"{self.resource_state}.end_reservations({marker})")
 
     def _emit_resource_visit(
         self,
@@ -265,6 +290,17 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         depth = _resource_visit_depth(schema, location)
         if depth is not None:
             self.emit(indentation, f"{self.resource_state}.consume_node({depth})")
+
+    def _emit_conversion_visit(
+        self,
+        schema: Schema,
+        location: tuple[str, ...],
+        indentation: int,
+    ) -> None:
+        """Charge one member before Talea converts or detaches it."""
+
+        depth = _conversion_visit_depth(schema, location)
+        self.emit(indentation, f"{self.resource_state}.reserve_node({depth})")
 
     def operation_call_expression(
         self,
@@ -309,6 +345,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                 self.mode,
                 schema.identity.name,
                 self.sensitive,
+                self.sensitive or schema_contains_sensitive_metadata(schema),
             ),
         )
         error = self.variable("named_input_error")
@@ -344,35 +381,35 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             if isinstance(base, AliasSchema):
                 named_sensitive = named_sensitive or bool(base.metadata.sensitive)
             base = base.schema
-        if isinstance(base, TaggedUnionSchema):
-            previous = self.sensitive
-            self.sensitive = previous or named_sensitive
-            try:
-                self.emit_boundary_tagged_union(base, value, location, indentation)
-            finally:
-                self.sensitive = previous
-            return
-        if isinstance(base, UnionSchema):
-            previous = self.sensitive
-            self.sensitive = previous or named_sensitive
-            try:
-                if schema_needs_conversion(base, self.mode):
-                    self.emit_boundary_union(base, value, location, indentation)
-                    return
+        requires_conversion = schema_needs_conversion(schema, self.mode)
+        if requires_conversion:
+            marker = self.variable("resource_reservations")
+            self.emit(indentation, f"{marker} = {self.resource_state}.begin_reservations()")
+            self.emit(indentation, "try:")
+            body_indentation = indentation + 1
+        else:
+            marker = None
+            body_indentation = indentation
+        previous = self.sensitive
+        self.sensitive = previous or named_sensitive
+        try:
+            if isinstance(base, TaggedUnionSchema):
+                self.emit_boundary_tagged_union(base, value, location, body_indentation)
+            elif isinstance(base, UnionSchema) and requires_conversion:
+                self.emit_boundary_union(base, value, location, body_indentation)
+            else:
+                if requires_conversion:
+                    self.emit_conversion(base, value, location, body_indentation)
                 self._validating = True
                 try:
-                    super().emit_schema(schema, value, location, indentation)
+                    super().emit_schema(schema, value, location, body_indentation)
                 finally:
                     self._validating = False
-            finally:
-                self.sensitive = previous
-            return
-        self.emit_conversion(base, value, location, indentation)
-        self._validating = True
-        try:
-            super().emit_schema(schema, value, location, indentation)
         finally:
-            self._validating = False
+            self.sensitive = previous
+        if marker is not None:
+            self.emit(indentation, "finally:")
+            self.emit(indentation + 1, f"{self.resource_state}.end_reservations({marker})")
 
     def emit_conversion(
         self,
@@ -596,7 +633,6 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         else:
             shape = self._exact_type_condition(value, dict)
         source = self.variable("dataclass_source")
-        dictionary = self.runtime("dict", dict)
         init_fields = tuple(field for field in schema.fields if field.init)
         has_legacy_names = any(field.legacy_names for field in init_fields)
         external_names = self.bind(
@@ -626,7 +662,12 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                 f"and {self.runtime('len', len)}({value}) == {len(init_fields)}:",
             )
             self.emit(indentation + 1, "try:")
-            for index, converted in enumerate(exact_values):
+            for index, (field, converted) in enumerate(zip(init_fields, exact_values, strict=True)):
+                self._emit_conversion_visit(
+                    field.schema,
+                    (*location, f"{external_names}[{index}]"),
+                    indentation + 2,
+                )
                 self.emit(indentation + 2, f"{converted} = {value}[{external_names}[{index}]]")
             self.emit(indentation + 1, f"except {key_error}:")
             self.emit(indentation + 2, "pass")
@@ -661,7 +702,12 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                 return_on_construction,
             )
         self.emit(indentation, f"if not {existing} and {shape}:")
-        self.emit(indentation + 1, f"{source} = {dictionary}({value})")
+        source_key = self.variable("dataclass_source_key")
+        source_item = self.variable("dataclass_source_item")
+        self.emit(indentation + 1, f"{source} = {{}}")
+        self.emit(indentation + 1, f"for {source_key}, {source_item} in {value}.items():")
+        self.emit(indentation + 2, f"{self.resource_state}.reserve_node({len(location) + 1})")
+        self.emit(indentation + 2, f"{source}[{source_key}] = {source_item}")
         accepted_values: dict[int, str] = {}
         missing_value = self.bind("dataclass_missing", object()) if has_legacy_names else None
         for index, field in enumerate(init_fields):
@@ -883,6 +929,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         self.emit(indentation, f"if {condition}:")
         self.emit(indentation + 1, f"{converted} = []")
         self.emit(indentation + 1, f"for {index}, {item} in {self.runtime('enumerate', enumerate)}({value}):")
+        self._emit_conversion_visit(schema.item, (*location, index), indentation + 2)
         self.emit_conversion(schema.item, item, (*location, index), indentation + 2)
         self.emit(indentation + 2, f"{converted}.append({item})")
         target = self._sequence_types[schema.kind]
@@ -917,10 +964,19 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         self.emit(indentation, f"if {condition}:")
         self.emit(indentation + 1, f"{converted} = {{}}")
         self.emit(indentation + 1, f"for {key}, {item} in {value}.items():")
+        member_location = (
+            *location,
+            self.sensitive_location_segment(
+                key,
+                sensitive=schema_contains_sensitive_metadata(schema.value),
+            ),
+        )
+        self._emit_conversion_visit(schema.key, member_location, indentation + 2)
+        self._emit_conversion_visit(schema.value, member_location, indentation + 2)
         self.emit_conversion(
             schema.value,
             item,
-            (*location, self.sensitive_location_segment(key)),
+            member_location,
             indentation + 2,
         )
         self.emit(indentation + 2, f"{converted}[{key}] = {item}")
@@ -941,11 +997,15 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             condition = f"{instance_check}({value}, {mapping_type})"
         else:
             condition = self._exact_type_condition(value, dict)
-        dictionary = self.runtime("dict", dict)
         converted = self.variable("converted_typed_dict")
+        key = self.variable("typed_dict_source_key")
+        source_item = self.variable("typed_dict_source_item")
         names = self.bind("typed_dict_names", tuple(field.name for field in schema.fields))
         self.emit(indentation, f"if {condition}:")
-        self.emit(indentation + 1, f"{converted} = {dictionary}({value})")
+        self.emit(indentation + 1, f"{converted} = {{}}")
+        self.emit(indentation + 1, f"for {key}, {source_item} in {value}.items():")
+        self.emit(indentation + 2, f"{self.resource_state}.reserve_node({len(location) + 1})")
+        self.emit(indentation + 2, f"{converted}[{key}] = {source_item}")
         for index, field in enumerate(schema.fields):
             self.emit(indentation + 1, f"if {names}[{index}] in {converted}:")
             item = self.variable("typed_dict_item")
@@ -969,8 +1029,6 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
     ) -> None:
         """Convert a strict tuple or JSON array into a variadic tuple."""
 
-        if not schema_needs_conversion(schema, self.mode):
-            return
         source = list if self.mode == "json" else tuple
         condition = self._exact_type_condition(value, source)
         converted = self.variable("converted_items")
@@ -979,6 +1037,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         self.emit(indentation, f"if {condition}:")
         self.emit(indentation + 1, f"{converted} = []")
         self.emit(indentation + 1, f"for {index}, {item} in {self.runtime('enumerate', enumerate)}({value}):")
+        self._emit_conversion_visit(schema.item, (*location, index), indentation + 2)
         self.emit_conversion(schema.item, item, (*location, index), indentation + 2)
         self.emit(indentation + 2, f"{converted}.append({item})")
         self.emit(indentation + 1, f"{value} = {self.runtime('tuple', tuple)}({converted})")
@@ -1000,6 +1059,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         items = tuple(self.variable("tuple_item") for _ in schema.items)
         self.emit(indentation, f"if {condition}:")
         for index, (item_schema, item) in enumerate(zip(schema.items, items, strict=True)):
+            self._emit_conversion_visit(item_schema, (*location, str(index)), indentation + 1)
             self.emit(indentation + 1, f"{item} = {value}[{index}]")
             self.emit_conversion(item_schema, item, (*location, str(index)), indentation + 1)
         tuple_expression = ", ".join(items)

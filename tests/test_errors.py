@@ -327,6 +327,28 @@ def test_input_representation_is_bounded_safe_and_repeatable(value: object) -> N
     json.dumps(first_projection, ensure_ascii=False)
 
 
+def test_oversized_mapping_integer_cannot_escape_bounded_error_capture() -> None:
+    class Payload(Spec):
+        value: str
+
+    huge = 1 << 20_000
+    with pytest.raises(ValidationError) as captured:
+        Payload.from_mapping({"value": huge})
+
+    error = captured.value
+    projected = error.errors()
+    assert error.value is huge
+    assert error.code == "type"
+    assert error.received_type is int
+    assert projected[0]["input"] == "<integer with 20001 bits>"
+    assert len(str(error)) < 1_000
+    json.dumps(projected)
+
+    location_error = ValidationError("str", "bad", (huge,))
+    assert location_error.errors()[0]["location"] == ["<integer with 20001 bits>"]
+    json.dumps(location_error.errors())
+
+
 def test_recursive_containers_and_hostile_location_members_do_not_recurse_or_escape() -> None:
     recursive: list[object] = []
     recursive.append(recursive)

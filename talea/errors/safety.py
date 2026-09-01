@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import cast
 
 _MAX_REPRESENTATION = 160
+_MAX_EXACT_INTEGER_BITS = 2_048
 _TRUNCATION = "... <truncated>"
 
 _REPR = reprlib.Repr()
@@ -74,8 +75,14 @@ def snapshot_input(value: object) -> _InputSnapshot:
     containers cannot escape error construction.
     """
 
-    if value is None or type(value) in (bool, int):
+    if value is None or type(value) is bool:
         return _InputSnapshot(cast(JsonScalar, value), repr(value))
+    if type(value) is int:
+        bits = value.bit_length()
+        if bits > _MAX_EXACT_INTEGER_BITS:
+            rendered = f"<integer with {bits} bits>"
+            return _InputSnapshot(rendered, rendered)
+        return _InputSnapshot(value, repr(value))
     if type(value) is float:
         if math.isfinite(value):
             return _InputSnapshot(value, repr(value))

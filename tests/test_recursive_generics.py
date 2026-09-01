@@ -9,8 +9,20 @@ from weakref import ref
 import pytest
 from hypothesis import given, strategies as st
 
-from talea import Alias, Ge, SerializationError, Spec, ValidationError, check, field, serialize
+from talea import (
+    Alias,
+    Ge,
+    Sensitive,
+    SerializationError,
+    Spec,
+    ValidationError,
+    check,
+    field,
+    serialize,
+)
 from talea.schema import AnnotationResolutionError, SpecReferenceSchema
+
+type SensitiveText = Annotated[str, Sensitive()]
 
 
 class PickleModel(Spec):
@@ -159,6 +171,48 @@ def test_runtime_cycle_policy_is_safe_for_validation_input_and_output() -> None:
 
     assert Node(value=1, children=[]).to_dict(include={"value"}) == {"value": 1}
     assert Node(value=1, children=[]).to_json(exclude={"children"}) == '{"value":1}'
+
+
+def test_recursive_spec_cycle_uses_reachable_sensitive_truth_before_capture() -> None:
+    secret = "CAMPAIGN_27E_SPEC_SECRET"
+
+    class SecretNode(Spec):
+        secret: SensitiveText
+        children: list[SecretNode]
+
+    mapping: dict[str, object] = {"secret": secret}
+    mapping["children"] = [mapping]
+
+    with pytest.raises(ValidationError) as captured:
+        SecretNode.from_mapping(mapping)
+
+    error = captured.value
+    assert error.code == "cycle"
+    assert error.location == ("children", 0)
+    assert error.value == "<redacted>"
+    assert error.__cause__ is None
+    assert secret not in f"{error!s}{error.errors()!r}{vars(error)!r}"
+
+
+def test_recursive_sensitive_mapping_key_is_redacted_before_cycle_prefixing() -> None:
+    secret = "CAMPAIGN_27E_RECURSIVE_KEY_SECRET"
+
+    class SecretNode(Spec):
+        secret: SensitiveText
+        children: dict[str, SecretNode]
+
+    mapping: dict[str, object] = {"secret": secret}
+    mapping["children"] = {secret: mapping}
+
+    with pytest.raises(ValidationError) as captured:
+        SecretNode.from_mapping(mapping)
+
+    error = captured.value
+    assert error.code == "cycle"
+    assert error.location == ("children", "<redacted>")
+    assert error.value == "<redacted>"
+    assert error.__cause__ is None
+    assert secret not in f"{error!s}{error.errors()!r}{vars(error)!r}"
 
 
 def test_mutable_nested_specs_revalidate_current_fields_and_hooks() -> None:

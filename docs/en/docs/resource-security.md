@@ -70,13 +70,15 @@ giving these operations superficially similar limit names would mix different
 trust and rollback semantics.
 
 Depth is structural: a scalar root is zero, a root container is one, and each
-nested container adds one. A work node is one actual generated schema visit;
-scalars, containers, and attempted union alternatives count. Tagged unions
-visit only the selected branch. This total budget subsumes a per-container
-limit without conflicting thresholds. Strings, bytes, integer values, Decimal
-values, and individual containers have no separate resource dimension. Those
-are schema/application constraints; Python 3.14 also rejects excessively long
-integer-string conversions.
+nested container adds one. A work node is one actual generated schema visit or
+one member that Talea must convert or detach before that visit. A conversion
+reservation is consumed by the later canonical validation visit, so ordinary
+input is not counted twice. Attempted union alternatives count, while tagged
+unions visit only the selected branch. This total budget subsumes a
+per-container limit without conflicting thresholds. Strings, bytes, integer
+values, Decimal values, and individual containers have no separate resource
+dimension. Those are schema/application constraints; Python 3.14 also rejects
+excessively long integer-string conversions.
 
 `max_errors` terminates independent Mapping/JSON failure aggregation at the
 first configured count. The `ValidationError.truncated` signal means traversal
@@ -88,7 +90,7 @@ omitted. Depth and node exhaustion raise `ResourceLimitError` with stable
 | --- | --- | --- |
 | `input_size` | encoded JSON exceeds `max_input_bytes` | reject before invoking the decoder |
 | `depth` | structural nesting exceeds `max_depth` | reject at the first excessive path |
-| `nodes` | compiled visits exceed `max_nodes` | reject with the first known excessive count |
+| `nodes` | compiled visits or Talea-controlled conversion work exceed `max_nodes` | reject with the first known excessive count |
 
 `max_errors` does not raise `ResourceLimitError`; it returns the deterministic
 error prefix in `ValidationError` with `truncated=True`.
@@ -196,9 +198,11 @@ Talea does not preempt Python code, recover globally from `MemoryError`, impose
 timeouts, or sandbox custom objects. Applications remain responsible for
 request concurrency, wall-clock deadlines, process isolation, operating-system
 limits, safe callback and regex review, and any stricter transport limits
-enforced before Talea receives a complete payload. This technical model does
-not replace a repository vulnerability-reporting policy or application threat
-model.
+enforced before Talea receives a complete payload. Node accounting stops
+Talea-controlled conversion and detachment between members; it cannot preempt a
+single custom `Mapping` method or callback that blocks internally. This
+technical model does not replace a repository vulnerability-reporting policy
+or application threat model.
 
 ## Executable hostile-input scenarios
 

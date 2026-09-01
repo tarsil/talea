@@ -464,15 +464,21 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
     )
     if affected_defaults:
         _validate_static_defaults(schema, validators, frozenset(affected_defaults), cls.__name__)
+    contains_sensitive = any(
+        bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema) for field in schema.fields
+    ) or any(
+        serializer.output_schema is not None and schema_contains_sensitive_metadata(serializer.output_schema)
+        for serializer in schema.serializers
+    )
     slot_setters = _slot_setters(cls, schema)
     presence_setter = _presence_setter(cls, schema)
     compiler = _ConstructorCompiler(cls.__name__)
     if presence_setter is None:
         initializer = compiler.compile(schema, slot_setters)
-        inputs = _InputArtifacts(slot_setters, recursive)
+        inputs = _InputArtifacts(slot_setters, recursive, contains_sensitive)
     else:
         initializer = compiler.compile(schema, slot_setters, presence_setter)
-        inputs = _PresenceInputArtifacts(slot_setters, recursive, presence_setter)
+        inputs = _PresenceInputArtifacts(slot_setters, recursive, contains_sensitive, presence_setter)
     initializer.__module__ = cls.__module__
     initializer.__qualname__ = f"{cls.__qualname__}.__init__"
     initializer.__doc__ = "Validate and retain every declared field."
@@ -482,14 +488,7 @@ def _publish_declaration(cls: type[object], declaration: _SpecDeclaration, recur
         compile_current_state_validator(schema) if recursive else None,
         inputs,
         _OutputArtifacts(recursive),
-        any(
-            bool(field.metadata.sensitive) or schema_contains_sensitive_metadata(field.schema)
-            for field in schema.fields
-        )
-        or any(
-            serializer.output_schema is not None and schema_contains_sensitive_metadata(serializer.output_schema)
-            for serializer in schema.serializers
-        ),
+        contains_sensitive,
     )
     type.__setattr__(cls, "__init__", initializer)
     type.__setattr__(cls, "__talea_artifacts__", artifacts)

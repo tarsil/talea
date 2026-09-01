@@ -435,20 +435,27 @@ class _InputCompiler:
         field_name = emitter.bind("field_name", field.external_name)
         represented = schema_contains_representation(field.schema)
         if represented:
+            marker = emitter.variable("resource_reservations")
+            emitter.emit(indentation, f"{marker} = {emitter.resource_state}.begin_reservations()")
+            emitter.emit(indentation, "try:")
+            body_indentation = indentation + 1
             emitter.emit_conversion(
                 field.schema,
                 value,
                 (field_name,),
-                indentation,
+                body_indentation,
                 sensitive=bool(field.metadata.sensitive),
             )
+        else:
+            marker = None
+            body_indentation = indentation
         for hook in schema.hooks:
             if hook.kind == "transform" and hook.fields == (field.name,):
                 emitter.emit_transform(
                     hook,
                     value,
                     (field_name,),
-                    indentation,
+                    body_indentation,
                     sensitive=bool(field.metadata.sensitive),
                 )
         if represented:
@@ -456,9 +463,12 @@ class _InputCompiler:
                 field.schema,
                 value,
                 (field_name,),
-                indentation,
+                body_indentation,
                 sensitive=bool(field.metadata.sensitive),
             )
+            assert marker is not None
+            emitter.emit(indentation, "finally:")
+            emitter.emit(indentation + 1, f"{emitter.resource_state}.end_reservations({marker})")
         else:
             emitter.emit_schema(
                 field.schema,

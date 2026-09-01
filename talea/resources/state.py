@@ -9,7 +9,7 @@ from talea.resources.policy import ResourcePolicy
 class _ResourceState:
     """Retain counters shared by one root input operation and its back-edges."""
 
-    __slots__ = ("base_depth", "max_depth", "max_errors", "max_nodes", "nodes")
+    __slots__ = ("base_depth", "max_depth", "max_errors", "max_nodes", "nodes", "reservations")
 
     def __init__(self, policy: ResourcePolicy) -> None:
         self.max_depth = policy.max_depth
@@ -17,6 +17,7 @@ class _ResourceState:
         self.max_errors = policy.max_errors
         self.nodes = 0
         self.base_depth = 0
+        self.reservations: list[int] = []
 
     def consume_node(self, relative_depth: int) -> None:
         """Charge one generated schema visit and reject the first excess."""
@@ -25,6 +26,38 @@ class _ResourceState:
         maximum_depth = self.max_depth
         if maximum_depth is not None and depth > maximum_depth:
             raise ResourceLimitError("depth", maximum_depth, depth)
+        for index in range(len(self.reservations) - 1, -1, -1):
+            if self.reservations[index]:
+                self.reservations[index] -= 1
+                return
+        self._charge_node()
+
+    def begin_reservations(self) -> int:
+        """Open one conversion scope whose charges offset later validation."""
+
+        self.reservations.append(0)
+        return len(self.reservations)
+
+    def reserve_node(self, relative_depth: int) -> None:
+        """Charge Talea-controlled conversion work before it traverses a value."""
+
+        depth = self.base_depth + relative_depth
+        maximum_depth = self.max_depth
+        if maximum_depth is not None and depth > maximum_depth:
+            raise ResourceLimitError("depth", maximum_depth, depth)
+        self._charge_node()
+        self.reservations[-1] += 1
+
+    def end_reservations(self, marker: int) -> None:
+        """Close exactly the conversion scope opened by ``marker``."""
+
+        if marker != len(self.reservations):
+            raise RuntimeError("resource reservation scopes closed out of order")
+        self.reservations.pop()
+
+    def _charge_node(self) -> None:
+        """Increment the canonical work counter and reject its first excess."""
+
         nodes = self.nodes + 1
         self.nodes = nodes
         maximum_nodes = self.max_nodes
@@ -55,6 +88,18 @@ class _UnlimitedResourceState:
     @staticmethod
     def consume_node(relative_depth: int) -> None:
         del relative_depth
+
+    @staticmethod
+    def begin_reservations() -> int:
+        return 0
+
+    @staticmethod
+    def reserve_node(relative_depth: int) -> None:
+        del relative_depth
+
+    @staticmethod
+    def end_reservations(marker: int) -> None:
+        del marker
 
     def call_nested(self, operation: Callable[..., object], value: object, relative_depth: int) -> object:
         del relative_depth
