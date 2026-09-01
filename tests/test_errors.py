@@ -10,7 +10,7 @@ from hypothesis import given, strategies as st
 import talea
 import talea.errors.models as error_models
 import talea.errors.safety as error_safety
-from talea import ErrorCode, Ge, Spec, ValidationError, check, field, transform
+from talea import ErrorCode, ErrorTree, Ge, Spec, ValidationError, check, field, transform
 from talea.errors.models import _ErrorDetail
 from talea.schema import resolve_annotation
 from talea.validation import CustomValidationError, compile_validator
@@ -441,12 +441,15 @@ def test_success_paths_do_not_snapshot_or_allocate_error_collections(monkeypatch
     assert (point.x, point.y) == (1, 2)
     assert "BUILD_LIST" not in opnames
     assert "errors" not in initializer.__code__.co_names
+    assert "error_tree" not in initializer.__code__.co_names
+    assert "ErrorTree" not in initializer.__code__.co_names
 
 
 def test_public_root_exposes_handling_api_without_internal_implementations() -> None:
     assert talea.ValidationError is ValidationError
     assert talea.ErrorCode is ErrorCode
     assert talea.ErrorData.__name__ == "ErrorData"
+    assert talea.ErrorTree is ErrorTree
     assert not hasattr(talea, "CustomValidationError")
     assert not hasattr(talea, "_ErrorDetail")
     assert _ErrorDetail.__module__ == "talea.errors.models"

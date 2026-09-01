@@ -4,7 +4,7 @@ from talea.callables import validate_call
 from talea.constraints import Ge, Gt, Le, Lt, MaxLength, MinLength, MultipleOf, Pattern
 from talea.contract import Contract
 from talea.declaration.metadata import Alias
-from talea.errors import ErrorCode, ErrorData, ValidationError
+from talea.errors import ErrorCode, ErrorData, ErrorTree, ValidationError
 from talea.json_schema import SchemaProjectionError
 from talea.metadata import Deprecated, Description, Examples, ReadOnly, Sensitive, Title, WriteOnly
 from talea.representation import Representation
@@ -24,6 +24,7 @@ __all__ = [
     "Gt",
     "ErrorCode",
     "ErrorData",
+    "ErrorTree",
     "Examples",
     "Le",
     "Lt",

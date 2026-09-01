@@ -1,6 +1,8 @@
 """Canonical Talea failure detail, public projection, and rendering."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Literal, NotRequired, TypedDict, cast
 
 from talea.errors.codes import ErrorCode
@@ -14,9 +16,19 @@ from talea.errors.safety import (
     snapshot_input,
 )
 
-__all__ = ["ErrorBranchData", "ErrorData", "ErrorLocation", "ValidationError"]
+__all__ = [
+    "ErrorBranchData",
+    "ErrorData",
+    "ErrorLocation",
+    "ErrorLocationPart",
+    "ErrorTree",
+    "ErrorTreeChildData",
+    "ErrorTreeData",
+    "ValidationError",
+]
 
 type ErrorLocation = tuple[object, ...]
+type ErrorLocationPart = None | bool | int | float | str
 type CustomStage = Literal["transform", "field_check", "spec_check"]
 
 
@@ -50,6 +62,20 @@ class ErrorData(TypedDict):
     discriminator: NotRequired[str]
     expected_tags: NotRequired[list[JsonScalar]]
     conflicting_names: NotRequired[list[str]]
+
+
+class ErrorTreeChildData(TypedDict):
+    """JSON-compatible child entry returned by :meth:`ErrorTree.to_dict`."""
+
+    key: ErrorLocationPart
+    node: "ErrorTreeData"
+
+
+class ErrorTreeData(TypedDict):
+    """JSON-compatible recursive projection returned by :meth:`ErrorTree.to_dict`."""
+
+    errors: list[ErrorData]
+    children: list[ErrorTreeChildData]
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +170,83 @@ class _ErrorDetail:
             expected = ", ".join(snapshot_input(item).rendered for item in self.expected_tags)
             return f"Unknown discriminator {self.discriminator!r}; expected one of {expected}"
         raise AssertionError("unknown canonical Talea error code")
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ErrorTree:
+    """Read-only nested index over canonical validation-error facts.
+
+    ``errors`` contains the failures located exactly at this node, while
+    ``children`` maps each safe public location segment to its descendant.
+    Child order follows first appearance in the exception's canonical error
+    order. Root-level failures therefore live in the root node's ``errors``.
+
+    The tree retains immutable internal facts and creates fresh ``ErrorData``
+    projections when ``errors`` is accessed. Its child mapping is read-only,
+    and no mutation can affect the originating exception, another tree, or a
+    later projection. Use :meth:`to_dict` for a JSON-compatible recursive
+    representation that preserves integer child keys.
+    """
+
+    _details: tuple[_ErrorDetail, ...]
+    children: Mapping[ErrorLocationPart, "ErrorTree"]
+
+    @classmethod
+    def _create(
+        cls,
+        details: tuple[_ErrorDetail, ...],
+        children: Mapping[ErrorLocationPart, "ErrorTree"],
+    ) -> "ErrorTree":
+        tree = cls.__new__(cls)
+        object.__setattr__(tree, "_details", details)
+        object.__setattr__(tree, "children", children)
+        return tree
+
+    @property
+    def errors(self) -> tuple[ErrorData, ...]:
+        """Return fresh public details located exactly at this node.
+
+        Each detail retains its full root-relative location. Mutating a
+        returned dictionary does not change this tree or future accesses.
+        """
+
+        return tuple(_project_detail(detail) for detail in self._details)
+
+    def to_dict(self) -> ErrorTreeData:
+        """Return a fresh JSON-compatible recursive tree projection.
+
+        Children use ordered ``{"key": ..., "node": ...}`` entries instead
+        of object-member keys. This preserves the difference between string
+        field names and integer indexes and keeps application names separate
+        from the node metadata namespace.
+        """
+
+        return ErrorTreeData(
+            errors=list(self.errors),
+            children=[ErrorTreeChildData(key=key, node=child.to_dict()) for key, child in self.children.items()],
+        )
+
+
+@dataclass(slots=True)
+class _MutableErrorTree:
+    """Collect one transient projection before the public tree is frozen."""
+
+    details: list[_ErrorDetail] = field(default_factory=list)
+    children: dict[ErrorLocationPart, "_MutableErrorTree"] = field(default_factory=dict)
+
+
+def _freeze_error_tree(root: _MutableErrorTree) -> ErrorTree:
+    frozen: dict[int, ErrorTree] = {}
+    pending = [(root, False)]
+    while pending:
+        node, visited = pending.pop()
+        if not visited:
+            pending.append((node, True))
+            pending.extend((child, False) for child in reversed(tuple(node.children.values())))
+            continue
+        children = MappingProxyType({key: frozen[id(child)] for key, child in node.children.items()})
+        frozen[id(node)] = ErrorTree._create(tuple(node.details), children)
+    return frozen[id(root)]
 
 
 def _context_text(context: dict[str, JsonScalar], key: str) -> str:
@@ -517,6 +620,27 @@ class ValidationError(TypeError):
         """
 
         return [_project_detail(detail) for detail in self._details]
+
+    def error_tree(self) -> ErrorTree:
+        """Return a fresh read-only tree grouped by public error locations.
+
+        The projection consumes stored canonical failure facts only. It does
+        not rerun validation, inspect rejected input, or cache tree state on
+        the exception. Errors at each node and children throughout the tree
+        preserve their first-appearance order.
+        """
+
+        root = _MutableErrorTree()
+        for detail in self._details:
+            node = root
+            for segment in detail.projected_location:
+                child = node.children.get(segment)
+                if child is None:
+                    child = _MutableErrorTree()
+                    node.children[segment] = child
+                node = child
+            node.details.append(detail)
+        return _freeze_error_tree(root)
 
     def __str__(self) -> str:
         """Render a concise multiline description for logs and terminals."""

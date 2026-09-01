@@ -47,6 +47,7 @@ def test_root_package_exports_only_the_deliberate_public_api() -> None:
         "Gt",
         "ErrorCode",
         "ErrorData",
+        "ErrorTree",
         "Examples",
         "Le",
         "Lt",

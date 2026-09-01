@@ -29,6 +29,7 @@ are not public.
 | `MinLength`, `MaxLength`, `Pattern` | Sized and string constraints | declaration `TypeError`/`ValueError`/`re.error` |
 | `ValidationError` | Structured one-or-many validation failure | — |
 | `ErrorCode`, `ErrorData` | Stable codes and JSON-compatible projected detail | — |
+| `ErrorTree` | Read-only nested projection over canonical validation-error facts | — |
 | `ResourcePolicy`, `ResourceLimitError` | Finite external-input budgets and rejection | invalid policy `ValueError` |
 | `SerializationError` | Safe output projection/encoding failure | — |
 | `SchemaProjectionError` | Statically unknowable or unsupported schema projection | — |
@@ -99,7 +100,8 @@ introspection, security, performance, and the current callable-form limits.
 
 ## Error and validation domains
 
-`talea.errors` additionally exposes `ErrorBranchData` and `ErrorLocation`.
+`talea.errors` additionally exposes `ErrorBranchData`, `ErrorLocation`,
+`ErrorLocationPart`, `ErrorTreeChildData`, and `ErrorTreeData`.
 `talea.validation` exposes the advanced `Validator`, `compile_validator`, and
 compatibility `CustomValidationError` contracts. Applications normally use the
 root `ValidationError`; compiler consumers must compile only a canonical schema
