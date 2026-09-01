@@ -195,6 +195,22 @@ def schema_size(operation: Operation) -> int:
     return len(json.dumps(operation(), separators=(",", ":"), ensure_ascii=False).encode())
 
 
+def definition_count(operation: Operation) -> int:
+    """Return named JSON Schema definitions or OpenAPI component schemas."""
+
+    document = operation()
+    if not isinstance(document, dict):
+        return 0
+    definitions = document.get("$defs")
+    if isinstance(definitions, dict):
+        return len(definitions)
+    components = document.get("components")
+    if not isinstance(components, dict):
+        return 0
+    schemas = components.get("schemas")
+    return len(schemas) if isinstance(schemas, dict) else 0
+
+
 def benchmark_projection() -> None:
     """Measure representative cold, repeated, recursive, and scaling cases."""
 
@@ -246,7 +262,7 @@ def benchmark_sizes() -> None:
         ("100 definitions", HundredDefinitions.json_schema),
     )
     for name, operation in cases:
-        print(f"{name:34} size={schema_size(operation):8} bytes")
+        print(f"{name:34} size={schema_size(operation):8} bytes definitions={definition_count(operation):4}")
 
 
 def projection_retention(count: int = 1_000) -> tuple[int, int]:
