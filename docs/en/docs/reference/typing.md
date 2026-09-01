@@ -1,7 +1,10 @@
 # Typing
 
-Talea targets Python 3.14 and is checked with `ty`. The `py.typed` marker ships
-with the package.
+Talea supports Python 3.14 and newer and is checked with `ty`. The `py.typed`
+marker ships with the package. Python 3.15 uses the standard-library
+`typing.TypeForm` from PEP 747 where a public argument represents a type
+expression; Python 3.14 uses a less precise, truthful fallback without
+`typing_extensions`.
 
 ## Specs and constructors
 
@@ -18,22 +21,67 @@ class Box[T](Spec):
 box = Box[int](value=1)  # Box[int]
 ```
 
-## Contract
+## Contract and TypeForm
 
-Class annotations infer naturally with `Contract(User)`. Python 3.14 cannot
-express every runtime `TypeForm`, so complex aliases, unions, `TypedDict`, and
-container expressions should normally receive an explicit annotation:
+On Python 3.15, `Contract(type-form-for-T)` infers `Contract[T]` for classes,
+unions, containers, `TypedDict`, `Annotated`, `Literal`, PEP 695 aliases,
+recursive aliases, dataclasses, Specs, and concrete generic specializations:
+
+```python
+integers = Contract(list[int])  # Contract[list[int]] on Python 3.15
+choice = Contract(str | int)  # Contract[str | int] on Python 3.15
+```
+
+`TypeForm` also rejects values such as `123` or `object()` at a 3.15 static
+call site because they are not type expressions. It does not execute or resolve
+the expression. Talea's canonical resolver remains the runtime authority and
+may reject a statically valid form that Talea does not support.
+
+Python 3.14 has no `typing.TypeForm`. Classes still infer naturally with
+`Contract(User)`, while aliases, unions, `TypedDict`, and container expressions
+should receive an explicit annotation when precise output is required:
 
 ```python
 values: Contract[list[int]] = Contract(list[int])
 ```
 
+The fallback is `object`, not `Any`: it does not leak an unconstrained result
+type into `validate()`, input, or output methods.
+
+## Representation relationships
+
+Python 3.15 relates `Representation(input=...)` and `output=...` to the loader
+and dumper types:
+
+```python
+representation = Representation(
+    input=str | int,
+    load=load_identifier,
+    output=IdentifierPayload,
+    dump=dump_identifier,
+)
+```
+
+Here the loader must accept `str | int`, its result and the dumper argument
+share the internal type, and the dumper must return `IdentifierPayload`.
+Input-only and output-only declarations retain the same directional checks.
+Python 3.14 cannot infer the type-form sides, but its generic callback checks
+remain in force; explicit `Representation[InputT, InternalT, OutputT]`
+annotations provide the missing declaration types when needed.
+
 ## Dynamic APIs
 
 `create_spec()` and `derive_spec()` return `type[Spec]` because their fields are
-runtime data. Runtime behavior is complete, but static constructor inference
-cannot recover arbitrary mapping keys. The same limitation applies to
-dynamically selected include/exclude projections.
+runtime data. On Python 3.15, `create_spec(fields=...)` checks that mapping
+values are type forms, but static constructor inference still cannot recover
+arbitrary mapping keys. Defaults, factories, namespace values, and metadata are
+not type forms and keep their own heterogeneous annotations. The same dynamic
+shape limitation applies to selected `derive_spec()` projections.
+
+`@serialize(..., output=TypeExpression)` also uses TypeForm on Python 3.15, so
+the decorated callback result must match the declared output. Omitting
+`output=` preserves the callback's own result type. Runtime output validation
+continues to use the canonical schema on both Python versions.
 
 ## Callable boundaries
 
@@ -64,10 +112,11 @@ parameters remain unsupported; the concrete implementation behind
 
 TypedDict, PEP 695 aliases, `NewType`, recursive aliases, concrete recursive
 generics, and specialized generic Specs retain their declared result types when
-the annotation is statically visible. Open generic execution is rejected; use a
-concrete specialization.
+the annotation is statically visible. A type checker can accept an open generic
+as a syntactically valid type expression, but Talea still rejects executable
+open generics at runtime; use a concrete specialization.
 
-Run the repository typing contract with:
+Run the Python 3.14 repository typing contract with:
 
 ```console
 task mypy
@@ -75,7 +124,9 @@ task mypy
 
 The task name is retained by project tooling; it currently runs `ty check` over
 production code, benchmarks, executable docs, and positive/negative typing
-contracts.
+contracts. CI runs a separate Python 3.15 lane over the shared contracts and
+the focused TypeForm positive/negative matrix, using the real standard-library
+`typing.TypeForm` signature.
 
 ## Inheritance and safe narrowing
 
@@ -101,9 +152,10 @@ user_pages: Contract[list[Page[User]]] = Contract(list[Page[User]])
 ```
 
 Execution requires concrete specializations; an open `Page` still contains a
-free type parameter. Recursive PEP 695 aliases and deferred Spec/TypedDict
-references retain their declared type graph. Runtime values must still be
-acyclic at JSON-shaped boundaries.
+free type parameter. TypeForm acceptance does not imply runtime executability.
+Recursive PEP 695 aliases and deferred Spec/TypedDict references retain their
+declared type graph. Runtime values must still be acyclic at JSON-shaped
+boundaries.
 
 ## Deliberate static limits
 

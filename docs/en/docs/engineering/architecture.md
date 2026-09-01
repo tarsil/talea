@@ -83,11 +83,12 @@ attempted input/result traversal consumes the shared resource budget. A union
 with multiple representation declarations for the same internal contract is
 rejected because callback ordering would otherwise be indistinguishable.
 
-Python 3.14 has no `TypeForm`, so the runtime `input` and `output` type-form
-parameters use `object` annotations. Generic callback relationships still
-express `InputT -> InternalT` and `InternalT -> OutputT`; runtime resolution
-validates the actual type forms. Moving to Python 3.15 `TypeForm` can strengthen
-those two annotations without changing declaration vocabulary or behavior.
+Python 3.15 uses `TypeForm` for the `input` and `output` type expressions, so
+generic callback relationships express both the declared external types and
+`InputT -> InternalT -> OutputT`. Python 3.14 retains the same relationships
+with an `object` fallback for the two type-form values. Runtime resolution
+validates the declarations on both versions; TypeForm adds no schema node,
+callback branch, or execution behavior.
 
 Output validates current internal truth, invokes the directly bound dumper once,
 validates the candidate against the declared output schema, and feeds that

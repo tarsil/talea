@@ -52,9 +52,11 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
 - Representation and serializer callbacks are synchronous trusted Python;
   undeclared `@serialize` results remain opaque to nested selection and output
   schema;
-- Python 3.14 has no `TypeForm`, so `Representation.input` and `.output` are
-  typed as `object` while declaration-time resolution still rejects unsupported
-  forms;
+- Python 3.15 uses `TypeForm` for `Contract`, `Representation.input` and
+  `.output`, `create_spec` field values, and declared serializer outputs;
+  Python 3.14 keeps a less precise `object` fallback without
+  `typing_extensions`; static TypeForm acceptance still does not imply Talea
+  runtime support for an open generic or unsupported type expression;
 
 ## Deliberate boundaries and trust model
 

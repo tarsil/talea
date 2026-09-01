@@ -298,13 +298,20 @@ There is no process-global Contract cache. Construct a Contract once at the
 service or message boundary that owns it, rather than recreating it for every
 request. Per-call codecs do not become retained configuration.
 
-## Python 3.14 typing
+## Python 3.14 and 3.15 typing
 
 Python 3.14 has no `typing.TypeForm`; PEP 747 targets Python 3.15. Consequently,
 `Contract(int)` can infer `int`, while arbitrary forms should be written as
 `Contract[list[int]](list[int])` when precise static output is required. Talea
 does not add a runtime dependency or claim inference Python 3.14 cannot express.
 This is a static typing limitation, not a runtime limitation.
+
+On Python 3.15, the same public constructor uses the standard-library
+`TypeForm[T]`, so `Contract(list[int])`, `Contract(str | int)`, aliases,
+`TypedDict`, and other valid type expressions infer `Contract[T]` directly.
+Invalid value expressions are rejected statically. Runtime resolution and the
+set of executable Talea annotations remain unchanged; in particular, a
+statically valid open generic is not an executable contract.
 
 ## Security and operational guidance
 
