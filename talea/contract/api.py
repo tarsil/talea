@@ -1,9 +1,10 @@
 """Expose retained arbitrary annotation contracts over canonical Talea owners."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from typing import TYPE_CHECKING, Generic, Literal, TypeVar, cast, overload
 
 from talea.contract.artifacts import _ContractArtifacts
+from talea.contract.items import ItemPolicy, iter_items
 from talea.declaration.policies import schema_contains_sensitive_metadata, schema_root_metadata
 from talea.input.json import JsonInput, JsonLoads, decode_json
 from talea.metadata import annotation_metadata
@@ -12,6 +13,7 @@ from talea.resources.state import resource_state
 from talea.schema.resolution import resolve_annotation
 from talea.serialization.json import JsonDumps, encode_json
 from talea.validation.compilation import compile_validator
+from talea.validation.errors import ValidationError
 from talea.validation.failure_contracts import describe_schema
 
 T = TypeVar("T")
@@ -142,6 +144,78 @@ class Contract(Generic[T]):
             compiled = self._artifacts.input_for("mapping")
         selected_policy = self._policy if policy is None else resolve_policy(policy)
         return compiled(value, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
+
+    def iter_validate(
+        self,
+        values: Iterable[object],
+        /,
+        *,
+        on_error: Callable[[int, ValidationError], None] | None = None,
+        item_policy: ItemPolicy | None = None,
+    ) -> Iterator[T]:
+        """Lazily validate strict Python items through retained artifacts.
+
+        Each source item is validated exactly once. Fail-fast is the default;
+        an explicit ``on_error(index, error)`` callback may admit continued
+        processing. Validation locations begin with the zero-based source
+        index. The source is not read until iteration begins and is never
+        materialized, drained, retried, or closed by Talea.
+
+        Args:
+            values: Application-owned iterable of strict Python values.
+            on_error: Optional synchronous callback for located item validation
+                failures. Returning normally continues; callback exceptions
+                propagate unchanged.
+            item_policy: Stream-level item and invalid-item limits. These do not
+                change strict validation semantics.
+
+        Raises:
+            ResourceLimitError: If a stream-level item limit is exceeded.
+            ValidationError: If an item is invalid and no callback is supplied.
+        """
+
+        return iter_items(values, self.validate, on_error=on_error, policy=item_policy)
+
+    def iter_python(
+        self,
+        values: Iterable[object],
+        /,
+        *,
+        on_error: Callable[[int, ValidationError], None] | None = None,
+        item_policy: ItemPolicy | None = None,
+        policy: ResourcePolicy | None = None,
+    ) -> Iterator[T]:
+        """Lazily convert external Python items through retained artifacts.
+
+        This is the per-item equivalent of :meth:`from_python`: each item gets
+        an independent ``ResourcePolicy`` state while this operation's
+        ``ItemPolicy`` counts pulled and invalid source items. Resource
+        failures are terminal and never enter ``on_error``.
+
+        Args:
+            values: Application-owned iterable of external Python values.
+            on_error: Optional synchronous callback for located item validation
+                failures. It receives no separate rejected-item argument;
+                ordinary non-sensitive ``ValidationError`` facts are unchanged.
+            item_policy: Stream-level item and invalid-item limits.
+            policy: Per-item external-input policy, replacing the Contract's
+                retained policy for every item in this iterator.
+
+        Raises:
+            ResourceLimitError: If a stream or per-item resource limit is
+                exceeded.
+            ValidationError: If conversion fails and no callback is supplied.
+        """
+
+        selected_policy = self._policy if policy is None else resolve_policy(policy)
+
+        def convert(value: object) -> T:
+            compiled = self._artifacts.python_input
+            if compiled is None:
+                compiled = self._artifacts.input_for("mapping")
+            return compiled(value, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
+
+        return iter_items(values, convert, on_error=on_error, policy=item_policy)
 
     def from_json(
         self,

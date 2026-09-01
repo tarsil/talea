@@ -6,6 +6,8 @@ __all__ = ["ResourceLimitError"]
 
 type ResourceLimitCode = Literal[
     "input_size",
+    "invalid_items",
+    "items",
     "depth",
     "nodes",
     "settings_environment_entries",
@@ -33,6 +35,8 @@ class ResourceLimitError(Exception):
         self.observed = observed
         label = {
             "input_size": "JSON input bytes",
+            "invalid_items": "invalid source items",
+            "items": "source items",
             "depth": "input depth",
             "nodes": "input work nodes",
             "settings_environment_entries": "settings environment entries",
