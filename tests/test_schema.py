@@ -20,7 +20,12 @@ from talea.schema import (
     TypeSchema,
     UnionSchema,
     VariadicTupleSchema,
+    nodes as schema_nodes,
 )
+
+
+def test_internal_representation_schema_is_not_a_public_schema_export() -> None:
+    assert "RepresentationSchema" not in schema_nodes.__all__
 
 
 @pytest.mark.parametrize(

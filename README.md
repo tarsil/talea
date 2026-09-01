@@ -87,6 +87,27 @@ value, so the JSON boundary owns its documented string representation. That
 separation is the core of Talea's mental model: conversion is explicit, and
 already-valid Python values do not pass through a general parsing pipeline.
 
+## Migration-safe field names
+
+APIs evolve, but accepting an old input spelling should not make output or
+conflict handling ambiguous. `Alias` can retain a finite set of historical
+Mapping and JSON input names while keeping one current external name:
+
+```python
+class User(Spec):
+    user_id: Annotated[int, Alias("userId", legacy=("id", "user_id"))]
+
+
+assert User.from_mapping({"id": 1}).to_dict() == {"userId": 1}
+```
+
+Exactly one accepted spelling may be supplied. Current-plus-historical,
+historical-plus-historical, and equal-valued conflicts all fail with
+`alias_conflict`; output always uses `userId`. The same declaration composes
+through Specs, stdlib dataclasses, tagged unions, derived and partial Specs,
+JSON Schema, and OpenAPI. See [field semantics](https://talea.tarsild.io/field-semantics/)
+for the complete contract.
+
 Application-owned types can declare the same explicit boundary truth at any
 annotation position with `Representation(input=..., load=..., output=...,
 dump=...)`; Talea validates callback results and reuses the declared schemas for

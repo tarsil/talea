@@ -58,6 +58,27 @@ every Python assignment. Application code can see where external data entered,
 where finite resource limits applied, and where an already-valid object took a
 short trusted path.
 
+## Migration-safe field names
+
+When an API moves from `id` to `userId`, `Alias` can accept a finite set of
+explicit historical Mapping and JSON input names without changing canonical
+output:
+
+```python
+class User(Spec):
+    user_id: Annotated[int, Alias("userId", legacy=("id", "user_id"))]
+
+
+assert User.from_mapping({"id": 1}).to_dict() == {"userId": 1}
+```
+
+Exactly one accepted spelling may be present. Supplying current and historical
+names together, two historical names, or equal-valued duplicates raises
+`alias_conflict`; no spelling has precedence. The same declaration composes
+through Specs, stdlib dataclasses, tagged unions, derivation and PATCH, JSON
+Schema, OpenAPI, and immutable introspection. [Field semantics](field-semantics.md)
+defines the complete migration and retirement boundary.
+
 ## The problem Talea addresses
 
 Typed storage is only one part of a production data boundary. An API request,

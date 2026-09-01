@@ -29,7 +29,6 @@ __all__ = [
     "NamedSchemaIdentity",
     "PrimitiveKind",
     "PrimitiveSchema",
-    "RepresentationSchema",
     "Schema",
     "SequenceKind",
     "SequenceSchema",

@@ -1,5 +1,21 @@
 # Release Notes
 
+## 0.5.0
+
+### Added
+
+- `Alias(..., legacy=(...))` declares finite historical Mapping and JSON input
+  names. Exactly one current or historical spelling is accepted;
+  current-plus-historical and historical-plus-historical conflicts are rejected
+  even when their values are equal, and output always uses the current name.
+- Migration names compose through Specs, inheritance, derivation and PATCH,
+  directional views, concrete generics, recursion, stdlib dataclasses, and
+  tagged discriminators.
+- Draft 2020-12 JSON Schema and OpenAPI project the accepted input vocabulary
+  without Cartesian expansion. OpenAPI discriminator metadata retains the
+  canonical current property while surrounding Schema Objects describe
+  accepted historical names.
+
 ## 0.4.0
 
 ### Added
