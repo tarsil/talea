@@ -240,6 +240,9 @@ never contain source values.
 ```python
 SettingsPolicy(
     max_environment_entries=10_000,
+    max_override_entries=100_000,
+    max_override_depth=64,
+    max_override_key_bytes=64 * 1024,
     max_source_names=10_000,
     max_toml_bytes=8 * 1024 * 1024,
     max_secret_files=256,  # bounds all entries enumerated from the directory
@@ -249,17 +252,24 @@ SettingsPolicy(
 )
 ```
 
-The final `input_policy` remains the existing owner of Mapping depth, node,
-and error budgets. Settings does not overload those dimensions with file or
-environment meanings. A caller may pass `None` for an individual source limit
-only when another boundary enforces it.
+The override limits bound the settings-owned copy and source-resolution pass.
+The final `input_policy` remains the existing owner of validation Mapping
+depth, node, and error budgets. A caller may pass `None` for an individual
+source limit only when another boundary enforces it; cyclic override mappings
+are always rejected.
 
-The environment entry limit is checked before compiling relevant values. TOML
-and secret limits use bounded reads; the aggregate byte counter covers TOML,
-selected secret contents, and matched environment names/values. Override
-Mapping methods and concurrently mutated custom mappings remain trusted
-application work, while the final detached structure is still governed by the
-ordinary input policy.
+The environment entry limit counts values as they are iterated rather than
+trusting a custom Mapping's reported length. TOML and secret limits use bounded
+reads; the aggregate byte counter covers TOML, selected secret contents, every
+environment name, and matched environment values. Ignored environment values
+are not read into that byte budget. Override Mapping methods and concurrently
+mutated custom mappings remain trusted application work, while the settings
+copy and final detached structure have separate finite policies.
+
+On platforms with descriptor-relative file opening, secret symlinks may point
+within the configured directory (including Kubernetes atomic-writer layouts),
+and authorization is bound to the file descriptor used for reading. Platforms
+without that facility accept direct regular files and reject secret symlinks.
 
 ## Testing, CLI, and dotenv interoperation
 

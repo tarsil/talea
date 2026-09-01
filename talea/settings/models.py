@@ -31,6 +31,9 @@ class SettingsPolicy:
     """
 
     max_environment_entries: int | None = 10_000
+    max_override_entries: int | None = 100_000
+    max_override_depth: int | None = 64
+    max_override_key_bytes: int | None = 64 * 1024
     max_source_names: int | None = 10_000
     max_toml_bytes: int | None = 8 * 1024 * 1024
     max_secret_files: int | None = 256
@@ -42,6 +45,9 @@ class SettingsPolicy:
         """Validate every finite limit and the delegated input policy."""
 
         _limit(self.max_environment_entries, "max_environment_entries")
+        _limit(self.max_override_entries, "max_override_entries")
+        _limit(self.max_override_depth, "max_override_depth")
+        _limit(self.max_override_key_bytes, "max_override_key_bytes")
         _limit(self.max_source_names, "max_source_names")
         _limit(self.max_toml_bytes, "max_toml_bytes")
         _limit(self.max_secret_files, "max_secret_files")

@@ -1,12 +1,13 @@
 """Compile and execute the canonical Talea Settings source-resolution plan."""
 
 import os
+import stat
 import tomllib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from itertools import product
 from pathlib import Path
-from typing import Callable, Literal, cast, overload
+from typing import BinaryIO, Callable, Literal, cast, overload
 
 from talea.errors import ValidationError
 from talea.introspection import FieldInfo, inspect_spec
@@ -30,6 +31,7 @@ from .models import SettingsInfo, SettingSource, SettingsPolicy, SettingsResult
 
 _DELIMITER = "__"
 _SOURCE_ORDER: tuple[SettingSource, ...] = ("override", "environment", "secret", "toml", "default")
+_SUPPORTS_SECURE_DIR_FD = os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY") and hasattr(os, "O_NOFOLLOW")
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +75,77 @@ class _SourceBudget:
 
     def consume(self, amount: int) -> None:
         self.observed += amount
+
+    def consume_text(self, text: str) -> None:
+        """Charge UTF-8 bytes without first allocating an unbounded encoding."""
+
+        maximum = self.maximum
+        observed = self.observed
+        if text.isascii():
+            observed += len(text)
+            if maximum is not None and observed > maximum:
+                text = ""
+                raise ResourceLimitError("settings_source_bytes", maximum, observed)
+            self.observed = observed
+            return
+        for character in text:
+            observed += len(character.encode("utf-8"))
+            if maximum is not None and observed > maximum:
+                text = ""
+                character = ""
+                raise ResourceLimitError("settings_source_bytes", maximum, observed)
+        self.observed = observed
+
+
+class _OverrideState:
+    """Bound and detect cycles in one application-supplied override traversal."""
+
+    __slots__ = ("active", "entries", "maximum_depth", "maximum_entries", "maximum_key_bytes")
+
+    def __init__(self, policy: SettingsPolicy) -> None:
+        self.active: set[int] = set()
+        self.entries = 0
+        self.maximum_depth = policy.max_override_depth
+        self.maximum_entries = policy.max_override_entries
+        self.maximum_key_bytes = policy.max_override_key_bytes
+
+    def enter(self, source: Mapping[str, object], depth: int) -> None:
+        maximum = self.maximum_depth
+        if maximum is not None and depth > maximum:
+            source = {}
+            raise ResourceLimitError("settings_override_depth", maximum, depth)
+        identity = id(source)
+        if identity in self.active:
+            source = {}
+            raise ValueError("cyclic settings override mapping")
+        self.active.add(identity)
+
+    def leave(self, source: Mapping[str, object]) -> None:
+        self.active.remove(id(source))
+
+    def consume_entry(self) -> None:
+        self.entries += 1
+        maximum = self.maximum_entries
+        if maximum is not None and self.entries > maximum:
+            raise ResourceLimitError("settings_override_entries", maximum, self.entries)
+
+    def consume_key(self, key: str) -> None:
+        maximum = self.maximum_key_bytes
+        if maximum is None:
+            return
+        if key.isascii():
+            observed = len(key)
+            if observed > maximum:
+                key = ""
+                raise ResourceLimitError("settings_override_key_bytes", maximum, observed)
+            return
+        observed = 0
+        for character in key:
+            observed += len(character.encode("utf-8"))
+            if observed > maximum:
+                key = ""
+                character = ""
+                raise ResourceLimitError("settings_override_key_bytes", maximum, observed)
 
 
 class Settings[SettingsT: Spec]:
@@ -225,56 +298,64 @@ class Settings[SettingsT: Spec]:
         if type(provenance) is not bool:
             raise TypeError("provenance must be bool")
         budget = _SourceBudget(self._policy.max_source_bytes)
-        resolved_environment: dict[tuple[str, ...], tuple[_SourceBinding, str, str]]
-        winners: dict[tuple[str, ...], _Contribution] | None
-        if self._toml is None and self._secrets is None and overrides is None:
-            resolved_environment = self._resolve_environment(environment, budget)
-            external = _materialize_resolved(resolved_environment.values())
-            winners = None
-        else:
-            winners = {}
-            if self._toml is not None:
-                _merge(winners, self._load_toml(budget))
-            if self._secrets is not None:
-                _merge_leaves(winners, self._load_secrets(budget))
-            resolved_environment = self._resolve_environment(environment, budget)
-            _merge_leaves(winners, _environment_contributions(resolved_environment))
-            if overrides is not None:
-                contributions: list[_Contribution] = []
-                _collect_mapping(
-                    self._object,
-                    overrides,
-                    (),
-                    (),
-                    "override",
-                    self._normalize,
-                    self._model.__name__,
-                    contributions,
-                )
-                _merge(winners, contributions)
-            external = _materialize(winners.values())
-        redacted_failure: ValidationError | None = None
+        resolved_environment: dict[tuple[str, ...], tuple[_SourceBinding, str, str]] = {}
+        winners: dict[tuple[str, ...], _Contribution] | None = None
+        external: dict[str, object] = {}
+        contributions: list[_Contribution] = []
         try:
-            value = self._model.from_mapping(external, policy=self._policy.input_policy)
-        except ValidationError as error:
-            if winners is not None and any(item.source == "secret" for item in winners.values()):
-                redacted_failure = error.prefixed((), sensitive=True)
+            if self._toml is None and self._secrets is None and overrides is None:
+                resolved_environment = self._resolve_environment(environment, budget)
+                external = _materialize_resolved(resolved_environment.values())
             else:
-                raise
-        if redacted_failure is not None:
+                winners = {}
+                if self._toml is not None:
+                    _merge(winners, self._load_toml(budget))
+                if self._secrets is not None:
+                    _merge_leaves(winners, self._load_secrets(budget))
+                resolved_environment = self._resolve_environment(environment, budget)
+                _merge_leaves(winners, _environment_contributions(resolved_environment))
+                if overrides is not None:
+                    _collect_mapping(
+                        self._object,
+                        overrides,
+                        (),
+                        (),
+                        "override",
+                        self._normalize,
+                        self._model.__name__,
+                        contributions,
+                        _OverrideState(self._policy),
+                    )
+                    _merge(winners, contributions)
+                external = _materialize(winners.values())
+            failure: ValidationError | None = None
+            try:
+                value = self._model.from_mapping(external, policy=self._policy.input_policy)
+            except ValidationError as error:
+                sensitive = winners is not None and any(item.source == "secret" for item in winners.values())
+                failure = error.prefixed((), sensitive=sensitive)
+            if failure is not None:
+                external = {}
+                winners = None
+                resolved_environment = {}
+                raise failure from None
+            if not provenance:
+                return value
+            if winners is None:
+                winners = {
+                    path: _Contribution(path, binding.external_path, None, "environment")
+                    for path, (binding, _, _) in resolved_environment.items()
+                }
+            origins = _provenance(self._object, winners)
+            return SettingsResult(value, origins)
+        except BaseException:
+            overrides = None
+            environment = None
             external = {}
             winners = None
             resolved_environment = {}
-            raise redacted_failure from None
-        if not provenance:
-            return value
-        if winners is None:
-            winners = {
-                path: _Contribution(path, binding.external_path, None, "environment")
-                for path, (binding, _, _) in resolved_environment.items()
-            }
-        origins = _provenance(self._object, winners)
-        return SettingsResult(value, origins)
+            contributions.clear()
+            raise
 
     def _normalize(self, name: str) -> str:
         return name if self._case_sensitive else name.casefold()
@@ -286,115 +367,154 @@ class Settings[SettingsT: Spec]:
     ) -> dict[tuple[str, ...], tuple[_SourceBinding, str, str]]:
         source = os.environ if supplied is None else supplied
         maximum = self._policy.max_environment_entries
-        observed = len(source)
-        if maximum is not None and observed > maximum:
-            raise ResourceLimitError("settings_environment_entries", maximum, observed)
-        snapshot = tuple(source.items())
         resolved: dict[tuple[str, ...], tuple[_SourceBinding, str, str]] = {}
         normalizer = None if self._case_sensitive else str.casefold
-        maximum_bytes = budget.maximum
-        observed_bytes = budget.observed
-        for key, text in snapshot:
-            if type(key) is not str or type(text) is not str:
-                raise TypeError("environment keys and values must be str")
-            normalized = key if normalizer is None else normalizer(key)
-            binding = self._environment.get(normalized)
-            if binding is None:
-                continue
-            observed_bytes += (len(key) if key.isascii() else len(key.encode("utf-8"))) + (
-                len(text) if text.isascii() else len(text.encode("utf-8"))
-            )
-            if maximum_bytes is not None and observed_bytes > maximum_bytes:
-                raise ResourceLimitError("settings_source_bytes", maximum_bytes, observed_bytes)
-            previous = resolved.get(binding.canonical_path)
-            if previous is not None:
-                _raise_source_conflict(self._model, binding, previous[1], binding.accepted_path[-1])
-            resolved[binding.canonical_path] = (binding, binding.accepted_path[-1], text)
-        budget.observed = observed_bytes
-        return resolved
+        observed = 0
+        key = ""
+        text = ""
+        try:
+            for key, text in source.items():
+                observed += 1
+                if maximum is not None and observed > maximum:
+                    raise ResourceLimitError("settings_environment_entries", maximum, observed)
+                if type(key) is not str or type(text) is not str:
+                    raise TypeError("environment keys and values must be str")
+                budget.consume_text(key)
+                normalized = key if normalizer is None else normalizer(key)
+                binding = self._environment.get(normalized)
+                if binding is None:
+                    continue
+                budget.consume_text(text)
+                previous = resolved.get(binding.canonical_path)
+                if previous is not None:
+                    _raise_source_conflict(self._model, binding, previous[1], binding.accepted_path[-1])
+                resolved[binding.canonical_path] = (binding, binding.accepted_path[-1], text)
+            return resolved
+        except BaseException:
+            supplied = None
+            source = {}
+            resolved.clear()
+            key = ""
+            text = ""
+            raise
 
     def _load_toml(self, budget: _SourceBudget) -> list[_Contribution]:
         assert self._toml is not None
-        data = _bounded_file(
-            self._toml,
-            self._policy.max_toml_bytes,
-            "settings_toml_bytes",
-            budget,
-        )
-        budget.consume(len(data))
-        try:
-            text = data.decode("utf-8")
-        except UnicodeDecodeError:
-            raise ValueError("settings TOML is not valid UTF-8") from None
-        try:
-            parsed = tomllib.loads(text)
-        except tomllib.TOMLDecodeError as error:
-            raise ValueError(f"malformed settings TOML at line {error.lineno}, column {error.colno}") from None
+        data = b""
+        text = ""
+        parsed: dict[str, object] = {}
         contributions: list[_Contribution] = []
-        _collect_mapping(
-            self._object,
-            parsed,
-            (),
-            (),
-            "toml",
-            self._normalize,
-            self._model.__name__,
-            contributions,
-        )
-        return contributions
+        try:
+            data = _bounded_file(
+                self._toml,
+                self._policy.max_toml_bytes,
+                "settings_toml_bytes",
+                budget,
+            )
+            budget.consume(len(data))
+            text = _decode_source_utf8(data, "TOML")
+            parsed = _parse_toml(text)
+            _collect_mapping(
+                self._object,
+                parsed,
+                (),
+                (),
+                "toml",
+                self._normalize,
+                self._model.__name__,
+                contributions,
+            )
+            return contributions
+        except BaseException:
+            data = b""
+            text = ""
+            parsed.clear()
+            contributions.clear()
+            raise
 
     def _load_secrets(self, budget: _SourceBudget) -> list[_Contribution]:
         assert self._secrets is not None
         root = self._secrets.resolve(strict=True)
         if not root.is_dir():
             raise NotADirectoryError(str(self._secrets))
-        entries = []
-        maximum = self._policy.max_secret_files
-        for entry in root.iterdir():
-            entries.append(entry)
-            if maximum is not None and len(entries) > maximum:
-                raise ResourceLimitError("settings_secret_files", maximum, len(entries))
-        files = []
-        for entry in entries:
-            try:
+        root_fd: int | None = None
+        entries: list[str] = []
+        files: list[tuple[str, tuple[str, ...]]] = []
+        resolved: dict[tuple[str, ...], tuple[_SourceBinding, str, tuple[str, ...]]] = {}
+        contributions: list[_Contribution] = []
+        data = b""
+        text = ""
+        try:
+            anchored = _SUPPORTS_SECURE_DIR_FD
+            if anchored:
+                root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                opened = os.fstat(root_fd)
+                current = root.stat()
+                if (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino):
+                    raise OSError("configured secret directory changed during acquisition")
+                scan_root: int | Path = root_fd
+            else:
+                scan_root = root
+            maximum = self._policy.max_secret_files
+            with os.scandir(scan_root) as directory:
+                for directory_entry in directory:
+                    entries.append(directory_entry.name)
+                    if maximum is not None and len(entries) > maximum:
+                        raise ResourceLimitError("settings_secret_files", maximum, len(entries))
+            for name in entries:
+                entry = root / name
                 target = entry.resolve(strict=True)
-            except FileNotFoundError:
-                raise
-            if target.is_dir():
-                continue
-            try:
-                target.relative_to(root)
-            except ValueError:
-                raise ValueError("secret symlink target must remain within the configured directory") from None
-            files.append((entry.name, target))
-        resolved: dict[tuple[str, ...], tuple[_SourceBinding, str, Path]] = {}
-        for name, target in files:
-            binding = self._secret_names.get(self._normalize(name))
-            if binding is None:
-                continue
-            previous = resolved.get(binding.canonical_path)
-            if previous is not None:
-                _raise_source_conflict(self._model, binding, previous[1], binding.accepted_path[-1])
-            resolved[binding.canonical_path] = (binding, binding.accepted_path[-1], target)
-        contributions = []
-        for path, (binding, _, target) in resolved.items():
-            data = _bounded_file(
-                target,
-                self._policy.max_secret_file_bytes,
-                "settings_secret_file_bytes",
-                budget,
-            )
-            budget.consume(len(data))
-            try:
-                text = data.decode("utf-8")
-            except UnicodeDecodeError:
-                raise ValueError("settings secret is not valid UTF-8") from None
-            if text.endswith("\r\n"):
-                text = text[:-2]
-            elif text.endswith("\n"):
-                text = text[:-1]
-            contributions.append(_Contribution(path, binding.external_path, binding.decoder(text), "secret"))
-        return contributions
+                if target.is_dir():
+                    continue
+                try:
+                    relative = target.relative_to(root)
+                except ValueError:
+                    raise ValueError("secret symlink target must remain within the configured directory") from None
+                if not anchored and target != entry:
+                    raise ValueError("secret symlinks require descriptor-relative platform support")
+                files.append((name, relative.parts))
+            for name, relative in files:
+                binding = self._secret_names.get(self._normalize(name))
+                if binding is None:
+                    continue
+                previous = resolved.get(binding.canonical_path)
+                if previous is not None:
+                    _raise_source_conflict(self._model, binding, previous[1], binding.accepted_path[-1])
+                resolved[binding.canonical_path] = (binding, binding.accepted_path[-1], relative)
+            for path, (binding, _, relative) in resolved.items():
+                if root_fd is None:
+                    data = _bounded_verified_file(
+                        root.joinpath(*relative),
+                        self._policy.max_secret_file_bytes,
+                        "settings_secret_file_bytes",
+                        budget,
+                    )
+                else:
+                    data = _bounded_secret_file(
+                        root_fd,
+                        relative,
+                        self._policy.max_secret_file_bytes,
+                        budget,
+                    )
+                budget.consume(len(data))
+                text = _decode_source_utf8(data, "secret")
+                if text.endswith("\r\n"):
+                    text = text[:-2]
+                elif text.endswith("\n"):
+                    text = text[:-1]
+                contributions.append(_Contribution(path, binding.external_path, binding.decoder(text), "secret"))
+            return contributions
+        except BaseException:
+            entries.clear()
+            files.clear()
+            resolved.clear()
+            contributions.clear()
+            data = b""
+            text = ""
+            raise
+        finally:
+            if root_fd is not None:
+                os.close(root_fd)
 
 
 def _spec_object(model: type[Spec], visiting: frozenset[object]) -> _ObjectPlan:
@@ -523,41 +643,85 @@ def _collect_mapping(
     normalize: Callable[[str], str],
     title: str,
     output: list[_Contribution],
+    state: _OverrideState | None = None,
+    depth: int = 1,
 ) -> None:
-    items = tuple(source.items())
+    items: list[tuple[object, object]] = []
     by_name: dict[str, list[tuple[object, object]]] = {}
-    for key, value in items:
-        if type(key) is str:
-            by_name.setdefault(normalize(key), []).append((key, value))
+    key: object = ""
+    value: object = None
+    item: tuple[object, object] = ("", None)
+    matches: list[tuple[object, object]] = []
     consumed: set[object] = set()
-    for field in node.fields:
-        matches = [
-            item for name in field.accepted for item in by_name.get(normalize(name), ()) if item[0] not in consumed
-        ]
-        if len(matches) > 1:
-            binding = _SourceBinding(
-                (*canonical, field.canonical),
-                (*external, field.external),
-                (field.external,),
-                field.decoder,
-                field.sensitive,
-            )
-            _raise_source_conflict(title, binding, str(matches[0][0]), str(matches[1][0]))
-        if not matches:
-            continue
-        key, value = matches[0]
-        consumed.add(key)
-        next_canonical = (*canonical, field.canonical)
-        next_external = (*external, field.external)
-        if field.nested is not None and isinstance(value, Mapping):
-            _collect_mapping(field.nested, value, next_canonical, next_external, kind, normalize, title, output)
-        else:
-            output.append(_Contribution(next_canonical, next_external, value, kind))
-    for key, value in items:
-        if key in consumed:
-            continue
-        marker = f"\x00{key!r}"
-        output.append(_Contribution((*canonical, marker), (*external, key), value, kind))
+    entered = False
+    try:
+        if state is not None:
+            state.enter(source, depth)
+            entered = True
+        for key, value in source.items():
+            if state is not None:
+                state.consume_entry()
+                if type(key) is str:
+                    state.consume_key(key)
+            item = (key, value)
+            items.append(item)
+            if type(key) is str:
+                by_name.setdefault(normalize(key), []).append(item)
+        for field in node.fields:
+            matches = [
+                item for name in field.accepted for item in by_name.get(normalize(name), ()) if item[0] not in consumed
+            ]
+            if len(matches) > 1:
+                binding = _SourceBinding(
+                    (*canonical, field.canonical),
+                    (*external, field.external),
+                    (field.external,),
+                    field.decoder,
+                    field.sensitive,
+                )
+                _raise_source_conflict(title, binding, str(matches[0][0]), str(matches[1][0]))
+            if not matches:
+                continue
+            key, value = matches[0]
+            consumed.add(key)
+            next_canonical = (*canonical, field.canonical)
+            next_external = (*external, field.external)
+            if field.nested is not None and isinstance(value, Mapping):
+                _collect_mapping(
+                    field.nested,
+                    value,
+                    next_canonical,
+                    next_external,
+                    kind,
+                    normalize,
+                    title,
+                    output,
+                    state,
+                    depth + 1,
+                )
+            else:
+                output.append(_Contribution(next_canonical, next_external, value, kind))
+        for key, value in items:
+            if key in consumed:
+                continue
+            marker = f"\x00{len(output)}"
+            output.append(_Contribution((*canonical, marker), (*external, key), value, kind))
+    except BaseException:
+        if state is not None and entered:
+            state.leave(source)
+            entered = False
+        source = {}
+        items.clear()
+        by_name.clear()
+        key = ""
+        value = None
+        item = ("", None)
+        matches.clear()
+        consumed.clear()
+        raise
+    finally:
+        if state is not None and entered:
+            state.leave(source)
 
 
 def _raise_source_conflict(
@@ -659,6 +823,34 @@ def _provenance(
     return origins
 
 
+def _decode_source_utf8(data: bytes, source: Literal["TOML", "secret"]) -> str:
+    """Decode source text without retaining rejected bytes in exception state."""
+
+    text: str | None = None
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        data = b""
+    if text is None:
+        raise ValueError(f"settings {source} is not valid UTF-8") from None
+    return text
+
+
+def _parse_toml(text: str) -> dict[str, object]:
+    """Parse TOML without retaining its document in a public parse failure."""
+
+    parsed: dict[str, object] | None = None
+    message = ""
+    try:
+        parsed = tomllib.loads(text)
+    except tomllib.TOMLDecodeError as error:
+        message = f"malformed settings TOML at line {error.lineno}, column {error.colno}"
+        text = ""
+    if parsed is None:
+        raise ValueError(message) from None
+    return parsed
+
+
 def _bounded_file(
     path: Path,
     maximum: int | None,
@@ -675,9 +867,102 @@ def _bounded_file(
         if read_maximum is None or remaining < read_maximum:
             read_maximum = remaining
     with path.open("rb") as stream:
-        data = stream.read() if read_maximum is None else stream.read(read_maximum + 1)
+        data = _read_bounded(stream, read_maximum)
     if maximum is not None and len(data) > maximum:
-        raise ResourceLimitError(code, maximum, len(data))
+        observed = len(data)
+        data = b""
+        raise ResourceLimitError(code, maximum, observed)
     if budget.maximum is not None and budget.observed + len(data) > budget.maximum:
-        raise ResourceLimitError("settings_source_bytes", budget.maximum, budget.observed + len(data))
+        observed = budget.observed + len(data)
+        data = b""
+        raise ResourceLimitError("settings_source_bytes", budget.maximum, observed)
     return data
+
+
+def _bounded_verified_file(
+    path: Path,
+    maximum: int | None,
+    code: Literal["settings_secret_file_bytes", "settings_toml_bytes"],
+    budget: _SourceBudget,
+) -> bytes:
+    """Open one direct file and verify the descriptor still names that inode."""
+
+    expected = path.stat(follow_symlinks=False)
+    if not stat.S_ISREG(expected.st_mode):
+        raise IsADirectoryError(str(path))
+    file_fd = os.open(path, os.O_RDONLY)
+    try:
+        opened = os.fstat(file_fd)
+        if (opened.st_dev, opened.st_ino) != (expected.st_dev, expected.st_ino) or not stat.S_ISREG(opened.st_mode):
+            raise OSError("configured secret file changed during acquisition")
+        read_maximum = maximum
+        if budget.maximum is not None:
+            remaining = budget.maximum - budget.observed
+            if read_maximum is None or remaining < read_maximum:
+                read_maximum = remaining
+        with os.fdopen(file_fd, "rb") as stream:
+            file_fd = -1
+            data = _read_bounded(stream, read_maximum)
+        if maximum is not None and len(data) > maximum:
+            observed = len(data)
+            data = b""
+            raise ResourceLimitError(code, maximum, observed)
+        if budget.maximum is not None and budget.observed + len(data) > budget.maximum:
+            observed = budget.observed + len(data)
+            data = b""
+            raise ResourceLimitError("settings_source_bytes", budget.maximum, observed)
+        return data
+    finally:
+        if file_fd >= 0:
+            os.close(file_fd)
+
+
+def _bounded_secret_file(
+    root_fd: int,
+    relative: tuple[str, ...],
+    maximum: int | None,
+    budget: _SourceBudget,
+) -> bytes:
+    """Read one authorized regular file beneath an already-open directory."""
+
+    if not relative:
+        raise IsADirectoryError("configured secret path resolved to its directory")
+    directory_fd = os.dup(root_fd)
+    file_fd: int | None = None
+    try:
+        for segment in relative[:-1]:
+            next_fd = os.open(segment, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory_fd)
+            os.close(directory_fd)
+            directory_fd = next_fd
+        file_fd = os.open(relative[-1], os.O_RDONLY | os.O_NOFOLLOW, dir_fd=directory_fd)
+        if not stat.S_ISREG(os.fstat(file_fd).st_mode):
+            raise IsADirectoryError(relative[-1])
+        read_maximum = maximum
+        if budget.maximum is not None:
+            remaining = budget.maximum - budget.observed
+            if read_maximum is None or remaining < read_maximum:
+                read_maximum = remaining
+        with os.fdopen(file_fd, "rb") as stream:
+            file_fd = None
+            data = _read_bounded(stream, read_maximum)
+        if maximum is not None and len(data) > maximum:
+            observed = len(data)
+            data = b""
+            raise ResourceLimitError("settings_secret_file_bytes", maximum, observed)
+        if budget.maximum is not None and budget.observed + len(data) > budget.maximum:
+            observed = budget.observed + len(data)
+            data = b""
+            raise ResourceLimitError("settings_source_bytes", budget.maximum, observed)
+        return data
+    finally:
+        if file_fd is not None:
+            os.close(file_fd)
+        os.close(directory_fd)
+
+
+def _read_bounded(stream: BinaryIO, maximum: int | None) -> bytes:
+    """Read at most one byte beyond a selected source limit."""
+
+    if maximum is None:
+        return stream.read()
+    return stream.read(maximum + 1)

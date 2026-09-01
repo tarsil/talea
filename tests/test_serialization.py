@@ -15,7 +15,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 import talea.serialization.artifacts as output_module
-from talea import Alias, Ge, SerializationError, Spec, serialize, transform
+from talea import Alias, Ge, Sensitive, SerializationError, Spec, serialize, transform
 from talea.codegen import _GeneratedNames
 from talea.declaration import SpecField, SpecSchema
 from talea.declaration.models import SerializationHook
@@ -531,6 +531,40 @@ def test_serialization_hook_failures_preserve_cause_and_reject_unsupported_json_
         Parent(nested=Nested(value=1)).to_dict()
     assert nested.value.location == ("nested", "value")
     assert "nested" in str(nested.value)
+
+
+def test_sensitive_parent_redacts_nested_serialization_location() -> None:
+    secret_path = Path("private/credential")
+
+    class Nested(Spec):
+        values: dict[Path, int]
+
+    class Parent(Spec):
+        nested: Annotated[Nested, Sensitive()]
+
+    with pytest.raises(SerializationError) as raised:
+        Parent(nested=Nested(values={secret_path: 1})).to_json()
+    assert raised.value.location == ("nested", "values", "<redacted>")
+    assert str(secret_path) not in str(raised.value)
+
+    class IntegerNested(Spec):
+        values: dict[int, float]
+
+    class IntegerParent(Spec):
+        nested: Annotated[IntegerNested, Sensitive()]
+
+    with pytest.raises(SerializationError) as integer:
+        IntegerParent(nested=IntegerNested(values={987654321: math.nan})).to_json()
+    assert integer.value.location == ("nested", "values", "<redacted>")
+    assert "987654321" not in str(integer.value)
+
+
+def test_internal_spec_fields_reject_non_exact_legacy_names() -> None:
+    class StringSubclass(str):
+        pass
+
+    with pytest.raises(TypeError, match="legacy names"):
+        SpecField("value", PrimitiveSchema("int"), legacy_names=(StringSubclass("old"),))
 
 
 def test_opaque_serializer_cycles_raise_located_serialization_errors() -> None:

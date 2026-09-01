@@ -146,8 +146,10 @@ class SpecField:
     def __post_init__(self) -> None:
         if self.default is not MISSING_DEFAULT and self.default_factory is not None:
             raise ValueError("a Spec field cannot have both a static default and a default factory")
-        if self.alias is not None and (not isinstance(self.alias, str) or not self.alias):
+        if self.alias is not None and (type(self.alias) is not str or not self.alias):
             raise TypeError("a Spec field alias must be a non-empty string")
+        if any(type(name) is not str or not name for name in self.legacy_names):
+            raise TypeError("Spec field legacy names must be non-empty strings")
         external_name = self.name if self.alias is None else self.alias
         object.__setattr__(self, "accepted_input_names", _accepted_input_names(external_name, self.legacy_names))
 

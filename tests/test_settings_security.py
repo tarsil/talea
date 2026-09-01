@@ -1,5 +1,6 @@
 """Exercise source collisions, limits, redaction, and failure boundaries."""
 
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Annotated
 
@@ -93,6 +94,37 @@ def test_environment_entry_limit_is_checked_before_lookup() -> None:
     assert raised.value.observed == 3
 
 
+def test_environment_counts_actual_entries_and_bounds_unknown_names() -> None:
+    class Simple(Spec):
+        value: int = 1
+
+    class Misreported(Mapping[str, str]):
+        def __getitem__(self, key: str) -> str:
+            return key
+
+        def __iter__(self) -> Iterator[str]:
+            return iter(("A", "B", "C"))
+
+        def __len__(self) -> int:
+            return 0
+
+    with pytest.raises(ResourceLimitError) as entries:
+        Settings(Simple, policy=SettingsPolicy(max_environment_entries=2)).load(environment=Misreported())
+    assert (entries.value.code, entries.value.observed) == ("settings_environment_entries", 3)
+
+    with pytest.raises(ResourceLimitError) as names:
+        Settings(Simple, policy=SettingsPolicy(max_source_bytes=4)).load(environment={"UNKNOWN": "ignored"})
+    assert names.value.code == "settings_source_bytes"
+    with pytest.raises(ResourceLimitError) as unicode_name:
+        Settings(Simple, policy=SettingsPolicy(max_source_bytes=2)).load(environment={"€": "ignored"})
+    assert (unicode_name.value.code, unicode_name.value.observed) == ("settings_source_bytes", 3)
+    traceback = unicode_name.value.__traceback__
+    while traceback is not None:
+        if traceback.tb_frame.f_code.co_filename.endswith("talea/settings/plan.py"):
+            assert "€" not in repr(traceback.tb_frame.f_locals)
+        traceback = traceback.tb_next
+
+
 def test_environment_requires_text_keys_and_values() -> None:
     class Simple(Spec):
         value: int = 1
@@ -118,6 +150,9 @@ def test_source_name_limit_bounds_plan_compilation() -> None:
     "kwargs",
     [
         {"max_environment_entries": 0},
+        {"max_override_entries": 0},
+        {"max_override_depth": 0},
+        {"max_override_key_bytes": 0},
         {"max_source_names": -1},
         {"max_toml_bytes": 1.0},
         {"max_secret_files": False},
@@ -150,6 +185,77 @@ def test_resource_policy_depth_and_nodes_apply_to_final_input() -> None:
         Settings(Root, policy=nodes).load({"child": {"value": 1}})
     assert depth_error.value.code == "depth"
     assert node_error.value.code == "nodes"
+
+
+def test_override_acquisition_has_actual_entry_depth_and_cycle_bounds() -> None:
+    class Child(Spec):
+        value: int = 1
+
+    class Root(Spec):
+        child: Child
+
+    with pytest.raises(ResourceLimitError) as entries:
+        Settings(Root, policy=SettingsPolicy(max_override_entries=1)).load({"child": {"value": 1, "extra": 2}})
+    assert (entries.value.code, entries.value.observed) == ("settings_override_entries", 2)
+
+    with pytest.raises(ResourceLimitError) as depth:
+        Settings(Root, policy=SettingsPolicy(max_override_depth=1)).load({"child": {"value": 1}})
+    assert (depth.value.code, depth.value.observed) == ("settings_override_depth", 2)
+
+    cyclic: dict[str, object] = {}
+    cyclic["child"] = cyclic
+    with pytest.raises(ValueError, match="cyclic settings override"):
+        Settings(Root).load(cyclic)
+
+    with pytest.raises(ResourceLimitError) as key:
+        Settings(Root, policy=SettingsPolicy(max_override_key_bytes=4)).load({"oversized": 1})
+    assert (key.value.code, key.value.observed) == ("settings_override_key_bytes", 9)
+    with pytest.raises(ResourceLimitError) as unicode_key:
+        Settings(Root, policy=SettingsPolicy(max_override_key_bytes=2)).load({"€": 1})
+    assert (unicode_key.value.code, unicode_key.value.observed) == ("settings_override_key_bytes", 3)
+    traceback = unicode_key.value.__traceback__
+    while traceback is not None:
+        if traceback.tb_frame.f_code.co_filename.endswith("talea/settings/plan.py"):
+            assert "€" not in repr(traceback.tb_frame.f_locals)
+        traceback = traceback.tb_next
+    assert (
+        Settings(Root, policy=SettingsPolicy(max_override_key_bytes=None)).load({"child": {"value": 2}}).child.value
+        == 2
+    )
+
+
+def test_settings_resource_failures_scrub_source_traceback_locals() -> None:
+    class Child(Spec):
+        value: int = 1
+
+    class Root(Spec):
+        child: Child
+
+    sentinel = "settings-traceback-secret"
+    operations = (
+        lambda: Settings(Root, policy=SettingsPolicy(max_source_bytes=8)).load(environment={"CHILD__VALUE": sentinel}),
+        lambda: Settings(Root, policy=SettingsPolicy(max_override_depth=1)).load({"child": {"value": sentinel}}),
+    )
+    for operation in operations:
+        with pytest.raises(ResourceLimitError) as raised:
+            operation()
+        traceback = raised.value.__traceback__
+        while traceback is not None:
+            if traceback.tb_frame.f_code.co_filename.endswith("talea/settings/plan.py"):
+                assert sentinel not in repr(traceback.tb_frame.f_locals)
+            traceback = traceback.tb_next
+
+
+def test_mixed_sensitive_settings_failures_preserve_safe_sibling_diagnostics() -> None:
+    class Mixed(Spec):
+        secret: Annotated[int, Sensitive()]
+        visible: int
+
+    with pytest.raises(ValidationError) as raised:
+        Settings(Mixed).load(environment={"SECRET": "hidden", "VISIBLE": "shown"})
+    errors = raised.value.errors()
+    assert errors[0]["input"] == "<redacted>"
+    assert errors[1]["input"] == "shown"
 
 
 def test_sensitive_environment_and_toml_failures_do_not_retain_values(tmp_path: Path) -> None:

@@ -227,6 +227,32 @@ def test_source_and_callback_exceptions_propagate_unchanged_without_lookahead() 
     assert source_error.value is source_failure
 
 
+def test_terminal_incremental_failures_do_not_retain_current_item() -> None:
+    secret = "incremental-secret-sentinel"
+
+    def reject(_index: int, _error: ValidationError) -> None:
+        raise RuntimeError("callback failed")
+
+    def exceed_items() -> None:
+        iterator = Contract(str).iter_validate(("first", secret), item_policy=ItemPolicy(max_items=1))
+        assert next(iterator) == "first"
+        next(iterator)
+
+    operations = (
+        lambda: next(Contract(int).iter_validate((secret,))),
+        lambda: next(Contract(int).iter_validate((secret,), on_error=reject)),
+        exceed_items,
+    )
+    for operation in operations:
+        with pytest.raises((ValidationError, RuntimeError, ResourceLimitError)) as raised:
+            operation()
+        traceback = raised.value.__traceback__
+        while traceback is not None:
+            if traceback.tb_frame.f_code.co_name == "_consume_items":
+                assert traceback.tb_frame.f_locals.get("item") is None
+            traceback = traceback.tb_next
+
+
 def test_continuation_is_reentrant_and_iterator_state_is_independent() -> None:
     contract = Contract(int)
     failures: list[tuple[int, int]] = []

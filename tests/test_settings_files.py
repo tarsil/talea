@@ -1,10 +1,13 @@
 """Exercise explicit TOML and flat local-secrets acquisition boundaries."""
 
+import os
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, BinaryIO
 
 import pytest
 
+import talea.settings.plan as settings_plan
 from talea import Alias, ResourceLimitError, Sensitive, Spec, ValidationError
 from talea.settings import Settings, SettingsPolicy
 
@@ -48,11 +51,13 @@ def test_toml_missing_directory_malformed_and_invalid_utf8(tmp_path: Path) -> No
     with pytest.raises(ValueError, match="malformed settings TOML") as malformed_error:
         Settings(FileSettings, toml=malformed).load()
     assert "not =" not in repr(vars(malformed_error.value))
+    assert malformed_error.value.__context__ is None
 
     binary = tmp_path / "binary.toml"
     binary.write_bytes(b"\xff")
-    with pytest.raises(ValueError, match="TOML is not valid UTF-8"):
+    with pytest.raises(ValueError, match="TOML is not valid UTF-8") as invalid_utf8:
         Settings(FileSettings, toml=binary).load()
+    assert invalid_utf8.value.__context__ is None
 
 
 def test_toml_limit_rejects_before_parse(tmp_path: Path) -> None:
@@ -102,8 +107,9 @@ def test_secret_invalid_utf8_and_per_file_limit(tmp_path: Path) -> None:
     root.mkdir()
     secret = root / "database__password"
     secret.write_bytes(b"\xff")
-    with pytest.raises(ValueError, match="secret is not valid UTF-8"):
+    with pytest.raises(ValueError, match="secret is not valid UTF-8") as invalid_utf8:
         Settings(FileSettings, secrets=root).load({"database": {"host": "x"}})
+    assert invalid_utf8.value.__context__ is None
 
     secret.write_bytes(b"x" * 20)
     policy = SettingsPolicy(max_secret_file_bytes=8)
@@ -139,6 +145,33 @@ def test_secret_file_count_bounds_directory_enumeration(tmp_path: Path) -> None:
     assert raised.value.observed == 3
 
 
+def test_secret_file_limit_stops_streaming_enumeration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir()
+    observed = 0
+
+    class Entry:
+        name = "unknown"
+
+    class Directory:
+        def __enter__(self) -> Directory:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def __iter__(self) -> Iterator[Entry]:
+            nonlocal observed
+            for _ in range(1_000_000):
+                observed += 1
+                yield Entry()
+
+    monkeypatch.setattr(settings_plan.os, "scandir", lambda _root: Directory())
+    with pytest.raises(ResourceLimitError) as raised:
+        Settings(FileSettings, secrets=root, policy=SettingsPolicy(max_secret_files=2)).load()
+    assert (raised.value.code, raised.value.observed, observed) == ("settings_secret_files", 3, 3)
+
+
 def test_kubernetes_atomic_writer_style_symlinks_are_supported(tmp_path: Path) -> None:
     root = tmp_path / "mount"
     version = root / "..2026_09_01"
@@ -160,6 +193,31 @@ def test_secret_symlink_cannot_escape_explicit_root(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="remain within"):
         Settings(FileSettings, secrets=root).load({"database": {"host": "x"}})
+
+
+def test_secret_target_swap_cannot_escape_after_authorization(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir()
+    secret = root / "database__password"
+    secret.write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.write_text("outside-secret-sentinel", encoding="utf-8")
+    real_open = settings_plan.os.open
+    swapped = False
+
+    def swapping_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+        nonlocal swapped
+        if path == "database__password" and kwargs.get("dir_fd") is not None and not swapped:
+            swapped = True
+            secret.unlink()
+            secret.symlink_to(outside)
+        return real_open(path, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(settings_plan.os, "open", swapping_open)
+    with pytest.raises(OSError) as raised:
+        Settings(FileSettings, secrets=root).load({"database": {"host": "x"}})
+    assert swapped
+    assert "outside-secret-sentinel" not in repr(raised.value)
 
 
 def test_broken_secret_symlink_fails_atomically(tmp_path: Path) -> None:
@@ -190,28 +248,14 @@ def test_aggregate_source_bytes_bound_each_file_read(tmp_path: Path, monkeypatch
     root = tmp_path / "secrets"
     root.mkdir()
     (root / "database__host").write_bytes(b"x" * 100)
-    real_open = Path.open
+    real_read = settings_plan._read_bounded
     read_sizes: list[int] = []
 
-    class TrackingStream:
-        def __init__(self, stream: object) -> None:
-            self.stream = stream
+    def tracking_read(stream: BinaryIO, maximum: int | None) -> bytes:
+        read_sizes.append(-1 if maximum is None else maximum + 1)
+        return real_read(stream, maximum)
 
-        def __enter__(self) -> TrackingStream:
-            self.stream.__enter__()  # type: ignore[union-attr]
-            return self
-
-        def __exit__(self, *args: object) -> object:
-            return self.stream.__exit__(*args)  # type: ignore[union-attr]
-
-        def read(self, size: int = -1) -> bytes:
-            read_sizes.append(size)
-            return self.stream.read(size)  # type: ignore[union-attr,no-any-return]
-
-    def tracking_open(path: Path, *args: object, **kwargs: object) -> TrackingStream:
-        return TrackingStream(real_open(path, *args, **kwargs))  # type: ignore[arg-type]
-
-    monkeypatch.setattr(Path, "open", tracking_open)
+    monkeypatch.setattr(settings_plan, "_read_bounded", tracking_read)
     policy = SettingsPolicy(max_source_bytes=4, max_secret_file_bytes=100)
 
     with pytest.raises(ResourceLimitError) as raised:
@@ -229,6 +273,136 @@ def test_explicit_secret_root_may_itself_be_a_symlink(tmp_path: Path) -> None:
     root.symlink_to(actual, target_is_directory=True)
 
     assert Settings(FileSettings, secrets=root).load().database_config.host == "linked-root"
+
+
+def test_secret_fallback_accepts_direct_files_and_rejects_symlinks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir()
+    direct = root / "database__host"
+    direct.write_text("direct", encoding="utf-8")
+    monkeypatch.setattr(settings_plan, "_SUPPORTS_SECURE_DIR_FD", False)
+    assert Settings(FileSettings, secrets=root).load().database_config.host == "direct"
+
+    direct.unlink()
+    target = root / "target"
+    target.write_text("linked", encoding="utf-8")
+    direct.symlink_to(target.name)
+    with pytest.raises(ValueError, match="descriptor-relative"):
+        Settings(FileSettings, secrets=root).load()
+
+
+def test_secret_fallback_detects_file_swap_before_read(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir()
+    secret = root / "database__host"
+    secret.write_text("inside", encoding="utf-8")
+    outside = tmp_path / "outside"
+    outside.write_text("outside-secret-sentinel", encoding="utf-8")
+    real_open = settings_plan.os.open
+    monkeypatch.setattr(settings_plan, "_SUPPORTS_SECURE_DIR_FD", False)
+    swapped = False
+
+    def swapping_open(path: object, flags: int, *args: object, **kwargs: object) -> int:
+        nonlocal swapped
+        if path == secret and not swapped:
+            swapped = True
+            secret.unlink()
+            secret.symlink_to(outside)
+        return real_open(path, flags, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(settings_plan.os, "open", swapping_open)
+    with pytest.raises(OSError, match="changed during acquisition"):
+        Settings(FileSettings, secrets=root).load()
+    assert swapped
+
+
+def test_secret_descriptor_guards_identity_and_regular_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = tmp_path / "secrets"
+    root.mkdir()
+    (root / "database__host").write_text("value", encoding="utf-8")
+    real_fstat = settings_plan.os.fstat
+
+    class Changed:
+        st_dev = -1
+        st_ino = -1
+
+    monkeypatch.setattr(settings_plan.os, "fstat", lambda _fd: Changed())
+    with pytest.raises(OSError, match="changed during acquisition"):
+        Settings(FileSettings, secrets=root).load()
+    monkeypatch.setattr(settings_plan.os, "fstat", real_fstat)
+
+    root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        with pytest.raises(IsADirectoryError):
+            settings_plan._bounded_secret_file(root_fd, (), 10, settings_plan._SourceBudget(10))
+        directory = root / "directory"
+        directory.mkdir()
+        with pytest.raises(IsADirectoryError):
+            settings_plan._bounded_secret_file(root_fd, ("directory",), 10, settings_plan._SourceBudget(10))
+    finally:
+        os.close(root_fd)
+
+
+def test_fallback_verified_file_enforces_each_read_limit(tmp_path: Path) -> None:
+    directory = tmp_path / "directory"
+    directory.mkdir()
+    with pytest.raises(IsADirectoryError):
+        settings_plan._bounded_verified_file(
+            directory,
+            10,
+            "settings_secret_file_bytes",
+            settings_plan._SourceBudget(10),
+        )
+
+    path = tmp_path / "secret"
+    path.write_bytes(b"0123456789")
+    with pytest.raises(ResourceLimitError) as per_file:
+        settings_plan._bounded_verified_file(
+            path,
+            4,
+            "settings_secret_file_bytes",
+            settings_plan._SourceBudget(None),
+        )
+    assert (per_file.value.code, per_file.value.observed) == ("settings_secret_file_bytes", 5)
+
+    with pytest.raises(ResourceLimitError) as aggregate:
+        settings_plan._bounded_verified_file(
+            path,
+            None,
+            "settings_secret_file_bytes",
+            settings_plan._SourceBudget(4),
+        )
+    assert (aggregate.value.code, aggregate.value.observed) == ("settings_source_bytes", 5)
+    assert (
+        settings_plan._bounded_verified_file(
+            path,
+            None,
+            "settings_secret_file_bytes",
+            settings_plan._SourceBudget(None),
+        )
+        == b"0123456789"
+    )
+
+
+def test_toml_aggregate_limit_and_unbounded_read_paths(tmp_path: Path) -> None:
+    path = tmp_path / "settings.toml"
+    path.write_text('workers = 2\n[database]\nhost = "value"\n', encoding="utf-8")
+    with pytest.raises(ResourceLimitError) as raised:
+        Settings(
+            FileSettings,
+            toml=path,
+            policy=SettingsPolicy(max_toml_bytes=None, max_source_bytes=4),
+        ).load()
+    assert raised.value.code == "settings_source_bytes"
+
+    value = Settings(
+        FileSettings,
+        toml=path,
+        policy=SettingsPolicy(max_toml_bytes=None, max_source_bytes=None),
+    ).load()
+    assert value.database_config.host == "value"
 
 
 def test_secret_directory_does_not_recurse(tmp_path: Path) -> None:

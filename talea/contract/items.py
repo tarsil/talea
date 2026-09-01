@@ -122,12 +122,16 @@ def _consume_items(
 ) -> Iterator[T]:
     state = _ItemState(policy)
     for item in source:
-        index = state.begin_item()
         try:
+            index = state.begin_item()
             result = operation(item)
         except ValidationError as error:
+            item = None
             state.handle_validation_error(index, error, on_error)
+        except BaseException:
+            item = None
+            raise
         else:
-            del item
+            item = None
             yield result
             del result

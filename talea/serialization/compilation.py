@@ -58,6 +58,7 @@ class _SerializationCompiler:
                 presence = "instance.__talea_presence__"
                 for index, field in enumerate(schema.fields):
                     key = field.external_name if self.by_alias else field.name
+                    key_name = self._bind(names, namespace, "output_key", key)
                     expression = self._field_expression(
                         field,
                         key,
@@ -67,12 +68,13 @@ class _SerializationCompiler:
                         namespace,
                     )
                     lines.append(f"    if {presence} & {1 << index}:")
-                    lines.append(f"        result[{key!r}] = {expression}")
+                    lines.append(f"        result[{key_name}] = {expression}")
                 lines.append("    return result")
             else:
                 entries = []
                 for field in schema.fields:
                     key = field.external_name if self.by_alias else field.name
+                    key_name = self._bind(names, namespace, "output_key", key)
                     expression = self._field_expression(
                         field,
                         key,
@@ -81,12 +83,13 @@ class _SerializationCompiler:
                         names,
                         namespace,
                     )
-                    entries.append(f"{key!r}: {expression}")
+                    entries.append(f"{key_name}: {expression}")
                 lines.append(f"    return {{{', '.join(entries)}}}")
         else:
             lines.append("    result = {}")
             for index, field in enumerate(schema.fields):
                 key = field.external_name if self.by_alias else field.name
+                key_name = self._bind(names, namespace, "output_key", key)
                 value = f"instance.{field.name}"
                 conditions = [
                     f"(include is None or {field.name!r} in include)",
@@ -104,7 +107,7 @@ class _SerializationCompiler:
                     names,
                     namespace,
                 )
-                lines.append(f"        result[{key!r}] = {expression}")
+                lines.append(f"        result[{key_name}] = {expression}")
             lines.append("    return result")
         exec(compile("\n".join(lines), f"<talea {self.mode} Spec serialization>", "exec"), namespace)
         function = cast(FunctionType, namespace["serialize"])
@@ -132,6 +135,7 @@ class _SerializationCompiler:
         compiler = _ValueProjectionCompiler(self.mode, self.by_alias)
         for index, field, child_include, child_exclude in _selected_fields(schema.fields, include, exclude):
             key = field.external_name if self.by_alias else field.name
+            key_name = self._bind(names, namespace, "output_key", key)
             value = f"instance.{field.name}"
             conditions = []
             if schema.presence_aware:
@@ -153,7 +157,7 @@ class _SerializationCompiler:
                 exclude=child_exclude,
                 exclude_none=exclude_none and (child_include is not None or child_exclude is not None),
             )
-            lines.append(f"{indent}result[{key!r}] = {expression}")
+            lines.append(f"{indent}result[{key_name}] = {expression}")
         lines.append("    return result")
         exec(compile("\n".join(lines), f"<talea selected {self.mode} Spec serialization>", "exec"), namespace)
         function = cast(FunctionType, namespace["serialize"])

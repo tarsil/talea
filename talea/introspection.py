@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from threading import RLock
 from typing import Annotated, Literal, cast, get_args, get_origin
-from weakref import WeakKeyDictionary
+from weakref import ReferenceType, WeakKeyDictionary, ref
 
 from talea.callables.api import _callable_schema
 from talea.callables.models import (
@@ -79,7 +79,7 @@ _OPERATIONS = (
     "python_output",
     "json_output",
 )
-_SPEC_INFO_CACHE: WeakKeyDictionary[type[object], SpecInfo] = WeakKeyDictionary()
+_SPEC_INFO_CACHE: WeakKeyDictionary[type[object], ReferenceType[SpecInfo]] = WeakKeyDictionary()
 _SPEC_INFO_LOCK = RLock()
 _CONSTRAINT_TYPES = (Gt, Ge, Lt, Le, MultipleOf, MinLength, MaxLength, Pattern)
 
@@ -154,7 +154,7 @@ class DerivationInfo:
     mode: Literal["input", "output"] | None = None
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class SpecInfo:
     """Describe one finalized Spec declaration as immutable public truth."""
 
@@ -232,16 +232,18 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
 
     if not isinstance(spec, type) or not getattr(spec, "__talea_spec__", False):
         raise TypeError("inspect_spec requires a Spec class")
-    cached = _SPEC_INFO_CACHE.get(spec)
+    cached_ref = _SPEC_INFO_CACHE.get(spec)
+    cached = None if cached_ref is None else cached_ref()
     if cached is not None:
         return cached
     with _SPEC_INFO_LOCK:
-        cached = _SPEC_INFO_CACHE.get(spec)
+        cached_ref = _SPEC_INFO_CACHE.get(spec)
+        cached = None if cached_ref is None else cached_ref()
         if cached is None:
             declaration = cast(_SpecDeclaration, vars(spec)["__talea_declaration__"])
             if declaration.type_params:
                 cached = _inspect_open_generic(spec, declaration)
-                _SPEC_INFO_CACHE[spec] = cached
+                _SPEC_INFO_CACHE[spec] = ref(cached)
                 return cached
             artifacts = declaration.artifacts()
             fields = tuple(
@@ -282,7 +284,7 @@ def inspect_spec(spec: type[object]) -> SpecInfo:
                 _representation_infos(tuple(field.schema for field in artifacts.schema.fields)),
                 tuple(_serializer_info(serializer) for serializer in artifacts.schema.serializers),
             )
-            _SPEC_INFO_CACHE[spec] = cached
+            _SPEC_INFO_CACHE[spec] = ref(cached)
     return cached
 
 

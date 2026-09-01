@@ -39,7 +39,10 @@ class SerializationError(TypeError):
         """Return the same failure beneath a longer output location."""
 
         effective_sensitive = self.sensitive or sensitive
-        error = type(self)(self.reason, (*prefix, *self.location), sensitive=effective_sensitive)
+        location = self.location
+        if sensitive and location:
+            location = (location[0], *("<redacted>" for _ in location[1:]))
+        error = type(self)(self.reason, (*prefix, *location), sensitive=effective_sensitive)
         if not effective_sensitive:
             error.__cause__ = self.__cause__
         return error
