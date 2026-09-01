@@ -1,4 +1,4 @@
-"""Measure Campaign 9 Mapping and JSON input boundaries independently."""
+"""Measure compiled Mapping and JSON input boundaries independently."""
 
 import gc
 import importlib
@@ -13,7 +13,7 @@ from timeit import Timer
 from typing import Annotated, cast
 from uuid import UUID
 
-from talea import ErrorCode, Ge, Spec, ValidationError, check, field, transform
+from talea import Alias, ErrorCode, Ge, Spec, ValidationError, check, field, transform
 from talea.input.json import _default_loads
 
 _REPEATS = 7
@@ -126,6 +126,107 @@ def make_spec(count: int) -> type[Spec]:
     """Declare a strict integer Spec for scaling measurements."""
 
     return type(f"Input{count}", (Spec,), {"__annotations__": dict.fromkeys(names(count), int)})
+
+
+def make_aliased_spec(count: int, legacy_count: int = 0) -> type[Spec]:
+    """Declare integer fields with current aliases and equal legacy counts."""
+
+    annotations = {
+        f"field_{index}": Annotated[
+            int,
+            Alias(
+                f"external_{index}",
+                legacy=tuple(f"legacy_{index}_{legacy}" for legacy in range(legacy_count)),
+            ),
+        ]
+        for index in range(count)
+    }
+    return type(f"AliasedInput{count}x{legacy_count}", (Spec,), {"__annotations__": annotations})
+
+
+def aliased_values(count: int, *, legacy_index: int | None = None) -> dict[str, object]:
+    """Return current-name or one selected legacy-name payload."""
+
+    return {
+        f"external_{index}" if legacy_index is None else f"legacy_{index}_{legacy_index}": index
+        for index in range(count)
+    }
+
+
+def make_hand_migration_boundary(legacy_count: int) -> Callable[[Mapping[str, object]], object]:
+    """Return an equivalent one-field boundary with conflict and strict-value semantics."""
+
+    accepted_names = ("external", *(f"legacy_{index}" for index in range(legacy_count)))
+
+    class HandMigrated:
+        __slots__ = ("value",)
+
+        def __setattr__(self, name: str, value: object) -> None:
+            immutable(self, name, value)
+
+    setter = vars(HandMigrated)["value"].__set__
+    missing = object()
+
+    def construct(data: Mapping[str, object]) -> object:
+        if not isinstance(data, Mapping):
+            raise ValidationError("Mapping[str, object]", data, (), ErrorCode.TYPE, title="HandMigrated") from None
+        value = missing
+        selected_name: object = missing
+        conflict: ValidationError | None = None
+        for accepted_name in accepted_names:
+            try:
+                candidate = data[accepted_name]
+            except KeyError:
+                continue
+            if value is missing:
+                value = candidate
+                selected_name = accepted_name
+            elif conflict is None:
+                conflict = ValidationError._alias_conflict(
+                    (cast(str, selected_name), accepted_name),
+                    ("external",),
+                    title="HandMigrated",
+                )
+        errors: list[ValidationError] = []
+        if conflict is not None:
+            errors.append(conflict)
+        elif value is missing:
+            errors.append(ValidationError._missing(("external",), title="HandMigrated"))
+        elif type(value) is not int:
+            errors.append(ValidationError("int", value, ("external",), ErrorCode.TYPE, title="HandMigrated"))
+        for key in data:
+            if type(key) is not str or key not in accepted_names:
+                errors.append(ValidationError(None, data[key], (key,), ErrorCode.UNEXPECTED, title="HandMigrated"))
+        if errors:
+            raise ValidationError._aggregate(tuple(errors), title="HandMigrated") from None
+        instance = object.__new__(HandMigrated)
+        setter(instance, value)
+        return instance
+
+    return construct
+
+
+def audit_migration_baseline() -> None:
+    """Prove the migration comparator rejects ambiguity rather than choosing precedence."""
+
+    spec = make_aliased_spec(1, 4)
+    hand = make_hand_migration_boundary(4)
+    cases = (
+        ({"external_0": 1}, {"external": 1}),
+        ({"legacy_0_0": 1}, {"legacy_0": 1}),
+        ({"legacy_0_3": 1}, {"legacy_3": 1}),
+    )
+    for talea_data, hand_data in cases:
+        talea_value = object.__getattribute__(spec.from_mapping(talea_data), "field_0")
+        hand_value = object.__getattribute__(hand(hand_data), "value")
+        if talea_value != hand_value:
+            raise AssertionError("handwritten migration success is not semantically equivalent")
+    for talea_data, hand_data in (
+        ({"external_0": 1, "legacy_0_0": 1}, {"external": 1, "legacy_0": 1}),
+        ({"external_0": 1, "legacy_0_0": 2}, {"external": 1, "legacy_0": 2}),
+    ):
+        if capture(partial(spec.from_mapping, talea_data)).code != capture(partial(hand, hand_data)).code:
+            raise AssertionError("handwritten migration conflict is not semantically equivalent")
 
 
 def make_hand_boundary(count: int) -> Callable[[Mapping[str, object]], object]:
@@ -674,7 +775,9 @@ def benchmark_mapping() -> None:
     """Measure Mapping success, failure, allocation, and compilation costs."""
 
     audit_hand_baseline()
+    audit_migration_baseline()
     print("Handwritten audit: Mapping root, required keys, extras, aggregation, validation, and immutability")
+    print("Migration audit: current and legacy names, strict values, same/different conflicts, and no precedence")
     print(f"Mapping boundary ({_REPEATS} samples x {_SUCCESS_ITERATIONS:,} successes)")
     for count in (1, 5, 10):
         spec = make_spec(count)
@@ -689,6 +792,43 @@ def benchmark_mapping() -> None:
             f"Mapping -> Spec {count} fields",
             "handwritten",
             measure(partial(hand, data), _SUCCESS_ITERATIONS),
+        )
+    print(f"Existing Alias boundary ({_REPEATS} samples x {_SUCCESS_ITERATIONS:,} successes)")
+    for count in (1, 5, 10):
+        spec = make_aliased_spec(count)
+        print_measurement(
+            f"single Alias {count} fields",
+            "talea",
+            measure(partial(spec.from_mapping, aliased_values(count)), _SUCCESS_ITERATIONS),
+        )
+    print(f"Migration Alias boundary ({_REPEATS} samples x {_SUCCESS_ITERATIONS:,} successes)")
+    migration_specs: dict[int, type[Spec]] = {}
+    for legacy_count in (1, 4, 16):
+        spec = make_aliased_spec(1, legacy_count)
+        migration_specs[legacy_count] = spec
+        hand = make_hand_migration_boundary(legacy_count)
+        current = {"external_0": 1}
+        first = {"legacy_0_0": 1}
+        late = {f"legacy_0_{legacy_count - 1}": 1}
+        print_measurement(
+            f"{legacy_count} legacy current name",
+            "talea",
+            measure(partial(spec.from_mapping, current), _SUCCESS_ITERATIONS),
+        )
+        print_measurement(
+            f"{legacy_count} legacy current name",
+            "handwritten",
+            measure(partial(hand, {"external": 1}), _SUCCESS_ITERATIONS),
+        )
+        print_measurement(
+            f"{legacy_count} legacy first name",
+            "talea",
+            measure(partial(spec.from_mapping, first), _SUCCESS_ITERATIONS),
+        )
+        print_measurement(
+            f"{legacy_count} legacy late name",
+            "talea",
+            measure(partial(spec.from_mapping, late), _SUCCESS_ITERATIONS),
         )
     container_data: dict[str, object] = {"values": [1, 2], "pair": (1, 2)}
     standard_data: dict[str, object] = {"identifier": UUID(int=0)}
@@ -741,6 +881,17 @@ def benchmark_mapping() -> None:
             partial(capture, lambda: Aggregate.from_mapping({"identifier": 1, "name": "Ada", "age": 1})),
         ),
         (
+            "alias conflict",
+            partial(
+                capture,
+                lambda: migration_specs[4].from_mapping({"external_0": 1, "legacy_0_0": 1}),
+            ),
+        ),
+        (
+            "migration unexpected key",
+            partial(capture, lambda: migration_specs[4].from_mapping({"legacy_0_0": 1, "extra": True})),
+        ),
+        (
             "aggregated failure",
             partial(
                 capture,
@@ -756,7 +907,10 @@ def benchmark_mapping() -> None:
     allocation_cases: tuple[tuple[str, Operation], ...] = (
         ("successful Mapping", partial(make_spec(5).from_mapping, values(5))),
         ("nested Mapping", partial(Nested.from_mapping, MAPPING_NESTED)),
-        ("aggregated failure", failures[1][1]),
+        ("aggregated failure", failures[3][1]),
+        ("one legacy success", partial(migration_specs[1].from_mapping, {"legacy_0_0": 1})),
+        ("sixteen legacy success", partial(migration_specs[16].from_mapping, {"legacy_0_15": 1})),
+        ("alias conflict", failures[1][1]),
     )
     for name, operation in allocation_cases:
         result = measure_allocations(operation)
@@ -769,6 +923,17 @@ def benchmark_mapping() -> None:
             "talea full declaration",
             measure(partial(make_spec, count), _DECLARATION_ITERATIONS),
         )
+    for legacy_count in (0, 1, 16):
+        print_measurement(
+            f"declare 1 field + {legacy_count} legacy",
+            "talea full declaration",
+            measure(partial(make_aliased_spec, 1, legacy_count), _DECLARATION_ITERATIONS),
+        )
+    print_measurement(
+        "declare 10 fields + legacy",
+        "talea full declaration",
+        measure(partial(make_aliased_spec, 10, 1), _DECLARATION_ITERATIONS),
+    )
 
     print(f"Boundary first use ({_FIRST_USE_SAMPLES:,} fresh 5-field declarations)")
     print_measurement("first from_mapping", "compile + execute", measure_first_use("mapping"))
@@ -786,6 +951,22 @@ def benchmark_mapping() -> None:
         "Boundary retained shallow memory "
         f"cold={cold_boundary_bytes} B mapping-warm={warm_boundary_bytes} B "
         f"instance={instance_size} B json_compiled={artifacts.inputs.json_input is not None}"
+    )
+    migrated = migration_specs[16]
+    migrated_artifacts = vars(migrated)["__talea_artifacts__"]
+    migrated.from_mapping({"legacy_0_15": 1})
+    migrated_input = migrated_artifacts.inputs.mapping_input
+    assert migrated_input is not None
+    accepted_names = migrated_artifacts.schema.fields[0].accepted_input_names
+    migration_bytes = (
+        sys.getsizeof(migrated_artifacts.schema.fields[0])
+        + sys.getsizeof(accepted_names)
+        + sys.getsizeof(migrated_input)
+        + sys.getsizeof(migrated_input.__globals__)
+    )
+    print(
+        "Migration retained shallow memory "
+        f"field+accepted+mapping={migration_bytes} B accepted_names={len(accepted_names)} global_registry=False"
     )
 
 
@@ -811,6 +992,18 @@ def benchmark_json() -> None:
         ("UUID full JSON", partial(Standard.from_json, JSON_STANDARD)),
     ):
         print_measurement(name, "talea + stdlib", measure(operation, _SUCCESS_ITERATIONS))
+    migrated = make_aliased_spec(1, 16)
+    migration_json_cases: tuple[tuple[str, str], ...] = (
+        ("migration current-name JSON", '{"external_0":1}'),
+        ("migration first-legacy JSON", '{"legacy_0_0":1}'),
+        ("migration late-legacy JSON", '{"legacy_0_15":1}'),
+    )
+    for name, payload in migration_json_cases:
+        print_measurement(
+            name,
+            "talea + stdlib",
+            measure(partial(migrated.from_json, payload), _SUCCESS_ITERATIONS),
+        )
 
     malformed = partial(capture, lambda: JsonFive.from_json('{"identifier":]'))
     invalid = partial(capture, lambda: JsonFive.from_json('{"identifier":"bad"}'))
@@ -838,13 +1031,15 @@ def benchmark_json() -> None:
         ("successful JSON", partial(JsonFive.from_json, JSON_FIVE)),
         ("nested JSON", partial(Nested.from_json, JSON_NESTED)),
         ("aggregated decoded failure", invalid),
+        ("migration current JSON", partial(migrated.from_json, migration_json_cases[0][1])),
+        ("migration legacy JSON", partial(migrated.from_json, migration_json_cases[2][1])),
     ):
         result = measure_allocations(operation)
         print(f"{name:36} retained={result.retained:5} B peak={result.peak:5} B")
 
 
 def main() -> None:
-    """Run one explicitly selected Campaign 9 benchmark family."""
+    """Run one explicitly selected input-boundary benchmark family."""
 
     if sys.argv[1:] == ["mapping"]:
         benchmark_mapping()
