@@ -79,9 +79,36 @@ class _TaggedValidationEmission:
         emitter = self.emitter
         discriminator = emitter.bind("discriminator", schema.external_name)
         tag_location = (*location, discriminator)
-        emitter.emit(indentation, f"if {discriminator} not in {value}:")
-        missing = emitter.variable("discriminator_error")
         sensitive = schema.sensitive or emitter.sensitive
+        tag = emitter.variable("discriminator_tag")
+        if schema.legacy_names:
+            accepted_names = emitter.bind("discriminator_accepted_names", schema.accepted_input_names)
+            missing_value = emitter.bind("discriminator_missing_value", object())
+            selected_name = emitter.variable("discriminator_selected_name")
+            conflict = emitter.variable("discriminator_alias_conflict")
+            emitter.emit(indentation, f"{tag} = {missing_value}")
+            emitter.emit(indentation, f"{selected_name} = {missing_value}")
+            emitter.emit(indentation, f"{conflict} = None")
+            for accepted_index in range(len(schema.accepted_input_names)):
+                emitter.emit(indentation, f"if {accepted_names}[{accepted_index}] in {value}:")
+                emitter.emit(indentation + 1, f"if {tag} is {missing_value}:")
+                emitter.emit(indentation + 2, f"{tag} = {value}[{accepted_names}[{accepted_index}]]")
+                emitter.emit(indentation + 2, f"{selected_name} = {accepted_names}[{accepted_index}]")
+                emitter.emit(indentation + 1, f"elif {conflict} is None:")
+                emitter.emit(
+                    indentation + 2,
+                    f"{conflict} = {emitter.validation_error_name}._alias_conflict("
+                    f"({selected_name}, {accepted_names}[{accepted_index}]), "
+                    f"{emitter.location_expression(tag_location)}"
+                    f"{emitter.title_argument()}{', sensitive=True' if sensitive else ''})",
+                )
+            emitter.emit(indentation, f"if {conflict} is not None:")
+            emitter.emit(indentation + 1, f"raise {conflict} from None")
+            missing_condition = f"{tag} is {missing_value}"
+        else:
+            missing_condition = f"{discriminator} not in {value}"
+        emitter.emit(indentation, f"if {missing_condition}:")
+        missing = emitter.variable("discriminator_error")
         emitter.emit(
             indentation + 1,
             f"{missing} = {emitter.validation_error_name}.discriminator_missing("
@@ -89,8 +116,8 @@ class _TaggedValidationEmission:
             f"{emitter.title_argument()}{', sensitive=True' if sensitive else ''})",
         )
         emitter.emit(indentation + 1, f"raise {missing} from None")
-        tag = emitter.variable("discriminator_tag")
-        emitter.emit(indentation, f"{tag} = {value}[{discriminator}]")
+        if not schema.legacy_names:
+            emitter.emit(indentation, f"{tag} = {value}[{discriminator}]")
         canonical_tags = tuple(branch.json_tag if json else branch.tag for branch in schema.branches)
         allowed_types = tuple(dict.fromkeys(item.python_type for item in canonical_tags))
         allowed = emitter.bind("discriminator_types", allowed_types)

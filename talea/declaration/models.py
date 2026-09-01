@@ -16,7 +16,7 @@ from talea.declaration.policies import (
     schema_values_are_immutable,
 )
 from talea.metadata import EMPTY_METADATA, DeclarationMetadata
-from talea.schema.nodes import Schema
+from talea.schema.nodes import Schema, _accepted_input_names
 
 
 class _MissingDefault:
@@ -39,12 +39,6 @@ MISSING_SERIALIZER_OUTPUT: Final = _MissingSerializerOutput()
 type HookKind = Literal["transform", "check"]
 type DerivationSelection = Literal["all", "include", "exclude"]
 type DerivationMode = Literal["input", "output"]
-
-
-def _accepted_input_names(current: str, legacy: tuple[str, ...]) -> tuple[str, ...]:
-    """Normalize one field's current and legacy external names once."""
-
-    return (current, *legacy)
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,10 +259,12 @@ class SpecSchema:
 
         Base schemas are consumed in declared-base order.  The first occurrence
         of an inherited name owns its MRO-selected semantics.  A local override
-        replaces that field at its established position; a new local field is
-        appended in class-body order. Hook method names use the same first-base
-        and in-place override rules. A locally shadowed ordinary attribute
-        removes its same-named inherited hook.
+        replaces that field at its established position. An annotation-only
+        override retains the inherited Alias as one metadata item; a local
+        Alias replaces it. A new local field is appended in class-body order.
+        Hook method names use the same first-base and in-place override rules.
+        A locally shadowed ordinary attribute removes its same-named inherited
+        hook.
 
         Raises:
             TypeError: If an override widens or otherwise conflicts with the
@@ -297,6 +293,10 @@ class SpecSchema:
             if inherited_field is not None:
                 declared_field = replace(
                     declared_field,
+                    alias=inherited_field.alias if declared_field.alias is None else declared_field.alias,
+                    legacy_names=(
+                        inherited_field.legacy_names if declared_field.alias is None else declared_field.legacy_names
+                    ),
                     metadata=inherited_field.metadata.merged(declared_field.metadata),
                 )
             fields[declared_field.name] = declared_field

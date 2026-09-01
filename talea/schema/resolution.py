@@ -469,8 +469,9 @@ def _resolve_dataclass(
                     kw_only,
                     DATACLASS_MISSING if declared.default is MISSING else declared.default,
                     DATACLASS_MISSING if declared.default_factory is MISSING else declared.default_factory,
-                    alias,
-                    metadata,
+                    alias=None if alias is None else alias.name,
+                    metadata=metadata,
+                    legacy_names=() if alias is None else alias.legacy,
                 )
             )
         resolved = DataclassSchema(
@@ -610,7 +611,7 @@ def _matches_direct_dataclass_initializer(
     return consume("LOAD_CONST", 0) and consume("RETURN_VALUE", 0) and index == len(instructions)
 
 
-def _dataclass_field_metadata(annotation: object) -> tuple[str | None, DeclarationMetadata]:
+def _dataclass_field_metadata(annotation: object) -> tuple[Alias | None, DeclarationMetadata]:
     """Extract Talea annotation metadata without reading dataclass metadata."""
 
     if get_origin(annotation) is not Annotated:
@@ -619,7 +620,7 @@ def _dataclass_field_metadata(annotation: object) -> tuple[str | None, Declarati
     aliases = tuple(item for item in extras if isinstance(item, Alias))
     if len(aliases) > 1:
         raise TypeError("a dataclass field can declare only one Alias")
-    return (aliases[0].name if aliases else None), normalize_metadata(extras)
+    return (aliases[0] if aliases else None), normalize_metadata(extras)
 
 
 def _unwrap_typed_dict_qualifiers(
@@ -714,6 +715,7 @@ def _resolve_tagged_union(
 
     branch_data = []
     canonical_name = external_name = None
+    accepted_input_names: tuple[str, ...] | None = None
     sensitive = False
     for option in branch_options:
         field, serializers = _tagged_branch_field(option, declaration.name)
@@ -728,20 +730,29 @@ def _resolve_tagged_union(
         if canonical_name is None:
             canonical_name = field.name
             external_name = field.external_name
-        elif field.name != canonical_name or field.external_name != external_name:
+            accepted_input_names = (
+                field.accepted_input_names if isinstance(field, SpecField) else (field.external_name,)
+            )
+        elif (
+            field.name != canonical_name
+            or field.external_name != external_name
+            or (field.accepted_input_names if isinstance(field, SpecField) else (field.external_name,))
+            != accepted_input_names
+        ):
             raise TaggedUnionDeclarationError(
-                "all tagged-union branches must share one canonical field and external name"
+                "all tagged-union branches must share one canonical field, external name, and accepted input names"
             )
         sensitive = sensitive or bool(field.metadata.sensitive)
         branch_data.append(TaggedUnionBranch(literal, json_tag, option))
 
-    assert canonical_name is not None and external_name is not None
+    assert canonical_name is not None and external_name is not None and accepted_input_names is not None
     try:
         tagged = TaggedUnionSchema(
             canonical_name,
             external_name,
             tuple(sorted(branch_data, key=lambda branch: _literal_sort_key(branch.tag))),
             sensitive,
+            accepted_input_names[1:],
         )
     except ValueError as error:
         raise TaggedUnionDeclarationError(str(error)) from None

@@ -23,14 +23,18 @@ from talea.declaration.models import (
     MISSING_SERIALIZER_OUTPUT,
     SerializationHook,
     SpecDerivation,
-    _accepted_input_names,
 )
 from talea.declaration.policies import (
     schema_contains_representation,
     schema_input_directions_are_available,
     schema_output_directions_are_available,
 )
-from talea.metadata import EMPTY_METADATA, DeclarationMetadata, ExampleValue, annotation_metadata
+from talea.metadata import (
+    EMPTY_METADATA,
+    DeclarationMetadata,
+    ExampleValue,
+    annotation_metadata,
+)
 from talea.schema.nodes import (
     AliasSchema,
     ConstrainedSchema,
@@ -46,6 +50,7 @@ from talea.schema.nodes import (
     TypedDictSchema,
     UnionSchema,
     VariadicTupleSchema,
+    _accepted_input_names,
 )
 from talea.spec.declaration import _SpecDeclaration
 from talea.spec.fields import _FactoryDeclaration

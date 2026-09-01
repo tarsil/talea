@@ -598,6 +598,7 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         source = self.variable("dataclass_source")
         dictionary = self.runtime("dict", dict)
         init_fields = tuple(field for field in schema.fields if field.init)
+        has_legacy_names = any(field.legacy_names for field in init_fields)
         external_names = self.bind(
             "dataclass_external_names",
             tuple(field.external_name for field in init_fields),
@@ -608,10 +609,14 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         )
         known = self.bind(
             "dataclass_known_names",
-            frozenset(field.external_name for field in init_fields),
+            (
+                frozenset(name for field in init_fields for name in field.accepted_input_names)
+                if has_legacy_names
+                else frozenset(field.external_name for field in init_fields)
+            ),
         )
         title = self.title_name or self.bind("dataclass_title", schema.dataclass_type.__name__)
-        if init_fields and all(field.required for field in init_fields):
+        if not has_legacy_names and init_fields and all(field.required for field in init_fields):
             exact_dictionary = self.runtime("dict", dict)
             key_error = self.runtime("key_error", KeyError)
             exact_values = tuple(self.variable("dataclass_exact_value") for _ in init_fields)
@@ -621,8 +626,8 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
                 f"and {self.runtime('len', len)}({value}) == {len(init_fields)}:",
             )
             self.emit(indentation + 1, "try:")
-            for field, converted in zip(init_fields, exact_values, strict=True):
-                self.emit(indentation + 2, f"{converted} = {value}[{field.external_name!r}]")
+            for index, converted in enumerate(exact_values):
+                self.emit(indentation + 2, f"{converted} = {value}[{external_names}[{index}]]")
             self.emit(indentation + 1, f"except {key_error}:")
             self.emit(indentation + 2, "pass")
             self.emit(indentation + 1, "else:")
@@ -657,8 +662,46 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
             )
         self.emit(indentation, f"if not {existing} and {shape}:")
         self.emit(indentation + 1, f"{source} = {dictionary}({value})")
+        accepted_values: dict[int, str] = {}
+        missing_value = self.bind("dataclass_missing", object()) if has_legacy_names else None
         for index, field in enumerate(init_fields):
             member_location = (*location, f"{external_names}[{index}]")
+            if field.legacy_names:
+                assert missing_value is not None
+                accepted_names = self.bind("dataclass_accepted_names", field.accepted_input_names)
+                converted = self.variable("dataclass_accepted_value")
+                selected_name = self.variable("dataclass_selected_name")
+                conflict = self.variable("dataclass_alias_conflict")
+                self.emit(indentation + 1, f"{converted} = {missing_value}")
+                self.emit(indentation + 1, f"{selected_name} = {missing_value}")
+                self.emit(indentation + 1, f"{conflict} = None")
+                for accepted_index in range(len(field.accepted_input_names)):
+                    self.emit(indentation + 1, f"if {accepted_names}[{accepted_index}] in {source}:")
+                    self.emit(indentation + 2, f"if {converted} is {missing_value}:")
+                    self.emit(indentation + 3, f"{converted} = {source}[{accepted_names}[{accepted_index}]]")
+                    self.emit(indentation + 3, f"{selected_name} = {accepted_names}[{accepted_index}]")
+                    self.emit(indentation + 2, f"elif {conflict} is None:")
+                    sensitive = bool(field.metadata.sensitive) or self.sensitive
+                    self.emit(
+                        indentation + 3,
+                        f"{conflict} = {self.validation_error_name}._alias_conflict("
+                        f"({selected_name}, {accepted_names}[{accepted_index}]), "
+                        f"{self.location_expression(member_location)}, title={title}"
+                        f"{', sensitive=True' if sensitive else ''})",
+                    )
+                self.emit(indentation + 1, f"if {conflict} is not None:")
+                self.emit(indentation + 2, f"raise {conflict} from None")
+                accepted_values[index] = converted
+                if field.required:
+                    self.emit(indentation + 1, f"if {converted} is {missing_value}:")
+                    missing = self.variable("missing_error")
+                    self.emit(
+                        indentation + 2,
+                        f"{missing} = {self.validation_error_name}._missing("
+                        f"{self.location_expression(member_location)}, title={title})",
+                    )
+                    self.emit(indentation + 2, f"raise {missing} from None")
+                continue
             if field.required:
                 self.emit(indentation + 1, f"if {external_names}[{index}] not in {source}:")
                 missing = self.variable("missing_error")
@@ -683,9 +726,14 @@ class _BoundaryValidationEmitter(_ValidationEmitter):
         keywords = self.variable("dataclass_keywords")
         self.emit(indentation + 1, f"{keywords} = {{}}")
         for index, field in enumerate(init_fields):
-            self.emit(indentation + 1, f"if {external_names}[{index}] in {source}:")
-            converted = self.variable("dataclass_value")
-            self.emit(indentation + 2, f"{converted} = {source}[{external_names}[{index}]]")
+            if field.legacy_names:
+                assert missing_value is not None
+                converted = accepted_values[index]
+                self.emit(indentation + 1, f"if {converted} is not {missing_value}:")
+            else:
+                self.emit(indentation + 1, f"if {external_names}[{index}] in {source}:")
+                converted = self.variable("dataclass_value")
+                self.emit(indentation + 2, f"{converted} = {source}[{external_names}[{index}]]")
             if schema.construction_preserves_validated_fields:
                 self.emit_schema(
                     field.schema,

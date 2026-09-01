@@ -462,6 +462,29 @@ assert_type(MigrationAliased.from_mapping({"old_name": "value"}), MigrationAlias
 assert_type(MigrationAliased.from_json('{"internal_name":"value"}'), MigrationAliased)
 
 
+class MigratedBase(Spec):
+    identifier: Annotated[int, Alias("accountId", legacy=("id",))]
+
+
+class MigratedChild(MigratedBase):
+    identifier: int
+
+
+class MigratedBox[T](Spec):
+    payload: Annotated[T, Alias("body", legacy=("payload",))]
+
+
+@dataclass
+class MigratedRecord:
+    identifier: Annotated[int, Alias("accountId", legacy=("id",))]
+
+
+assert_type(MigratedChild.from_mapping({"id": 1}), MigratedChild)
+assert_type(MigratedBox[str].from_mapping({"payload": "value"}), MigratedBox[str])
+assert_type(Contract(MigratedRecord).from_python({"id": 1}), MigratedRecord)
+assert_type(derive_spec(MigrationAliased, partial=True), type[Spec])
+
+
 class Serialized(Spec):
     value: int
 

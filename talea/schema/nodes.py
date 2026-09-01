@@ -49,6 +49,12 @@ type SequenceKind = Literal["list", "set", "frozenset"]
 type TypeCheckMode = Literal["exact", "nominal"]
 
 
+def _accepted_input_names(current: str, legacy: tuple[str, ...]) -> tuple[str, ...]:
+    """Normalize one canonical field's current and legacy input names."""
+
+    return (current, *legacy)
+
+
 class _DataclassMissing:
     """Represent the absence of a retained dataclass static default."""
 
@@ -252,7 +258,9 @@ class DataclassField:
     ``init`` controls whether external Mapping and JSON boundaries may supply
     the field. Every field remains part of strict current-state validation and
     output. Defaults and factories are retained only so the original dataclass
-    constructor can remain their sole lifecycle owner.
+    constructor can remain their sole lifecycle owner. ``legacy_names`` and
+    ``accepted_input_names`` are the immutable input vocabulary resolved from
+    the field's Alias; output uses only ``external_name``.
     """
 
     name: str
@@ -263,12 +271,19 @@ class DataclassField:
     default_factory: object = DATACLASS_MISSING
     alias: str | None = None
     metadata: DeclarationMetadata = EMPTY_METADATA
+    legacy_names: tuple[str, ...] = ()
+    accepted_input_names: tuple[str, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         if self.default is not DATACLASS_MISSING and self.default_factory is not DATACLASS_MISSING:
             raise ValueError("a dataclass field cannot have both a static default and a default factory")
         if self.alias is not None and (not isinstance(self.alias, str) or not self.alias):
             raise TypeError("a dataclass field alias must be a non-empty string")
+        object.__setattr__(
+            self,
+            "accepted_input_names",
+            _accepted_input_names(self.external_name, self.legacy_names),
+        )
 
     @property
     def required(self) -> bool:
@@ -325,6 +340,13 @@ class DataclassSchema:
                 raise ValueError(f"field alias {item.alias!r} conflicts with a canonical field name")
         if len(external_names) != len(set(external_names)):
             raise ValueError("a dataclass schema requires unique external field names")
+        for item in self.fields:
+            for legacy_name in item.legacy_names:
+                if legacy_name != item.name and legacy_name in canonical_names:
+                    raise ValueError(f"field legacy name {legacy_name!r} conflicts with a canonical field name")
+        accepted_names = tuple(name for item in self.fields for name in item.accepted_input_names)
+        if len(accepted_names) != len(set(accepted_names)):
+            raise ValueError("a dataclass schema requires unique accepted input names")
 
     @property
     def instances_are_permanently_trusted(self) -> bool:
@@ -349,14 +371,18 @@ class TaggedUnionSchema:
     """Canonical finite dispatch truth for an explicitly tagged union.
 
     ``discriminator`` is the common Python field name and ``external_name`` is
-    its Alias-derived boundary key. Branch order is deterministic and no
-    mutable dispatch mapping is exposed to introspection consumers.
+    its Alias-derived current boundary key. ``accepted_input_names`` is the
+    compatible discriminator-key vocabulary projected from every branch.
+    Branch order is deterministic and no mutable dispatch mapping is exposed
+    to introspection consumers.
     """
 
     discriminator: str
     external_name: str
     branches: tuple[TaggedUnionBranch, ...]
     sensitive: bool = False
+    legacy_names: tuple[str, ...] = ()
+    accepted_input_names: tuple[str, ...] = field(init=False)
 
     def __post_init__(self) -> None:
         if len(self.branches) < 2:
@@ -367,6 +393,11 @@ class TaggedUnionSchema:
         json_tags = tuple(branch.json_tag for branch in self.branches)
         if len(json_tags) != len(set(json_tags)):
             raise ValueError("a tagged union requires unique JSON tags")
+        object.__setattr__(
+            self,
+            "accepted_input_names",
+            _accepted_input_names(self.external_name, self.legacy_names),
+        )
 
 
 @dataclass(frozen=True, slots=True)
