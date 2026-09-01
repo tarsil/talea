@@ -54,6 +54,51 @@ def resolve_item_policy(policy: ItemPolicy | None) -> ItemPolicy:
     return policy
 
 
+class _ItemState:
+    """Own item and invalid-item accounting for one incremental operation."""
+
+    __slots__ = ("_invalid_items", "_items", "policy")
+
+    def __init__(self, policy: ItemPolicy) -> None:
+        self.policy = policy
+        self._items = 0
+        self._invalid_items = 0
+
+    def begin_item(self) -> int:
+        """Charge one pulled source item and return its zero-based index."""
+
+        index = self._items
+        items = index + 1
+        self._items = items
+        maximum = self.policy.max_items
+        if maximum is not None and items > maximum:
+            raise ResourceLimitError("items", maximum, items)
+        return index
+
+    def mark_invalid(self) -> None:
+        """Charge one continued invalid item before its callback runs."""
+
+        invalid_items = self._invalid_items + 1
+        self._invalid_items = invalid_items
+        maximum = self.policy.max_invalid_items
+        if maximum is not None and invalid_items > maximum:
+            raise ResourceLimitError("invalid_items", maximum, invalid_items) from None
+
+    def handle_validation_error(
+        self,
+        index: int,
+        error: ValidationError,
+        on_error: Callable[[int, ValidationError], None] | None,
+    ) -> None:
+        """Preserve canonical item location and continuation behavior."""
+
+        located = error.prefixed((index,))
+        if on_error is None:
+            raise located from located.__cause__
+        self.mark_invalid()
+        on_error(index, located)
+
+
 def iter_items(
     source: Iterable[object],
     operation: Callable[[object], T],
@@ -75,21 +120,13 @@ def _consume_items(
     on_error: Callable[[int, ValidationError], None] | None,
     policy: ItemPolicy,
 ) -> Iterator[T]:
-    invalid_items = 0
-    for index, item in enumerate(source):
-        if policy.max_items is not None and index >= policy.max_items:
-            raise ResourceLimitError("items", policy.max_items, index + 1)
+    state = _ItemState(policy)
+    for item in source:
+        index = state.begin_item()
         try:
             result = operation(item)
         except ValidationError as error:
-            located = error.prefixed((index,))
-            if on_error is None:
-                raise located from located.__cause__
-            invalid_items += 1
-            if policy.max_invalid_items is not None and invalid_items > policy.max_invalid_items:
-                raise ResourceLimitError("invalid_items", policy.max_invalid_items, invalid_items) from None
-            on_error(index, located)
-            del located
+            state.handle_validation_error(index, error, on_error)
         else:
             del item
             yield result

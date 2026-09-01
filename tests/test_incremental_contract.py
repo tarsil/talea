@@ -175,6 +175,8 @@ def test_item_and_invalid_item_budgets_have_distinct_exact_counts() -> None:
         next(invalid_iterator)
     assert seen == [0, 1]
     assert (invalid.value.code, invalid.value.limit, invalid.value.observed) == ("invalid_items", 2, 3)
+    assert invalid.value.__cause__ is None
+    assert invalid.value.__suppress_context__
 
 
 def test_per_item_resource_failure_is_terminal_and_never_calls_callback() -> None:

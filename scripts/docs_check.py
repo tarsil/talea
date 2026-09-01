@@ -16,6 +16,7 @@ import talea
 import talea.declaration
 import talea.errors
 import talea.introspection
+import talea.jsonl
 import talea.schema
 import talea.settings
 import talea.validation
@@ -116,6 +117,7 @@ def check_public_api_reference() -> None:
         talea.declaration,
         talea.errors,
         talea.introspection,
+        talea.jsonl,
         talea.schema,
         talea.settings,
         talea.validation,

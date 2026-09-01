@@ -213,3 +213,8 @@ tasks:
     desc: Benchmarks lazy retained Contract item execution, limits, retention, and canaries
     cmds:
       - hatch run test:benchmark_incremental
+
+  benchmark_jsonl:
+    desc: Benchmarks bounded JSON Lines framing, conversion, continuation, and canaries
+    cmds:
+      - hatch run test:benchmark_jsonl

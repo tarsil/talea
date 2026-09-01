@@ -33,6 +33,7 @@ identity, and discriminator truth are not reinterpreted by each branch.
 | recursive references | finite named back-edges and lazy publication |
 | resources | operation-local input budgets |
 | incremental Contract items | lazy indexes, failure decision, and stream counts |
+| JSON Lines framing | record units, one-based lines, UTF-8/newlines, strict decode boundary, and transport bytes |
 | standards projection | Draft 2020-12 and OpenAPI Schema Objects |
 
 ## Canonical owner map
@@ -49,6 +50,7 @@ representations:
 | selected-plan retention | each Spec declaration's output artifacts | that class only, bounded to 32 immutable plans |
 | external-input budgets | operation-local `ResourcePolicy` state | Mapping and JSON input compilers |
 | incremental item and invalid-item budgets | immutable `talea.contract.ItemPolicy` plus iterator-local counters | `Contract.iter_validate` and `Contract.iter_python` |
+| JSONL record and transport-byte truth | immutable `talea.jsonl.JsonlPolicy` plus iterator-local framing state | `Contract.iter_jsonl` |
 | JSON representations | canonical JSON representation owner | JSON input, JSON output, and standards projection |
 | public validation failures | `ErrorCode`, `ErrorData`, and `ValidationError` | every validation and input execution target |
 | represented domain values | one immutable `RepresentationSchema` association between internal, input, output, and callback identity | strict validation, input/output compilation, standards projection, introspection, and nested selection |
@@ -114,14 +116,32 @@ flowchart TD
     A[Retained Contract artifacts] --> B[Incremental item owner]
     B --> C[Strict validation]
     B --> D[External Python conversion]
-    E[Future framing owner] --> B
+    E[JSONL framing owner] --> B
 ```
 
 The item owner is not a second Contract, schema interpreter, batch
-materializer, transport decoder, or stream framework. JSON Schema, OpenAPI,
-serialization, and `ContractInfo` continue to describe `T`; an execution
-iterator adds no structural truth. A future framing owner may compose decoded
-values with this boundary while retaining its own syntax and transport errors.
+materializer, transport decoder, or stream framework. JSONL owns physical
+records and safe pre-validation errors, reuses the ordinary strict JSON syntax
+owner, and shares this owner's counters for every pulled/continued record.
+JSON Schema, OpenAPI, serialization, and `ContractInfo` continue to describe
+`T`; an execution iterator adds no structural truth.
+
+### JSON Lines ownership
+
+```mermaid
+flowchart TD
+    A[Text or bytes record] --> B[JSONL framing]
+    B --> C[Strict JSON decoder]
+    C --> D[Decoded Python value]
+    D --> E[Incremental item owner]
+    E --> F[Retained Contract JSON input]
+```
+
+`JsonlPolicy` owns raw per-record and total transport bytes. `ItemPolicy` owns
+logical records and continued invalid records across framing and validation.
+`ResourcePolicy` owns traversal and error aggregation inside each decoded
+value. The JSONL path does not call `Contract.from_json()` per line, duplicate
+JSON policy, double-charge raw bytes, or compile per record.
 
 ## Why compile generated Python
 

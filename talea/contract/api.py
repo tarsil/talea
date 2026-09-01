@@ -7,6 +7,7 @@ from talea.contract.artifacts import _ContractArtifacts
 from talea.contract.items import ItemPolicy, iter_items
 from talea.declaration.policies import schema_contains_sensitive_metadata, schema_root_metadata
 from talea.input.json import JsonInput, JsonLoads, decode_json
+from talea.jsonl import JsonlError, JsonlPolicy, _iter_jsonl
 from talea.metadata import annotation_metadata
 from talea.resources.policy import ResourcePolicy, resolve_policy
 from talea.resources.state import resource_state
@@ -216,6 +217,60 @@ class Contract(Generic[T]):
             return compiled(value, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
 
         return iter_items(values, convert, on_error=on_error, policy=item_policy)
+
+    def iter_jsonl(
+        self,
+        records: Iterable[str] | Iterable[bytes],
+        /,
+        *,
+        on_error: Callable[[int, ValidationError], None] | None = None,
+        on_jsonl_error: Callable[[int, JsonlError], None] | None = None,
+        item_policy: ItemPolicy | None = None,
+        jsonl_policy: JsonlPolicy | None = None,
+        policy: ResourcePolicy | None = None,
+    ) -> Iterator[T]:
+        """Lazily decode and convert one JSON value per source record.
+
+        Text and bytes sources are strict UTF-8 JSON Lines record iterables,
+        not arbitrary chunks or paths. Framing failures use one-based line
+        numbers through ``JsonlError``; decoded validation failures preserve
+        the zero-based ``on_error(index, ValidationError)`` contract used by
+        :meth:`iter_python`. The caller owns source lifetime.
+
+        Args:
+            records: An application-owned iterable yielding only text records
+                or only bytes records.
+            on_error: Optional decoded-value validation callback.
+            on_jsonl_error: Optional framing/decoding callback. Returning
+                normally explicitly skips that malformed record.
+            item_policy: Logical record and invalid-record limits shared by
+                both failure domains.
+            jsonl_policy: Per-record and aggregate raw transport byte limits.
+            policy: Per-decoded-item traversal and validation limits.
+
+        Raises:
+            JsonlError: If framing or strict JSON decoding fails without a
+                continuation callback.
+            ResourceLimitError: If any selected resource limit is exceeded.
+            ValidationError: If decoded conversion fails without a callback.
+        """
+
+        selected_policy = self._policy if policy is None else resolve_policy(policy)
+
+        def convert(value: object) -> T:
+            compiled = self._artifacts.json_input
+            if compiled is None:
+                compiled = self._artifacts.input_for("json")
+            return compiled(value, resource_state(selected_policy))  # ty: ignore[invalid-return-type]
+
+        return _iter_jsonl(
+            records,
+            convert,
+            on_error=on_error,
+            on_jsonl_error=on_jsonl_error,
+            item_policy=item_policy,
+            jsonl_policy=jsonl_policy,
+        )
 
     def from_json(
         self,

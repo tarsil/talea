@@ -126,7 +126,7 @@ extra-dependencies = [
 test = "hatch test -- {args}"
 test_man = "hatch test -- {args} -s -vv"
 coverage = "pytest --cov=talea --cov-report=term-missing {args}"
-check_types = "ty check talea benchmarks docs_src typing_contracts/spec.py typing_contracts/spec_negative.py typing_contracts/settings.py typing_contracts/incremental.py"
+check_types = "ty check talea benchmarks docs_src typing_contracts/spec.py typing_contracts/spec_negative.py typing_contracts/settings.py typing_contracts/incremental.py typing_contracts/jsonl.py"
 check_types_py315 = "ty check --python-version 3.15 talea benchmarks docs_src typing_contracts"
 benchmark_schema = "python benchmarks/schema_resolution.py"
 benchmark_spec = "python benchmarks/spec_construction.py"
@@ -151,6 +151,7 @@ benchmark_representation = "python benchmarks/representation_input.py"
 benchmark_callables = "python benchmarks/callables.py"
 benchmark_settings = "python benchmarks/settings.py"
 benchmark_incremental = "python benchmarks/incremental_contract.py"
+benchmark_jsonl = "python benchmarks/jsonl_input.py"
 
 [tool.isort]
 profile = "black"

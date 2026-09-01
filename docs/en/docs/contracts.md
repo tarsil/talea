@@ -33,6 +33,7 @@ whose root may be a scalar, container, union, `TypedDict`, dataclass, alias, or
 | Convert an external mapping into `User` | `User.from_mapping` |
 | Convert an external list of mappings into users | `Contract[list[User]].from_python` |
 | Lazily convert iterable records one at a time | `Contract(User).iter_python` |
+| Decode one JSON value per text/bytes record | `Contract(User).iter_jsonl` |
 | Keep a stdlib dataclass and add external boundaries | `Contract(DomainDataclass)` |
 | Validate an existing value without conversion | `Contract.validate` |
 | JSON for an arbitrary root | `Contract.from_json` / `Contract.to_json` |
@@ -116,6 +117,10 @@ explicit callback to continue after invalid data. `ItemPolicy` from
 See [Incremental Contract validation](incremental-validation.md) for source
 ownership, limits, error and callback behavior, typing, security, performance,
 and executable generator/cursor examples.
+
+For UTF-8 text or bytes records, `iter_jsonl()` composes the same retained
+external JSON artifact with line framing, strict decoding, safe malformed-record
+errors, and separate byte limits. See [JSON Lines input](jsonl-input.md).
 
 ## JSON input and output
 

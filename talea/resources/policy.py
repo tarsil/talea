@@ -4,6 +4,8 @@ from dataclasses import dataclass
 
 __all__ = ["ResourcePolicy"]
 
+DEFAULT_MAX_INPUT_BYTES = 8 * 1024 * 1024
+
 
 def _limit(value: int | None, name: str) -> None:
     if value is not None and (type(value) is not int or value < 1):
@@ -40,7 +42,7 @@ class ResourcePolicy:
     schema tooling.
     """
 
-    max_input_bytes: int | None = 8 * 1024 * 1024
+    max_input_bytes: int | None = DEFAULT_MAX_INPUT_BYTES
     max_depth: int | None = 64
     max_nodes: int | None = 100_000
     max_errors: int | None = 100

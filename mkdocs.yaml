@@ -60,6 +60,7 @@ nav:
       - Specs: "concepts/specs.md"
       - Contracts: "contracts.md"
       - Incremental Contract validation: "incremental-validation.md"
+      - JSON Lines input: "jsonl-input.md"
       - Custom domain representations: "custom-representations.md"
       - Standard-library dataclasses: "dataclasses.md"
       - Strictness and boundaries: "concepts/strictness-boundaries.md"

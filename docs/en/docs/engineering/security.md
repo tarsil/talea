@@ -160,6 +160,28 @@ sandbox. Source and callback exceptions propagate unchanged. The caller owns
 cursor/file/transaction cleanup and must close it explicitly when early
 termination requires deterministic release.
 
+## JSON Lines threat model
+
+JSON Lines adds hostile transport concerns before a Python value exists.
+`JsonlPolicy.max_line_bytes` bounds one record before parsing, while an
+optional finite `max_total_bytes` bounds aggregate UTF-8 transport. The shared
+`ItemPolicy` counts every pulled physical record and every continued malformed
+or decoded-invalid record. Resource exhaustion is terminal and cannot enter a
+continuation callback.
+
+Bytes use strict UTF-8; text must be UTF-8 representable. BOMs, blank records,
+multiline source units, duplicate keys, non-finite numbers, malformed syntax,
+and Python's protected oversized integer conversions fail before Contract
+validation. `JsonlError` stores category and safe line/column facts only: no
+raw record, duplicate key, non-finite token, decoder exception, or traceback
+text. Decoded failures then use ordinary Sensitive-aware `ValidationError`.
+
+The source and both synchronous callbacks remain trusted application code.
+Talea does not authenticate or open files, decompress data, own sockets, bound
+blocking I/O, impose callback timeouts, or close caller resources. Explicitly
+unbounded total bytes or items are an application decision. See [JSON Lines
+input](../jsonl-input.md) for the complete operational contract.
+
 ## Supply chain
 
 `pyproject.toml` declares `dependencies = []`: Talea has zero required runtime

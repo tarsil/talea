@@ -18,9 +18,10 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   not supported;
 - synchronous Python iterable items support lazy strict/external validation,
   fail-fast or explicit synchronous continuation, and finite item counts;
-  `AsyncIterable`, JSONL framing/input/output, streaming JSON/serialization,
-  automatic retry, silent skip, `Result` values, timeouts, and source/callback
-  sandboxing are absent;
+  JSON Lines input adds strict UTF-8 text/bytes records, bounded framing, and
+  separate malformed-record continuation, but `AsyncIterable`, JSONL output,
+  streaming serialization, automatic retry, silent skip, `Result` values,
+  timeouts, and source/callback sandboxing are absent;
 - directional Spec derivation is shallow; nested Specs, dataclasses, tagged
   branches, and TypedDicts are not implicitly rewritten;
 - open generic Specs, aliases, TypedDicts, and dataclasses must be concretely
@@ -100,10 +101,17 @@ This is the authoritative limitations list for Talea's ongoing 0.x series.
   close the underlying source, govern source I/O, or retain prior outputs and
   continued errors, and zero-based generic item indexes are not transport line
   numbers;
+- JSON Lines consumes record iterables rather than arbitrary byte chunks and
+  provides no path opening, decompression, custom decoder, multiline recovery,
+  async source, I/O timeout, or source authentication; framing callback lines
+  are one-based while decoded validation indexes remain zero-based;
 - per-item `ResourcePolicy` and stream-level `ItemPolicy` have distinct scopes;
   explicitly unbounded stream dimensions cannot protect against infinite
   sources, while finite stream policy does not bound arbitrary source or
   callback execution time;
+- `JsonlPolicy` is a third independent scope for raw line/total bytes;
+  `max_total_bytes=None` deliberately permits large caller-bounded imports but
+  cannot protect an otherwise unbounded source;
 - async callable boundaries add no timeout, retry, task, or cancellation
   policy; application coroutine I/O, task creation, cleanup, and resource use
   remain application-owned;

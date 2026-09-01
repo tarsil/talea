@@ -193,16 +193,16 @@ cancellation boundary.
 
 ## Framing and current limitations
 
-This owner consumes synchronous Python `Iterable` items. It does not decode
-JSON strings or bytes and does not own UTF-8, BOM handling, blank lines,
-malformed syntax, file framing, or line numbers. JSONL is a separate transport
-and framing concern that can feed decoded Python values into this item owner;
-no `iter_jsonl` placeholder or framing-error contract is implied here.
+This owner consumes synchronous Python items and does not reinterpret UTF-8,
+BOM handling, blank lines, malformed syntax, or line numbers. The separate
+[JSON Lines input](jsonl-input.md) owner performs that framing and strict decode,
+then composes decoded values and both failure domains with the same internal
+item/invalid-item accounting truth.
 
 There is no `AsyncIterable` or async callback support, streaming
 serialization, JSONL output, automatic retry, silent ignore mode, `Result`
-API, wall-clock timeout, or source sandbox. Generic item indexes are always
-zero-based.
+API, wall-clock timeout, or source sandbox. Generic and decoded JSONL
+validation item indexes are always zero-based.
 
 ## Complete executable trade workflow
 

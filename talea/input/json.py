@@ -55,6 +55,12 @@ def _default_loads(data: JsonInput) -> object:
     )
 
 
+def _decode_strict_json(data: JsonInput) -> object:
+    """Decode one value through Talea's canonical strict JSON syntax owner."""
+
+    return _default_loads(data)
+
+
 def _raise_decoder_failure(
     failure: ValidationError,
     cause: BaseException,
@@ -84,7 +90,7 @@ def decode_json(
     """
 
     check_input_size(data, policy)
-    decoder = _default_loads if loads is None else loads
+    decoder = _decode_strict_json if loads is None else loads
     try:
         return decoder(data)
     except _DuplicateKeyError as error:

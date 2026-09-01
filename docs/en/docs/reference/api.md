@@ -175,6 +175,7 @@ remaining operations compile lazily and are retained by that Contract:
 | `from_python(value, *, policy=None)` | external structural Python form | converted/detached `T` |
 | `iter_validate(values, *, on_error=None, item_policy=None)` | iterable of strict Python items | lazy `Iterator[T]` |
 | `iter_python(values, *, on_error=None, item_policy=None, policy=None)` | iterable of external Python items | lazy converted `Iterator[T]` |
+| `iter_jsonl(records, *, on_error=None, on_jsonl_error=None, item_policy=None, jsonl_policy=None, policy=None)` | iterable of UTF-8 text records or bytes records | lazy converted `Iterator[T]` |
 | `from_json(data, *, loads=None, policy=None)` | JSON text/bytes/bytearray | converted `T` |
 | `to_python(value)` | valid `T` | detached Python representation |
 | `to_json(value, *, dumps=None)` | valid `T` | JSON text |
@@ -190,6 +191,12 @@ may be explicitly disabled with `None`. Invalid items raise located
 remain terminal. See [Incremental Contract validation](../incremental-validation.md).
 Contract attributes are read-only. See [Arbitrary contracts](../contracts.md)
 for TypedDict, generic, recursive, tagged, and policy examples.
+
+`iter_jsonl()` keeps decoded validation on `on_error(index, ValidationError)`
+and gives framing/strict-decoding failures to the separate
+`on_jsonl_error(line, JsonlError)` callback. `JsonlPolicy`, `JsonlError`, and
+the `JsonlErrorCode` type alias are domain-public from `talea.jsonl`, not the
+root package. See [JSON Lines input](../jsonl-input.md).
 
 ## `Representation`
 
